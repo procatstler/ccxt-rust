@@ -1,7 +1,7 @@
 [package]
 name = "ccxt-rust"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "CCXT cryptocurrency exchange library ported to Rust"
 license = "MIT"
 
@@ -28,6 +28,8 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # 숫자
 rust_decimal = { version = "1.33", features = ["serde-with-str"] }
+num-bigint = "0.4"
+num-traits = "0.2"
 
 # 에러 처리
 thiserror = "1.0"
@@ -36,6 +38,7 @@ anyhow = "1.0"
 # 암호화 (API 서명)
 hmac = "0.12"
 sha2 = "0.10"
+md5 = "0.7"
 hex = "0.4"
 base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
@@ -49,6 +52,9 @@ tracing = "0.1"
 
 # URL 인코딩
 urlencoding = "2.1"
+
+# Lazy static initialization
+once_cell = "1.19"
 
 [dev-dependencies]
 tokio-test = "0.4"
