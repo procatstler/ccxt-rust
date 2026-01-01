@@ -1,6 +1,6 @@
 # CCXT-Rust Porting Status
 
-> Last Updated: 2025-12-28 (Phase 1-3 Complete)
+> Last Updated: 2025-12-31 (Phase 1-3 Complete + Backpack)
 
 ## Overview
 
@@ -10,12 +10,12 @@ This document tracks the progress of porting the CCXT library from TypeScript/Ja
 
 | Category | Implemented | Total | Progress |
 |----------|-------------|-------|----------|
-| REST API (Foreign) | 56 | 110 | 51% |
+| REST API (Foreign) | 57 | 110 | 52% |
 | REST API (Korean) | 4 | 4 | 100% |
-| **REST API Total** | **60** | **114** | **53%** |
-| WebSocket (Foreign) | 40 | ~77 | 52% |
+| **REST API Total** | **61** | **114** | **54%** |
+| WebSocket (Foreign) | 47 | ~77 | 61% |
 | WebSocket (Korean) | 4 | 4 | 100% |
-| **WebSocket Total** | **44** | **~81** | **54%** |
+| **WebSocket Total** | **51** | **~81** | **63%** |
 
 ---
 
@@ -32,7 +32,7 @@ This document tracks the progress of porting the CCXT library from TypeScript/Ja
 
 ## Implemented Exchanges
 
-### Foreign Exchanges (56 REST + 40 WebSocket)
+### Foreign Exchanges (57 REST + 47 WebSocket)
 
 | # | Exchange | REST | WebSocket | Notes |
 |---|----------|:----:|:---------:|-------|
@@ -54,7 +54,9 @@ This document tracks the progress of porting the CCXT library from TypeScript/Ja
 | 16 | Bitvavo | ✅ | ✅ | Netherlands |
 | 17 | Blockchain.com | ✅ | - | Multi-chain |
 | 18 | Blofin | ✅ | ✅ | Options platform |
-| 19 | BTCBox | ✅ | - | Japan |
+| 19 | Bullish | ✅ | ✅ | Institutional |
+| 20 | Backpack | ✅ | ✅ | Solana-based |
+| 21 | BTCBox | ✅ | - | Japan |
 | 20 | BTCMarkets | ✅ | - | Australia |
 | 21 | Bybit | ✅ | ✅ | |
 | 22 | CEX.io | ✅ | ✅ | Fiat gateway |
@@ -68,23 +70,26 @@ This document tracks the progress of porting the CCXT library from TypeScript/Ja
 | 30 | Delta | ✅ | - | India derivatives |
 | 31 | Deribit | ✅ | ✅ | Options/Futures |
 | 32 | dYdX | ✅ | ✅ | DEX |
-| 33 | Foxbit | ✅ | - | Brazil |
+| 33 | Exmo | ✅ | ✅ | Europe |
+| 34 | Foxbit | ✅ | - | Brazil |
 | 34 | Gate.io | ✅ | ✅ | |
 | 35 | Gemini | ✅ | ✅ | |
 | 36 | HitBTC | ✅ | ✅ | |
 | 37 | HTX (Huobi) | ✅ | ✅ | |
 | 38 | Hyperliquid | ✅ | ✅ | DEX |
-| 39 | Indodax | ✅ | - | Indonesia |
+| 39 | Hashkey | ✅ | ✅ | Hong Kong |
+| 40 | Indodax | ✅ | - | Indonesia |
 | 40 | Kraken | ✅ | ✅ | |
-| 41 | Kraken Futures | ✅ | - | |
+| 41 | Kraken Futures | ✅ | ✅ | |
 | 42 | KuCoin | ✅ | ✅ | |
-| 43 | KuCoin Futures | ✅ | - | |
+| 43 | KuCoin Futures | ✅ | ✅ | |
 | 44 | Latoken | ✅ | - | |
 | 45 | LBank | ✅ | - | |
 | 46 | Mercado | ✅ | - | Brazil |
 | 47 | MEXC | ✅ | ✅ | |
 | 48 | OKX | ✅ | ✅ | |
-| 49 | Phemex | ✅ | ✅ | |
+| 49 | OneTrading | ✅ | ✅ | Europe |
+| 50 | Phemex | ✅ | ✅ | |
 | 50 | Poloniex | ✅ | ✅ | |
 | 51 | Probit | ✅ | - | |
 | 52 | Tokocrypto | ✅ | - | Indonesia |
@@ -111,7 +116,6 @@ This document tracks the progress of porting the CCXT library from TypeScript/Ja
 | Exchange | Reference Lines | Region | Notes |
 |----------|----------------|--------|-------|
 | BigONE | ~1,400 | Global | Medium volume |
-| Bullish | ~1,200 | Global | Institutional |
 | OKX US | ~900 | USA | Regional variant |
 
 ### Medium Priority
@@ -120,7 +124,6 @@ This document tracks the progress of porting the CCXT library from TypeScript/Ja
 |----------|----------------|--------|-------|
 | Apex | ~1,200 | Global | DEX |
 | Arkham | ~900 | Global | Intelligence platform |
-| Backpack | ~1,100 | Global | Solana-based |
 | Bequant | ~1,000 | Europe | |
 | Bit2C | ~800 | Israel | |
 | BitBNS | ~900 | India | |
@@ -140,9 +143,7 @@ This document tracks the progress of porting the CCXT library from TypeScript/Ja
 | Defx | ~800 | Global | DEX |
 | Derive | ~900 | Global | |
 | DigiFinex | ~1,400 | Global | |
-| Exmo | ~1,200 | Europe | |
 | FMFW.io | ~800 | Global | |
-| Hashkey | ~1,100 | Hong Kong | |
 | Hibachi | ~800 | Global | |
 | HollaEx | ~1,200 | Global | White-label |
 | Independent Reserve | ~900 | Australia | |
@@ -152,7 +153,6 @@ This document tracks the progress of porting the CCXT library from TypeScript/Ja
 | NDAX | ~1,000 | Canada | |
 | NovaDAX | ~1,000 | Brazil | |
 | OceanEx | ~900 | Global | |
-| OneTrading | ~1,100 | Europe | |
 | OXFun | ~800 | Global | |
 | P2B | ~900 | Global | |
 | Paradex | ~1,200 | Global | DEX |
@@ -224,6 +224,14 @@ When implementing a new exchange:
 ---
 
 ## Changelog
+
+### 2025-12-31
+- Added Backpack REST and WebSocket implementation (Solana-based exchange)
+- Added Bullish WebSocket implementation
+- Added OneTrading WebSocket implementation
+- Added Hashkey WebSocket implementation
+- Added Exmo WebSocket implementation
+- Total: 61 REST, 51 WebSocket implementations
 
 ### 2025-12-28 (Phase 1-3 Complete)
 - Phase 1 Complete: Deribit WS, Hyperliquid WS, BitMEX WS, Bitstamp WS

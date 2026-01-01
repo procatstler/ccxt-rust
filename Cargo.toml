@@ -22,6 +22,7 @@ futures-util = "0.3"
 # 직렬화
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+rmp-serde = "1.3"  # MessagePack (Hyperliquid action serialization)
 
 # 시간
 chrono = { version = "0.4", features = ["serde"] }
@@ -43,6 +44,13 @@ hex = "0.4"
 base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
 jsonwebtoken = "9.0"
+
+# DEX 암호화 (EVM/StarkNet)
+sha3 = "0.10"                                    # Keccak256
+k256 = { version = "0.13", features = ["ecdsa", "ecdsa-core"] }  # secp256k1 ECDSA
+elliptic-curve = { version = "0.13", features = ["sec1"] }       # EC 공통
+starknet-crypto = "0.7"                         # Poseidon hash, Pedersen, ECDSA for StarkNet
+starknet-types-core = "0.1"                     # FieldElement types
 
 # 비동기 trait
 async-trait = "0.1"

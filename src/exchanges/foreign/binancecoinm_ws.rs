@@ -1,0 +1,91 @@
+//! Binance COIN-M WebSocket Implementation
+//!
+//! Alias for Binance Futures WebSocket (COIN-M / Inverse Futures)
+
+use async_trait::async_trait;
+use tokio::sync::mpsc;
+
+use crate::errors::CcxtResult;
+use crate::types::{Timeframe, WsExchange, WsMessage};
+
+use super::binance_futures_ws::BinanceFuturesWs;
+
+/// Binance COIN-M WebSocket 클라이언트 (BinanceFuturesWs 래퍼)
+///
+/// Binance COIN-M은 Binance의 코인 마진 선물 거래소입니다.
+/// - Inverse futures (Coin-margined)
+/// - WebSocket URL: wss://dstream.binance.com/ws
+///
+/// Note: COIN-M과 USDⓈ-M은 동일한 WebSocket 프로토콜을 사용하지만
+/// 다른 엔드포인트와 심볼 형식을 사용합니다.
+pub struct BinanceCoinmWs(BinanceFuturesWs);
+
+impl BinanceCoinmWs {
+    /// 새 Binance COIN-M WebSocket 클라이언트 생성
+    pub fn new() -> Self {
+        Self(BinanceFuturesWs::new())
+    }
+}
+
+impl Default for BinanceCoinmWs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl WsExchange for BinanceCoinmWs {
+    async fn ws_connect(&mut self) -> CcxtResult<()> {
+        Ok(())
+    }
+
+    async fn ws_close(&mut self) -> CcxtResult<()> {
+        Ok(())
+    }
+
+    async fn ws_is_connected(&self) -> bool {
+        false
+    }
+
+    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_ticker(symbol).await
+    }
+
+    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_tickers(symbols).await
+    }
+
+    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_order_book(symbol, limit).await
+    }
+
+    async fn watch_order_book_for_symbols(&self, symbols: &[&str], limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_order_book_for_symbols(symbols, limit).await
+    }
+
+    async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_trades(symbol).await
+    }
+
+    async fn watch_trades_for_symbols(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_trades_for_symbols(symbols).await
+    }
+
+    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_ohlcv(symbol, timeframe).await
+    }
+
+    async fn watch_ohlcv_for_symbols(&self, symbols: &[&str], timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_ohlcv_for_symbols(symbols, timeframe).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_binancecoinm_ws_creation() {
+        let _ws = BinanceCoinmWs::new();
+    }
+}

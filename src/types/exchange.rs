@@ -47,6 +47,7 @@ pub enum ExchangeId {
     CoinbaseExchange,
     CoinbaseInternational,
     Kraken,
+    KrakenFutures,
     Okx,
     Bybit,
     Gate,
@@ -127,11 +128,33 @@ pub enum ExchangeId {
     Hollaex,
     // DEX platforms
     Paradex,
+    // Solana-based exchanges
+    Backpack,
     // Additional Phase 4 exchanges
     Yobit,
     Digifinex,
     Ndax,
     Btcturk,
+    // Alias exchanges
+    Bequant,    // Hitbtc alias
+    MyOkx,      // OKX alias (EEA region)
+    OkxUs,      // OKX alias (US region)
+    Fmfwio,     // Hitbtc alias
+    Gateio,     // Gate alias
+    Huobi,      // HTX alias
+    BinanceUsdm, // Binance USDⓈ-M Futures alias
+    // Additional exchanges
+    Toobit,
+    // Australian exchanges
+    Coinspot,
+    // French/European exchanges
+    Paymium,
+    // Israeli exchanges
+    Bit2c,
+    // Indian exchanges
+    Bitbns,
+    // Brazilian exchanges
+    Novadax,
 }
 
 impl ExchangeId {
@@ -152,6 +175,7 @@ impl ExchangeId {
             ExchangeId::CoinbaseExchange => "coinbaseexchange",
             ExchangeId::CoinbaseInternational => "coinbaseinternational",
             ExchangeId::Kraken => "kraken",
+            ExchangeId::KrakenFutures => "krakenfutures",
             ExchangeId::Okx => "okx",
             ExchangeId::Bybit => "bybit",
             ExchangeId::Gate => "gate",
@@ -219,10 +243,25 @@ impl ExchangeId {
             ExchangeId::Onetrading => "onetrading",
             ExchangeId::Hollaex => "hollaex",
             ExchangeId::Paradex => "paradex",
+            ExchangeId::Backpack => "backpack",
             ExchangeId::Yobit => "yobit",
             ExchangeId::Digifinex => "digifinex",
             ExchangeId::Ndax => "ndax",
             ExchangeId::Btcturk => "btcturk",
+            // Alias exchanges
+            ExchangeId::Bequant => "bequant",
+            ExchangeId::MyOkx => "myokx",
+            ExchangeId::OkxUs => "okxus",
+            ExchangeId::Fmfwio => "fmfwio",
+            ExchangeId::Gateio => "gateio",
+            ExchangeId::Huobi => "huobi",
+            ExchangeId::BinanceUsdm => "binanceusdm",
+            ExchangeId::Toobit => "toobit",
+            ExchangeId::Coinspot => "coinspot",
+            ExchangeId::Paymium => "paymium",
+            ExchangeId::Bit2c => "bit2c",
+            ExchangeId::Bitbns => "bitbns",
+            ExchangeId::Novadax => "novadax",
         }
     }
 }

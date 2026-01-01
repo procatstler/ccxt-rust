@@ -3,6 +3,7 @@
 //! CCXT를 Rust로 포팅한 거래소 통합 라이브러리
 
 pub mod client;
+pub mod crypto;
 pub mod errors;
 pub mod exchanges;
 pub mod types;

@@ -10,14 +10,25 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
+use tokio::sync::RwLock as TokioRwLock;
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
+use crate::crypto::starknet::{
+    StarkNetWallet, ParadexAuthMessage, ParadexOnboardingMessage, ParadexOrderMessage,
+    PARADEX_CHAIN_ID_MAINNET, PARADEX_CHAIN_ID_TESTNET,
+};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
     OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
+
+/// Cached JWT authentication token
+struct AuthToken {
+    token: String,
+    expires_at: i64,
+}
 
 /// Paradex exchange
 pub struct Paradex {
@@ -30,16 +41,73 @@ pub struct Paradex {
     features: ExchangeFeatures,
     urls: ExchangeUrls,
     timeframes: HashMap<Timeframe, String>,
+    /// Cached JWT authentication token
+    auth_token: TokioRwLock<Option<AuthToken>>,
+    /// StarkNet wallet for signing (None if not authenticated)
+    wallet: Option<StarkNetWallet>,
+    /// StarkNet chain ID for Paradex
+    chain_id: String,
+    /// Whether to use testnet
+    testnet: bool,
 }
 
 impl Paradex {
     const BASE_URL: &'static str = "https://api.prod.paradex.trade/v1";
+    const TESTNET_URL: &'static str = "https://api.testnet.paradex.trade/v1";
     const RATE_LIMIT_MS: u64 = 50; // 20 requests per second
 
-    /// Create new Paradex instance
+    /// Create new Paradex instance (public API only)
     pub fn new(config: ExchangeConfig) -> CcxtResult<Self> {
-        let public_client = HttpClient::new(Self::BASE_URL, &config)?;
-        let private_client = HttpClient::new(Self::BASE_URL, &config)?;
+        Self::new_internal(config, None, false)
+    }
+
+    /// Create Paradex with StarkNet private key (hex string)
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Exchange configuration
+    /// * `stark_private_key_hex` - StarkNet private key as hex string (with or without 0x prefix)
+    /// * `testnet` - Whether to use testnet
+    pub fn from_starknet_key(
+        config: ExchangeConfig,
+        stark_private_key_hex: &str,
+        testnet: bool,
+    ) -> CcxtResult<Self> {
+        let wallet = StarkNetWallet::from_hex(stark_private_key_hex, "paradex")?;
+        Self::new_internal(config, Some(wallet), testnet)
+    }
+
+    /// Create Paradex with Ethereum private key (derives StarkNet key)
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Exchange configuration
+    /// * `eth_private_key` - Ethereum private key (32 bytes)
+    /// * `testnet` - Whether to use testnet
+    pub fn from_eth_key(
+        config: ExchangeConfig,
+        eth_private_key: &[u8; 32],
+        testnet: bool,
+    ) -> CcxtResult<Self> {
+        let wallet = StarkNetWallet::from_eth_private_key(eth_private_key, "paradex")?;
+        Self::new_internal(config, Some(wallet), testnet)
+    }
+
+    /// Internal constructor
+    fn new_internal(
+        config: ExchangeConfig,
+        wallet: Option<StarkNetWallet>,
+        testnet: bool,
+    ) -> CcxtResult<Self> {
+        let base_url = if testnet { Self::TESTNET_URL } else { Self::BASE_URL };
+        let chain_id = if testnet {
+            PARADEX_CHAIN_ID_TESTNET.to_string()
+        } else {
+            PARADEX_CHAIN_ID_MAINNET.to_string()
+        };
+
+        let public_client = HttpClient::new(base_url, &config)?;
+        let private_client = HttpClient::new(base_url, &config)?;
         let rate_limiter = RateLimiter::new(Self::RATE_LIMIT_MS);
 
         let features = ExchangeFeatures {
@@ -73,7 +141,7 @@ impl Paradex {
         let mut api_urls = HashMap::new();
         api_urls.insert("public".into(), Self::BASE_URL.into());
         api_urls.insert("private".into(), Self::BASE_URL.into());
-        api_urls.insert("test".into(), "https://api.testnet.paradex.trade/v1".into());
+        api_urls.insert("test".into(), Self::TESTNET_URL.into());
 
         let urls = ExchangeUrls {
             logo: Some("https://github.com/user-attachments/assets/84628770-784e-4ec4-a759-ec2fbb2244ea".into()),
@@ -101,7 +169,26 @@ impl Paradex {
             features,
             urls,
             timeframes,
+            auth_token: TokioRwLock::new(None),
+            wallet,
+            chain_id,
+            testnet,
         })
+    }
+
+    /// Get the StarkNet wallet public key (hex)
+    pub fn public_key_hex(&self) -> Option<String> {
+        self.wallet.as_ref().map(|w| w.public_key_hex())
+    }
+
+    /// Get the StarkNet wallet address (hex)
+    pub fn address_hex(&self) -> Option<String> {
+        self.wallet.as_ref().map(|w| w.address_hex())
+    }
+
+    /// Check if wallet is configured for private operations
+    pub fn has_wallet(&self) -> bool {
+        self.wallet.is_some()
     }
 
     /// Public API GET request
@@ -126,6 +213,137 @@ impl Paradex {
         self.public_client.get(&url, None, None).await
     }
 
+    /// Authenticate and get JWT token
+    ///
+    /// Paradex uses StarkNet-based authentication:
+    /// 1. Derive StarkNet account from Ethereum private key
+    /// 2. Sign a structured request message using StarkNet cryptography (SNIP-12)
+    /// 3. POST to /auth with signature to get JWT token
+    /// 4. Use JWT token in Authorization header for subsequent requests
+    async fn authenticate(&self) -> CcxtResult<String> {
+        // Check for cached token
+        {
+            let token_guard = self.auth_token.read().await;
+            if let Some(ref auth) = *token_guard {
+                let now = Utc::now().timestamp();
+                // Add some buffer (10 seconds) before expiration
+                if now < auth.expires_at - 10 {
+                    return Ok(auth.token.clone());
+                }
+            }
+        }
+
+        // Verify wallet is configured
+        let wallet = self.wallet.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "StarkNet wallet required for authentication. Use from_starknet_key() or from_eth_key() to create Paradex instance.".into(),
+        })?;
+
+        // Build authentication request
+        let now = Utc::now().timestamp() as u64;
+        let expiry = now + 180; // 3 minutes expiration
+
+        // Create and sign the auth message using SNIP-12 typed data
+        let auth_msg = ParadexAuthMessage::new(&self.chain_id, now, expiry);
+        let (sig_r, sig_s) = auth_msg.sign(wallet)?;
+
+        // Build request body
+        let auth_request = serde_json::json!({
+            "method": "POST",
+            "path": "/v1/auth",
+            "body": "",
+            "timestamp": now.to_string(),
+            "expiration": expiry.to_string(),
+        });
+
+        // Build headers with StarkNet signature
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        headers.insert("PARADEX-STARKNET-ACCOUNT".to_string(), wallet.address_hex());
+        headers.insert("PARADEX-STARKNET-SIGNATURE".to_string(), format!("[\"{}\",\"{}\"]", sig_r, sig_s));
+        headers.insert("PARADEX-TIMESTAMP".to_string(), now.to_string());
+        headers.insert("PARADEX-SIGNATURE-EXPIRATION".to_string(), expiry.to_string());
+
+        // POST to /auth endpoint
+        self.rate_limiter.throttle(1.0).await;
+        let response: ParadexAuthResponse = self.private_client
+            .post("/auth", Some(auth_request), Some(headers))
+            .await?;
+
+        // Extract JWT token
+        let jwt_token = response.jwt_token;
+        let token_expiry = Utc::now().timestamp() + 3600; // Assume 1 hour validity
+
+        // Cache the token
+        {
+            let mut token_guard = self.auth_token.write().await;
+            *token_guard = Some(AuthToken {
+                token: jwt_token.clone(),
+                expires_at: token_expiry,
+            });
+        }
+
+        Ok(jwt_token)
+    }
+
+    /// Perform onboarding (first-time account setup)
+    ///
+    /// Call this once to register your StarkNet account with Paradex
+    pub async fn onboard(&self) -> CcxtResult<()> {
+        let wallet = self.wallet.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "StarkNet wallet required for onboarding".into(),
+        })?;
+
+        // Create and sign onboarding message
+        let onboard_msg = ParadexOnboardingMessage::new(&self.chain_id);
+        let (sig_r, sig_s) = onboard_msg.sign(wallet)?;
+
+        // Build headers
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        headers.insert("PARADEX-STARKNET-ACCOUNT".to_string(), wallet.address_hex());
+        headers.insert("PARADEX-STARKNET-SIGNATURE".to_string(), format!("[\"{}\",\"{}\"]", sig_r, sig_s));
+
+        // Build request body
+        let body = serde_json::json!({
+            "public_key": wallet.public_key_hex(),
+        });
+
+        // POST to /onboarding endpoint
+        self.rate_limiter.throttle(1.0).await;
+        let _response: serde_json::Value = self.private_client
+            .post("/onboarding", Some(body), Some(headers))
+            .await?;
+
+        Ok(())
+    }
+
+    /// Sign an order for submission
+    ///
+    /// Returns (signature_r, signature_s) tuple
+    pub fn sign_order(
+        &self,
+        market: &str,
+        side: &str,
+        order_type: &str,
+        size: &str,
+        price: &str,
+    ) -> CcxtResult<(String, String)> {
+        let wallet = self.wallet.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "StarkNet wallet required for order signing".into(),
+        })?;
+
+        let order_msg = ParadexOrderMessage::new(
+            &self.chain_id,
+            market,
+            side,
+            order_type,
+            size,
+            price,
+        );
+
+        order_msg.sign(wallet)
+    }
+
     /// Private API GET request (requires authentication)
     async fn private_get<T: serde::de::DeserializeOwned>(
         &self,
@@ -134,14 +352,12 @@ impl Paradex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        // Note: Paradex uses wallet-based authentication with ETH/StarkNet signatures
-        // This is a simplified implementation - full auth would require signing logic
-        let _api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Wallet address required".into(),
-        })?;
+        // Get JWT token via authentication
+        let token = self.authenticate().await?;
 
-        let headers = HashMap::new();
-        // TODO: Add proper authentication headers with signatures
+        // Build headers with JWT authorization
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), format!("Bearer {}", token));
 
         self.private_client.get(path, Some(params), Some(headers)).await
     }
@@ -154,13 +370,13 @@ impl Paradex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        // Note: Paradex uses wallet-based authentication with ETH/StarkNet signatures
-        let _api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Wallet address required".into(),
-        })?;
+        // Get JWT token via authentication
+        let token = self.authenticate().await?;
 
-        let headers = HashMap::new();
-        // TODO: Add proper authentication headers with signatures
+        // Build headers with JWT authorization
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), format!("Bearer {}", token));
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
 
         // Convert params to JSON Value
         let body = if params.is_empty() {
@@ -180,13 +396,12 @@ impl Paradex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        // Note: Paradex uses wallet-based authentication with ETH/StarkNet signatures
-        let _api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Wallet address required".into(),
-        })?;
+        // Get JWT token via authentication
+        let token = self.authenticate().await?;
 
-        let headers = HashMap::new();
-        // TODO: Add proper authentication headers with signatures
+        // Build headers with JWT authorization
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), format!("Bearer {}", token));
 
         self.private_client.delete(path, Some(params), Some(headers)).await
     }
@@ -704,30 +919,58 @@ impl Exchange for Paradex {
         })?;
         let market_id = market.id.clone();
 
-        let mut params = HashMap::new();
-        params.insert("market".into(), market_id);
-        params.insert("side".into(), match side {
+        let side_str = match side {
             OrderSide::Buy => "BUY",
             OrderSide::Sell => "SELL",
-        }.into());
-        params.insert("type".into(), match order_type {
+        };
+
+        let type_str = match order_type {
             OrderType::Limit => "LIMIT",
             OrderType::Market => "MARKET",
             _ => return Err(CcxtError::NotSupported {
                 feature: format!("Order type: {order_type:?}"),
             }),
-        }.into());
-        params.insert("size".into(), amount.to_string());
+        };
 
-        if order_type == OrderType::Limit {
-            let price_val = price.ok_or_else(|| CcxtError::ArgumentsRequired {
+        let price_str = if order_type == OrderType::Limit {
+            price.ok_or_else(|| CcxtError::ArgumentsRequired {
                 message: "Limit order requires price".into(),
-            })?;
-            params.insert("price".into(), price_val.to_string());
-        }
+            })?.to_string()
+        } else {
+            "0".to_string()
+        };
 
-        let response: ParadexOrder = self
-            .private_post("/orders", params)
+        // Sign the order using StarkNet SNIP-12
+        let (sig_r, sig_s) = self.sign_order(
+            &market_id,
+            side_str,
+            type_str,
+            &amount.to_string(),
+            &price_str,
+        )?;
+
+        // Build order request body
+        let order_body = serde_json::json!({
+            "market": market_id,
+            "side": side_str,
+            "type": type_str,
+            "size": amount.to_string(),
+            "price": price_str,
+            "signature": format!("[\"{}\",\"{}\"]", sig_r, sig_s),
+        });
+
+        // Get JWT token for authorization
+        let token = self.authenticate().await?;
+
+        // Build headers
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), format!("Bearer {}", token));
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+
+        // POST order
+        self.rate_limiter.throttle(1.0).await;
+        let response: ParadexOrder = self.private_client
+            .post("/orders", Some(order_body), Some(headers))
             .await?;
 
         Ok(self.parse_order(&response, symbol))
@@ -871,16 +1114,19 @@ impl Exchange for Paradex {
     fn sign(
         &self,
         path: &str,
-        _api: &str,
+        api: &str,
         method: &str,
         params: &HashMap<String, String>,
-        _headers: Option<HashMap<String, String>>,
-        _body: Option<&str>,
+        headers: Option<HashMap<String, String>>,
+        body: Option<&str>,
     ) -> SignedRequest {
         let mut url = format!("{}{}", Self::BASE_URL, path);
-        let headers = HashMap::new();
+        let request_headers = headers.unwrap_or_default();
 
-        if !params.is_empty() {
+        // For public endpoints, just add query params
+        // For private endpoints, the Authorization header should already be set
+        // by the private_get/private_post/private_delete methods which call authenticate()
+        if api == "public" && !params.is_empty() {
             let query: String = params
                 .iter()
                 .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
@@ -889,19 +1135,27 @@ impl Exchange for Paradex {
             url = format!("{url}?{query}");
         }
 
-        // Note: Paradex requires wallet signature authentication
-        // Full implementation would add Authorization header with signed message
+        // Note: Paradex uses JWT-based authentication via the /auth endpoint
+        // Authentication flow:
+        // 1. Call authenticate() to get JWT token (requires StarkNet signing)
+        // 2. Add "Authorization: Bearer {token}" header
+        // The private_* methods handle this automatically
 
         SignedRequest {
             url,
             method: method.to_string(),
-            headers,
-            body: None,
+            headers: request_headers,
+            body: body.map(String::from),
         }
     }
 }
 
 // === Paradex API Response Types ===
+
+#[derive(Debug, Deserialize)]
+struct ParadexAuthResponse {
+    jwt_token: String,
+}
 
 #[derive(Debug, Deserialize)]
 struct ParadexMarketsResponse {
@@ -1032,5 +1286,85 @@ mod tests {
         assert_eq!(paradex.name(), "Paradex");
         assert!(paradex.has().swap);
         assert!(!paradex.has().spot);
+    }
+
+    #[test]
+    fn test_new_without_wallet() {
+        let config = ExchangeConfig::new();
+        let paradex = Paradex::new(config).unwrap();
+
+        assert!(!paradex.has_wallet());
+        assert!(paradex.public_key_hex().is_none());
+        assert!(paradex.address_hex().is_none());
+    }
+
+    #[test]
+    fn test_from_starknet_key() {
+        let config = ExchangeConfig::new();
+        let paradex = Paradex::from_starknet_key(
+            config,
+            "0x123abc",
+            true, // testnet
+        ).unwrap();
+
+        assert!(paradex.has_wallet());
+        assert!(paradex.public_key_hex().is_some());
+        assert!(paradex.address_hex().is_some());
+        assert!(paradex.testnet);
+        assert_eq!(paradex.chain_id, PARADEX_CHAIN_ID_TESTNET);
+    }
+
+    #[test]
+    fn test_from_eth_key() {
+        let config = ExchangeConfig::new();
+        let eth_key = [0x42u8; 32];
+        let paradex = Paradex::from_eth_key(
+            config,
+            &eth_key,
+            false, // mainnet
+        ).unwrap();
+
+        assert!(paradex.has_wallet());
+        assert!(paradex.public_key_hex().is_some());
+        assert!(paradex.address_hex().is_some());
+        assert!(!paradex.testnet);
+        assert_eq!(paradex.chain_id, PARADEX_CHAIN_ID_MAINNET);
+    }
+
+    #[test]
+    fn test_sign_order() {
+        let config = ExchangeConfig::new();
+        let paradex = Paradex::from_starknet_key(
+            config,
+            "0x123abc",
+            true,
+        ).unwrap();
+
+        let (sig_r, sig_s) = paradex.sign_order(
+            "ETH-USD-PERP",
+            "BUY",
+            "LIMIT",
+            "1.5",
+            "2000.0",
+        ).unwrap();
+
+        assert!(sig_r.starts_with("0x"));
+        assert!(sig_s.starts_with("0x"));
+    }
+
+    #[test]
+    fn test_sign_order_without_wallet_fails() {
+        let config = ExchangeConfig::new();
+        let paradex = Paradex::new(config).unwrap();
+
+        let result = paradex.sign_order(
+            "ETH-USD-PERP",
+            "BUY",
+            "LIMIT",
+            "1.0",
+            "2000.0",
+        );
+
+        assert!(result.is_err());
     }
 }

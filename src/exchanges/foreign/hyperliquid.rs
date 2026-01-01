@@ -15,6 +15,8 @@ use std::str::FromStr;
 use std::sync::RwLock;
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
+use crate::crypto::evm::{EvmWallet, Eip712Domain, Eip712TypedData, TypedDataField, keccak256};
+use crate::crypto::common::Signer;
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
@@ -40,6 +42,8 @@ pub struct Hyperliquid {
     urls: ExchangeUrls,
     timeframes: HashMap<Timeframe, String>,
     sandbox: bool,
+    /// EVM wallet for EIP-712 signing (optional - set via from_private_key)
+    wallet: Option<EvmWallet>,
 }
 
 // ============ Response Types ============
@@ -398,7 +402,184 @@ impl Hyperliquid {
             urls,
             timeframes,
             sandbox,
+            wallet: None,
         })
+    }
+
+    /// Create a new Hyperliquid instance with a private key for signing
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Exchange configuration (api_key should be wallet address)
+    /// * `private_key` - Hex-encoded private key (with or without 0x prefix)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let config = ExchangeConfig::default()
+    ///     .with_api_key("0x...your_wallet_address...")
+    ///     .with_sandbox(true);
+    /// let exchange = Hyperliquid::from_private_key(config, "0x...your_private_key...")?;
+    /// ```
+    pub fn from_private_key(config: ExchangeConfig, private_key: &str) -> CcxtResult<Self> {
+        let wallet = EvmWallet::from_private_key(private_key)?;
+
+        let mut instance = Self::new(config)?;
+        instance.wallet = Some(wallet);
+
+        Ok(instance)
+    }
+
+    /// Set the wallet for signing (allows setting wallet after creation)
+    pub fn set_wallet(&mut self, wallet: EvmWallet) {
+        self.wallet = Some(wallet);
+    }
+
+    /// Get the wallet address (from wallet if available, otherwise from config)
+    fn get_wallet_address_from_wallet(&self) -> CcxtResult<String> {
+        if let Some(ref wallet) = self.wallet {
+            Ok(wallet.address().to_string())
+        } else {
+            self.get_wallet_address()
+        }
+    }
+
+    /// Compute action hash for L1 signing
+    ///
+    /// keccak256(abi.encodePacked(action_hash, vault_or_zero, nonce))
+    fn action_hash(&self, action: &Value, vault_address: Option<&str>, nonce: u64) -> [u8; 32] {
+        // Serialize action to msgpack
+        let action_bytes = rmp_serde::to_vec_named(action)
+            .unwrap_or_else(|_| serde_json::to_vec(action).unwrap_or_default());
+        let action_hash = keccak256(&action_bytes);
+
+        // Encode: action_hash (32 bytes) + vault_or_zero (20 bytes) + nonce (8 bytes)
+        let mut data = Vec::with_capacity(60);
+        data.extend_from_slice(&action_hash);
+
+        // Vault address or zero address (20 bytes)
+        if let Some(vault) = vault_address {
+            let vault_hex = vault.strip_prefix("0x").unwrap_or(vault);
+            if let Ok(vault_bytes) = hex::decode(vault_hex) {
+                if vault_bytes.len() == 20 {
+                    data.extend_from_slice(&vault_bytes);
+                } else {
+                    data.extend_from_slice(&[0u8; 20]);
+                }
+            } else {
+                data.extend_from_slice(&[0u8; 20]);
+            }
+        } else {
+            data.extend_from_slice(&[0u8; 20]);
+        }
+
+        // Nonce (8 bytes big endian)
+        data.extend_from_slice(&nonce.to_be_bytes());
+
+        keccak256(&data)
+    }
+
+    /// Construct phantom agent for EIP-712 signing
+    ///
+    /// Returns (source, connectionId) where:
+    /// - source: "a" for testnet (Arbitrum Sepolia), "b" for mainnet (Arbitrum One)
+    /// - connectionId: bytes32 hash
+    fn construct_phantom_agent(&self, hash: &[u8; 32]) -> (String, [u8; 32]) {
+        let source = if self.sandbox { "a" } else { "b" };
+        (source.to_string(), *hash)
+    }
+
+    /// Get chain ID for EIP-712 domain
+    fn get_chain_id(&self) -> u64 {
+        if self.sandbox {
+            421614 // Arbitrum Sepolia
+        } else {
+            42161 // Arbitrum One
+        }
+    }
+
+    /// Sign L1 action using EIP-712
+    ///
+    /// # Arguments
+    ///
+    /// * `action` - The action to sign
+    /// * `nonce` - Unique nonce for the action
+    /// * `vault_address` - Optional vault address
+    ///
+    /// # Returns
+    ///
+    /// Object with signature components (r, s, v) and typed data
+    async fn sign_l1_action(
+        &self,
+        action: &Value,
+        nonce: u64,
+        vault_address: Option<&str>,
+    ) -> CcxtResult<Value> {
+        let wallet = self.wallet.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "Wallet not set. Use from_private_key() or set_wallet() before signing.".to_string(),
+        })?;
+
+        // Compute action hash
+        let hash = self.action_hash(action, vault_address, nonce);
+        let (source, connection_id) = self.construct_phantom_agent(&hash);
+
+        // Build EIP-712 domain
+        let chain_id = self.get_chain_id();
+        let domain = Eip712Domain::new("HyperliquidSignTransaction", "1", chain_id)
+            .with_verifying_contract("0x0000000000000000000000000000000000000000");
+
+        // Build types for Agent
+        let mut types = HashMap::new();
+        types.insert(
+            "Agent".to_string(),
+            vec![
+                TypedDataField::new("source", "string"),
+                TypedDataField::new("connectionId", "bytes32"),
+            ],
+        );
+
+        // Build message
+        let connection_id_hex = format!("0x{}", hex::encode(connection_id));
+        let message = json!({
+            "source": source,
+            "connectionId": connection_id_hex
+        });
+
+        // Create typed data
+        let typed_data = Eip712TypedData::new(domain, "Agent", types, message.clone());
+
+        // Sign
+        let signature = wallet.sign_typed_data(&typed_data).await?;
+
+        // Return signature in format expected by Hyperliquid
+        Ok(json!({
+            "r": format!("0x{}", hex::encode(signature.r)),
+            "s": format!("0x{}", hex::encode(signature.s)),
+            "v": signature.v
+        }))
+    }
+
+    /// Make a signed POST request to /exchange endpoint
+    async fn private_post_exchange(&self, action: Value, nonce: u64, vault_address: Option<&str>) -> CcxtResult<Value> {
+        self.rate_limiter.throttle(1.0).await;
+
+        // Sign the action
+        let signature = self.sign_l1_action(&action, nonce, vault_address).await?;
+
+        // Build request payload
+        let payload = json!({
+            "action": action,
+            "nonce": nonce,
+            "signature": signature,
+            "vaultAddress": vault_address
+        });
+
+        self.client.post("/exchange", Some(payload), None).await
+    }
+
+    /// Generate nonce based on current timestamp
+    fn generate_nonce(&self) -> u64 {
+        chrono::Utc::now().timestamp_millis() as u64
     }
 
     /// Make a public POST request to /info endpoint
@@ -1679,19 +1860,200 @@ impl Exchange for Hyperliquid {
 
     async fn create_order(
         &self,
-        _symbol: &str,
-        _order_type: OrderType,
-        _side: OrderSide,
-        _amount: Decimal,
-        _price: Option<Decimal>,
+        symbol: &str,
+        order_type: OrderType,
+        side: OrderSide,
+        amount: Decimal,
+        price: Option<Decimal>,
     ) -> CcxtResult<Order> {
-        // Hyperliquid requires EIP-712 signature for order creation
-        // This needs ethers-rs or similar library for wallet signing
-        Err(CcxtError::NotSupported { feature: "create_order requires EIP-712 wallet signing - use a specialized Hyperliquid client".to_string() })
+        self.load_markets(false).await?;
+
+        // Validate wallet is set
+        if self.wallet.is_none() {
+            return Err(CcxtError::AuthenticationError {
+                message: "Wallet not set. Use from_private_key() or set_wallet() before creating orders.".to_string(),
+            });
+        }
+
+        // Get market info
+        let (asset_index, _is_spot) = {
+            let markets = self.markets.read().unwrap();
+            let market = markets.get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+
+            let is_spot = market.spot;
+            let asset_index = if is_spot {
+                // Spot market IDs are stored as "10000+index"
+                market.base_id.parse::<i64>().unwrap_or(0)
+            } else {
+                // Swap market - base_id is the asset index
+                market.base_id.parse::<i64>().unwrap_or(0)
+            };
+
+            (asset_index, is_spot)
+        };
+
+        // Determine order type and time in force
+        let (order_type_json, limit_px) = match order_type {
+            OrderType::Market => {
+                // Market orders use "ioc" (immediate or cancel) with aggressive price
+                // For buy: use very high price, for sell: use very low price
+                let aggressive_price = match side {
+                    OrderSide::Buy => "999999999.0".to_string(),
+                    OrderSide::Sell => "0.00001".to_string(),
+                };
+                (json!({"limit": {"tif": "Ioc"}}), aggressive_price)
+            }
+            OrderType::Limit => {
+                let px = price.ok_or_else(|| CcxtError::BadRequest {
+                    message: "Limit order requires price".to_string(),
+                })?;
+                (json!({"limit": {"tif": "Gtc"}}), px.to_string())
+            }
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type {:?} not yet supported", order_type),
+                });
+            }
+        };
+
+        let is_buy = match side {
+            OrderSide::Buy => true,
+            OrderSide::Sell => false,
+        };
+
+        // Build order structure
+        let order_spec = json!({
+            "a": asset_index,
+            "b": is_buy,
+            "p": limit_px,
+            "s": amount.to_string(),
+            "r": false,  // reduce_only
+            "t": order_type_json
+        });
+
+        let action = json!({
+            "type": "order",
+            "orders": [order_spec],
+            "grouping": "na",
+            "builder": null
+        });
+
+        // Generate nonce and sign
+        let nonce = self.generate_nonce();
+        let response = self.private_post_exchange(action, nonce, None).await?;
+
+        // Parse response
+        let status = response.get("status").and_then(|s| s.as_str()).unwrap_or("error");
+        if status != "ok" {
+            let error_msg = response.get("response")
+                .and_then(|r| r.as_str())
+                .unwrap_or("Unknown error");
+            return Err(CcxtError::ExchangeError {
+                message: format!("Order creation failed: {}", error_msg),
+            });
+        }
+
+        // Extract order from response
+        if let Some(data) = response.get("response").and_then(|r| r.get("data")) {
+            if let Some(statuses) = data.get("statuses").and_then(|s| s.as_array()) {
+                if let Some(order_status) = statuses.first() {
+                    let markets = self.markets.read().unwrap();
+                    let market = markets.get(symbol);
+                    if let Some(order) = self.parse_order(order_status, market) {
+                        return Ok(order);
+                    }
+                }
+            }
+        }
+
+        // If we couldn't parse the order, return a minimal order object
+        Ok(Order {
+            id: "".to_string(),
+            client_order_id: None,
+            timestamp: Some(chrono::Utc::now().timestamp_millis()),
+            datetime: Some(chrono::Utc::now().to_rfc3339()),
+            last_trade_timestamp: None,
+            last_update_timestamp: None,
+            status: OrderStatus::Open,
+            symbol: symbol.to_string(),
+            order_type,
+            time_in_force: Some(TimeInForce::GTC),
+            side,
+            price,
+            average: None,
+            amount,
+            filled: Decimal::ZERO,
+            remaining: Some(amount),
+            stop_price: None,
+            trigger_price: None,
+            take_profit_price: None,
+            stop_loss_price: None,
+            cost: None,
+            trades: vec![],
+            fee: None,
+            fees: vec![],
+            reduce_only: None,
+            post_only: None,
+            info: response,
+        })
     }
 
-    async fn cancel_order(&self, _id: &str, _symbol: &str) -> CcxtResult<Order> {
-        // Hyperliquid requires EIP-712 signature for order cancellation
-        Err(CcxtError::NotSupported { feature: "cancel_order requires EIP-712 wallet signing - use a specialized Hyperliquid client".to_string() })
+    async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
+        self.load_markets(false).await?;
+
+        // Validate wallet is set
+        if self.wallet.is_none() {
+            return Err(CcxtError::AuthenticationError {
+                message: "Wallet not set. Use from_private_key() or set_wallet() before canceling orders.".to_string(),
+            });
+        }
+
+        // Get asset index from symbol
+        let asset_index = {
+            let markets = self.markets.read().unwrap();
+            let market = markets.get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+
+            if market.spot {
+                market.base_id.parse::<i64>().unwrap_or(0)
+            } else {
+                market.base_id.parse::<i64>().unwrap_or(0)
+            }
+        };
+
+        // Parse order ID
+        let oid: i64 = id.parse().map_err(|_| CcxtError::BadRequest {
+            message: format!("Invalid order ID: {}", id),
+        })?;
+
+        // Build cancel action
+        let cancel_spec = json!({
+            "a": asset_index,
+            "o": oid
+        });
+
+        let action = json!({
+            "type": "cancel",
+            "cancels": [cancel_spec]
+        });
+
+        // Generate nonce and sign
+        let nonce = self.generate_nonce();
+        let response = self.private_post_exchange(action, nonce, None).await?;
+
+        // Check response
+        let status = response.get("status").and_then(|s| s.as_str()).unwrap_or("error");
+        if status != "ok" {
+            let error_msg = response.get("response")
+                .and_then(|r| r.as_str())
+                .unwrap_or("Unknown error");
+            return Err(CcxtError::ExchangeError {
+                message: format!("Order cancellation failed: {}", error_msg),
+            });
+        }
+
+        // Fetch the order to return its current state
+        self.fetch_order(id, symbol).await
     }
 }

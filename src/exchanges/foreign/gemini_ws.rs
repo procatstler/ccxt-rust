@@ -347,11 +347,14 @@ impl GeminiWs {
         let mut ws_rx = ws_client.connect().await?;
 
         // Send subscription message
-        let _sub_json = serde_json::to_string(&subscribe_msg)
+        let sub_json = serde_json::to_string(&subscribe_msg)
             .map_err(|e| CcxtError::ParseError {
                 data_type: "GeminiSubscribeRequest".to_string(),
                 message: e.to_string(),
             })?;
+
+        // Send subscribe message through WebSocket
+        ws_client.send(&sub_json)?;
 
         self.ws_client = Some(ws_client);
 
@@ -362,9 +365,6 @@ impl GeminiWs {
                 serde_json::to_string(&subscribe_msg).unwrap_or_default(),
             );
         }
-
-        // TODO: Send subscribe message through WebSocket
-        // Note: WsClient needs a send method - for now we'll assume connection auto-subscribes
 
         // 이벤트 처리 태스크
         let tx = event_tx.clone();

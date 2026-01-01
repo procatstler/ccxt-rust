@@ -233,6 +233,16 @@ pub enum CcxtError {
     /// JSON parsing error
     #[error("JSON error: {message}")]
     JsonError { message: String },
+
+    // === Cryptographic errors ===
+
+    /// Invalid cryptographic signature
+    #[error("Invalid signature: {message}")]
+    InvalidSignature { message: String },
+
+    /// Invalid private key
+    #[error("Invalid private key: {message}")]
+    InvalidPrivateKey { message: String },
 }
 
 impl CcxtError {
@@ -285,6 +295,9 @@ impl CcxtError {
             // Parsing
             CcxtError::ParseError { .. } => "PARSE_ERROR",
             CcxtError::JsonError { .. } => "JSON_ERROR",
+            // Cryptographic
+            CcxtError::InvalidSignature { .. } => "INVALID_SIGNATURE",
+            CcxtError::InvalidPrivateKey { .. } => "INVALID_PRIVATE_KEY",
         }
     }
 
