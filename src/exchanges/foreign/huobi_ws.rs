@@ -21,6 +21,16 @@ impl HuobiWs {
     pub fn new() -> Self {
         Self(HtxWs::new())
     }
+
+    /// Create with API credentials for private channels
+    pub fn with_credentials(api_key: String, api_secret: String) -> Self {
+        Self(HtxWs::with_credentials(api_key, api_secret))
+    }
+
+    /// Set API credentials for private channels
+    pub fn set_credentials(&mut self, api_key: String, api_secret: String) {
+        self.0.set_credentials(api_key, api_secret);
+    }
 }
 
 impl Default for HuobiWs {
@@ -74,6 +84,18 @@ impl WsExchange for HuobiWs {
     async fn watch_ohlcv_for_symbols(&self, symbols: &[&str], timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_ohlcv_for_symbols(symbols, timeframe).await
     }
+
+    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_orders(symbol).await
+    }
+
+    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_my_trades(symbol).await
+    }
+
+    async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_balance().await
+    }
 }
 
 #[cfg(test)]
@@ -83,5 +105,18 @@ mod tests {
     #[test]
     fn test_huobi_ws_creation() {
         let _ws = HuobiWs::new();
+    }
+
+    #[test]
+    fn test_with_credentials() {
+        let _ws = HuobiWs::with_credentials("api_key".to_string(), "api_secret".to_string());
+        // Credentials are set in inner HtxWs (private fields)
+    }
+
+    #[test]
+    fn test_set_credentials() {
+        let mut ws = HuobiWs::new();
+        ws.set_credentials("api_key".to_string(), "api_secret".to_string());
+        // Credentials are set in inner HtxWs (private fields)
     }
 }

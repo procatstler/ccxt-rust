@@ -25,6 +25,16 @@ impl BinanceCoinmWs {
     pub fn new() -> Self {
         Self(BinanceFuturesWs::new())
     }
+
+    /// Create with API credentials for private channels
+    pub fn with_credentials(api_key: String, api_secret: String) -> Self {
+        Self(BinanceFuturesWs::with_credentials(api_key, api_secret))
+    }
+
+    /// Set API credentials for private channels
+    pub fn set_credentials(&mut self, api_key: String, api_secret: String) {
+        self.0.set_credentials(api_key, api_secret);
+    }
 }
 
 impl Default for BinanceCoinmWs {
@@ -78,6 +88,22 @@ impl WsExchange for BinanceCoinmWs {
     async fn watch_ohlcv_for_symbols(&self, symbols: &[&str], timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_ohlcv_for_symbols(symbols, timeframe).await
     }
+
+    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_orders(symbol).await
+    }
+
+    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_my_trades(symbol).await
+    }
+
+    async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_balance().await
+    }
+
+    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        self.0.watch_positions(symbols).await
+    }
 }
 
 #[cfg(test)]
@@ -87,5 +113,18 @@ mod tests {
     #[test]
     fn test_binancecoinm_ws_creation() {
         let _ws = BinanceCoinmWs::new();
+    }
+
+    #[test]
+    fn test_with_credentials() {
+        let _ws = BinanceCoinmWs::with_credentials("api_key".to_string(), "api_secret".to_string());
+        // Credentials are set in inner BinanceFuturesWs (private fields)
+    }
+
+    #[test]
+    fn test_set_credentials() {
+        let mut ws = BinanceCoinmWs::new();
+        ws.set_credentials("api_key".to_string(), "api_secret".to_string());
+        // Credentials are set in inner BinanceFuturesWs (private fields)
     }
 }
