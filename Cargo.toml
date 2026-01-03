@@ -45,12 +45,19 @@ base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
 jsonwebtoken = "9.0"
 
-# DEX 암호화 (EVM/StarkNet)
+# DEX 암호화 (EVM/StarkNet/Cosmos)
 sha3 = "0.10"                                    # Keccak256
 k256 = { version = "0.13", features = ["ecdsa", "ecdsa-core"] }  # secp256k1 ECDSA
 elliptic-curve = { version = "0.13", features = ["sec1"] }       # EC 공통
 starknet-crypto = "0.7"                         # Poseidon hash, Pedersen, ECDSA for StarkNet
 starknet-types-core = "0.1"                     # FieldElement types
+
+# Cosmos SDK 암호화
+bip39 = "2.0"                                   # BIP-39 mnemonic (12/24 words)
+bip32 = "0.5"                                   # BIP-32/44 HD key derivation
+bech32 = "0.11"                                 # Bech32 address encoding (Cosmos)
+ripemd = "0.1"                                  # RIPEMD-160 (Cosmos address)
+prost = "0.13"                                  # Protobuf encoding (Cosmos SDK messages)
 
 # 비동기 trait
 async-trait = "0.1"

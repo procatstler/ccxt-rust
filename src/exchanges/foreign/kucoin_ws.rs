@@ -16,9 +16,15 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, OHLCV,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent, WsOhlcvEvent,
+    Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
+    WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOrderBookEvent,
+    WsOrderEvent, WsOhlcvEvent, WsTickerEvent, WsTradeEvent,
 };
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use std::str::FromStr;
+use base64::{Engine as _, engine::general_purpose};
 
 /// Kucoin WebSocket 클라이언트
 pub struct KucoinWs {
@@ -26,6 +32,10 @@ pub struct KucoinWs {
     subscriptions: Arc<RwLock<HashMap<String, String>>>,
     event_tx: Option<mpsc::UnboundedSender<WsMessage>>,
     connect_id: String,
+    /// API credentials for private channels
+    api_key: Option<String>,
+    api_secret: Option<String>,
+    passphrase: Option<String>,
 }
 
 impl KucoinWs {
@@ -36,7 +46,35 @@ impl KucoinWs {
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
             event_tx: None,
             connect_id: uuid::Uuid::new_v4().to_string(),
+            api_key: None,
+            api_secret: None,
+            passphrase: None,
         }
+    }
+
+    /// 자격 증명으로 클라이언트 생성
+    pub fn with_credentials(api_key: &str, api_secret: &str, passphrase: &str) -> Self {
+        Self {
+            ws_client: None,
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            event_tx: None,
+            connect_id: uuid::Uuid::new_v4().to_string(),
+            api_key: Some(api_key.to_string()),
+            api_secret: Some(api_secret.to_string()),
+            passphrase: Some(passphrase.to_string()),
+        }
+    }
+
+    /// 자격 증명 설정
+    pub fn set_credentials(&mut self, api_key: &str, api_secret: &str, passphrase: &str) {
+        self.api_key = Some(api_key.to_string());
+        self.api_secret = Some(api_secret.to_string());
+        self.passphrase = Some(passphrase.to_string());
+    }
+
+    /// API 키 반환
+    pub fn get_api_key(&self) -> Option<&str> {
+        self.api_key.as_deref()
     }
 
     /// 심볼을 Kucoin 형식으로 변환 (BTC/USDT -> BTC-USDT)
@@ -86,6 +124,61 @@ impl KucoinWs {
 
         token_response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Failed to get WebSocket token".into(),
+        })
+    }
+
+    /// HMAC-SHA256 서명 생성
+    fn sign(secret: &str, message: &str) -> String {
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+            .expect("HMAC can take key of any size");
+        mac.update(message.as_bytes());
+        let result = mac.finalize();
+        general_purpose::STANDARD.encode(result.into_bytes())
+    }
+
+    /// Passphrase 암호화
+    fn encrypt_passphrase(secret: &str, passphrase: &str) -> String {
+        Self::sign(secret, passphrase)
+    }
+
+    /// Private 토큰 가져오기 (인증된 WebSocket 연결에 필요)
+    async fn get_private_token(&self) -> CcxtResult<KucoinWsToken> {
+        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "API key required for private channels".into(),
+        })?;
+        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "API secret required for private channels".into(),
+        })?;
+        let passphrase = self.passphrase.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "Passphrase required for private channels".into(),
+        })?;
+
+        let url = "https://api.kucoin.com/api/v1/bullet-private";
+        let timestamp = Utc::now().timestamp_millis().to_string();
+        let str_to_sign = format!("{timestamp}POST/api/v1/bullet-private");
+        let signature = Self::sign(api_secret, &str_to_sign);
+        let encrypted_passphrase = Self::encrypt_passphrase(api_secret, passphrase);
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(url)
+            .header("KC-API-KEY", api_key)
+            .header("KC-API-SIGN", signature)
+            .header("KC-API-TIMESTAMP", &timestamp)
+            .header("KC-API-PASSPHRASE", encrypted_passphrase)
+            .header("KC-API-KEY-VERSION", "2")
+            .send()
+            .await
+            .map_err(|e| CcxtError::NetworkError { url: url.to_string(), message: e.to_string() })?;
+
+        let token_response: KucoinTokenResponse = response
+            .json()
+            .await
+            .map_err(|e| CcxtError::ParseError { data_type: "KucoinTokenResponse".to_string(), message: e.to_string() })?;
+
+        token_response.data.ok_or_else(|| CcxtError::ExchangeError {
+            message: "Failed to get private WebSocket token".into(),
         })
     }
 
@@ -306,11 +399,244 @@ impl KucoinWs {
                             }
                         }
                     }
+
+                    // === Private Channels ===
+
+                    // Order updates (/spotMarket/tradeOrders)
+                    if topic.starts_with("/spotMarket/tradeOrders") {
+                        if let Ok(order_data) = serde_json::from_value::<KucoinOrderData>(data.clone()) {
+                            // Check if this is a trade (match) event
+                            if order_data.order_type.as_deref() == Some("match") {
+                                if let Some(trade_event) = Self::parse_my_trade(&order_data) {
+                                    return Some(WsMessage::MyTrade(trade_event));
+                                }
+                            }
+                            // Always return order update
+                            if let Some(order_event) = Self::parse_order_update(&order_data) {
+                                return Some(WsMessage::Order(order_event));
+                            }
+                        }
+                    }
+
+                    // Balance updates (/account/balance)
+                    if topic.starts_with("/account/balance") {
+                        if let Ok(balance_data) = serde_json::from_value::<KucoinBalanceData>(data.clone()) {
+                            if let Some(balance_event) = Self::parse_balance_update(&balance_data) {
+                                return Some(WsMessage::Balance(balance_event));
+                            }
+                        }
+                    }
                 }
             }
         }
 
         None
+    }
+
+    /// 주문 업데이트 파싱
+    fn parse_order_update(data: &KucoinOrderData) -> Option<WsOrderEvent> {
+        let symbol = Self::to_unified_symbol(&data.symbol);
+        // Kucoin timestamp is in nanoseconds, convert to milliseconds
+        let timestamp_ms = data.ts.map(|t| t / 1_000_000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+
+        let side = match data.side.as_str() {
+            "buy" => OrderSide::Buy,
+            "sell" => OrderSide::Sell,
+            _ => OrderSide::Buy,
+        };
+
+        let order_type = match data.order_type_str.as_deref().unwrap_or("limit") {
+            "limit" => OrderType::Limit,
+            "market" => OrderType::Market,
+            "stop" => OrderType::StopLimit,
+            "stop_limit" => OrderType::StopLimit,
+            _ => OrderType::Limit,
+        };
+
+        let status = match data.status.as_deref() {
+            Some("open") => OrderStatus::Open,
+            Some("match") => OrderStatus::Open, // Partial fill
+            Some("done") => {
+                // Check if canceled or filled
+                if data.remain_size.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default() > Decimal::ZERO {
+                    OrderStatus::Canceled
+                } else {
+                    OrderStatus::Closed
+                }
+            }
+            Some("canceled") => OrderStatus::Canceled,
+            _ => OrderStatus::Open,
+        };
+
+        let time_in_force = match data.time_in_force.as_deref() {
+            Some("GTC") => Some(TimeInForce::GTC),
+            Some("IOC") => Some(TimeInForce::IOC),
+            Some("FOK") => Some(TimeInForce::FOK),
+            Some("GTX") => Some(TimeInForce::PO),
+            _ => Some(TimeInForce::GTC),
+        };
+
+        let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
+        let amount = data.size.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let filled = data.filled_size.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let remaining = data.remain_size.as_ref().and_then(|s| Decimal::from_str(s).ok());
+
+        let average = if let (Some(amt), Some(fill)) = (amount, filled) {
+            if fill > Decimal::ZERO && amt > Decimal::ZERO {
+                // Kucoin doesn't provide average directly, we'd need fills_price
+                data.fill_price.as_ref().and_then(|p| Decimal::from_str(p).ok())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let cost = if let (Some(fill), Some(avg)) = (filled, average) {
+            Some(fill * avg)
+        } else {
+            None
+        };
+
+        let fee = data.fee.as_ref().and_then(|f| Decimal::from_str(f).ok()).map(|fee_amount| {
+            Fee {
+                currency: data.fee_currency.clone(),
+                cost: Some(fee_amount),
+                rate: None,
+            }
+        });
+
+        let is_post_only = data.time_in_force.as_deref() == Some("GTX");
+
+        let order = Order {
+            id: data.order_id.clone(),
+            client_order_id: data.client_oid.clone(),
+            timestamp: Some(timestamp_ms),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp_ms)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
+            last_trade_timestamp: None,
+            last_update_timestamp: Some(timestamp_ms),
+            status,
+            symbol: symbol.clone(),
+            order_type,
+            time_in_force,
+            side,
+            price,
+            trigger_price: None,
+            stop_price: None,
+            take_profit_price: None,
+            stop_loss_price: None,
+            average,
+            amount: amount.unwrap_or_default(),
+            filled: filled.unwrap_or_default(),
+            remaining,
+            cost,
+            trades: Vec::new(),
+            reduce_only: None,
+            post_only: Some(is_post_only),
+            fee,
+            fees: Vec::new(),
+            info: serde_json::to_value(data).unwrap_or_default(),
+        };
+
+        Some(WsOrderEvent { order })
+    }
+
+    /// 내 체결 파싱
+    fn parse_my_trade(data: &KucoinOrderData) -> Option<WsMyTradeEvent> {
+        // Only process if there's a match
+        if data.match_size.is_none() || data.match_price.is_none() {
+            return None;
+        }
+
+        let symbol = Self::to_unified_symbol(&data.symbol);
+        // Kucoin timestamp is in nanoseconds, convert to milliseconds
+        let timestamp_ms = data.ts.map(|t| t / 1_000_000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+
+        let match_size = data.match_size.as_ref().and_then(|s| Decimal::from_str(s).ok())?;
+        let match_price = data.match_price.as_ref().and_then(|p| Decimal::from_str(p).ok())?;
+
+        if match_size == Decimal::ZERO {
+            return None;
+        }
+
+        let side = Some(data.side.to_lowercase());
+        let taker_or_maker = if data.liquidity.as_deref() == Some("taker") {
+            Some(TakerOrMaker::Taker)
+        } else {
+            Some(TakerOrMaker::Maker)
+        };
+
+        let fee = data.fee.as_ref().and_then(|f| Decimal::from_str(f).ok()).map(|fee_amount| {
+            Fee {
+                currency: data.fee_currency.clone(),
+                cost: Some(fee_amount),
+                rate: None,
+            }
+        });
+
+        let trade = Trade {
+            id: data.trade_id.clone().unwrap_or_default(),
+            order: Some(data.order_id.clone()),
+            timestamp: Some(timestamp_ms),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp_ms)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
+            symbol: symbol.clone(),
+            trade_type: None,
+            side,
+            taker_or_maker,
+            price: match_price,
+            amount: match_size,
+            cost: Some(match_size * match_price),
+            fee,
+            fees: Vec::new(),
+            info: serde_json::to_value(data).unwrap_or_default(),
+        };
+
+        Some(WsMyTradeEvent {
+            symbol,
+            trades: vec![trade],
+        })
+    }
+
+    /// 잔고 업데이트 파싱
+    fn parse_balance_update(data: &KucoinBalanceData) -> Option<WsBalanceEvent> {
+        let timestamp = data.time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let mut currencies: HashMap<String, Balance> = HashMap::new();
+
+        let total = Decimal::from_str(&data.total).unwrap_or_default();
+        let available = Decimal::from_str(&data.available).unwrap_or_default();
+        let hold = Decimal::from_str(&data.hold).unwrap_or_default();
+
+        let balance = Balance {
+            free: Some(available),
+            used: Some(hold),
+            total: Some(total),
+            debt: None,
+        };
+
+        currencies.insert(data.currency.clone(), balance);
+
+        Some(WsBalanceEvent {
+            balances: Balances {
+                currencies,
+                timestamp: Some(timestamp),
+                datetime: Some(
+                    chrono::DateTime::from_timestamp_millis(timestamp)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
+                ),
+                info: serde_json::to_value(data).unwrap_or_default(),
+            },
+        })
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
@@ -358,6 +684,82 @@ impl KucoinWs {
         }
 
         // 이벤트 처리 태스크
+        let tx = event_tx.clone();
+        tokio::spawn(async move {
+            while let Some(event) = ws_rx.recv().await {
+                match event {
+                    WsEvent::Connected => {
+                        let _ = tx.send(WsMessage::Connected);
+                    }
+                    WsEvent::Disconnected => {
+                        let _ = tx.send(WsMessage::Disconnected);
+                    }
+                    WsEvent::Message(msg) => {
+                        if let Some(ws_msg) = Self::process_message(&msg) {
+                            let _ = tx.send(ws_msg);
+                        }
+                    }
+                    WsEvent::Error(err) => {
+                        let _ = tx.send(WsMessage::Error(err));
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(event_rx)
+    }
+
+    /// Private 채널 구독 (인증 필요)
+    async fn subscribe_private_stream(&mut self, topics: Vec<String>, channel: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        self.event_tx = Some(event_tx.clone());
+
+        // Get private WebSocket token (requires authentication)
+        let token_data = self.get_private_token().await?;
+        let server = token_data.instance_servers.first()
+            .ok_or_else(|| CcxtError::ExchangeError { message: "No WebSocket server available".into() })?;
+
+        let ws_url = format!("{}?token={}&connectId={}", server.endpoint, token_data.token, self.connect_id);
+
+        let ping_interval = (server.ping_interval.unwrap_or(18000) / 1000) as u64;
+
+        let mut ws_client = WsClient::new(WsConfig {
+            url: ws_url,
+            auto_reconnect: true,
+            reconnect_interval_ms: 5000,
+            max_reconnect_attempts: 10,
+            ping_interval_secs: ping_interval,
+            connect_timeout_secs: 30,
+        });
+
+        let mut ws_rx = ws_client.connect().await?;
+
+        // Subscribe to private topics
+        for topic in &topics {
+            let id = uuid::Uuid::new_v4().to_string();
+            let subscribe_msg = serde_json::json!({
+                "id": id,
+                "type": "subscribe",
+                "topic": topic,
+                "privateChannel": true,
+                "response": true
+            });
+            ws_client.send(&subscribe_msg.to_string())?;
+        }
+
+        self.ws_client = Some(ws_client);
+
+        // Store subscription
+        {
+            let key = format!("private:{}", channel);
+            self.subscriptions.write().await.insert(key, channel.to_string());
+        }
+
+        // Send authenticated message
+        let _ = event_tx.send(WsMessage::Authenticated);
+
+        // Event processing task
         let tx = event_tx.clone();
         tokio::spawn(async move {
             while let Some(event) = ws_rx.recv().await {
@@ -448,6 +850,71 @@ impl WsExchange for KucoinWs {
         } else {
             false
         }
+    }
+
+    // === Private Channel Methods ===
+
+    async fn ws_authenticate(&mut self) -> CcxtResult<()> {
+        if self.api_key.is_none() || self.api_secret.is_none() || self.passphrase.is_none() {
+            return Err(CcxtError::AuthenticationError {
+                message: "API key, secret, and passphrase required for private channels".into(),
+            });
+        }
+        // Authentication is done via token request, not WebSocket message
+        Ok(())
+    }
+
+    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) =
+            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+            Self::with_credentials(key, secret, pass)
+        } else {
+            return Err(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_orders".into(),
+            });
+        };
+
+        let topic = if let Some(sym) = symbol {
+            format!("/spotMarket/tradeOrders:{}", Self::format_symbol(sym))
+        } else {
+            "/spotMarket/tradeOrders".to_string()
+        };
+
+        client.subscribe_private_stream(vec![topic], "orders").await
+    }
+
+    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) =
+            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+            Self::with_credentials(key, secret, pass)
+        } else {
+            return Err(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_my_trades".into(),
+            });
+        };
+
+        // Use the same topic as orders - trades come from order updates
+        let topic = if let Some(sym) = symbol {
+            format!("/spotMarket/tradeOrders:{}", Self::format_symbol(sym))
+        } else {
+            "/spotMarket/tradeOrders".to_string()
+        };
+
+        client.subscribe_private_stream(vec![topic], "myTrades").await
+    }
+
+    async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) =
+            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+            Self::with_credentials(key, secret, pass)
+        } else {
+            return Err(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_balance".into(),
+            });
+        };
+
+        let topic = "/account/balance".to_string();
+        client.subscribe_private_stream(vec![topic], "balance").await
     }
 }
 
@@ -559,6 +1026,76 @@ struct KucoinCandleData {
     time: Option<i64>,
 }
 
+// === Private Channel Data Structures ===
+
+/// 주문 업데이트 데이터
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KucoinOrderData {
+    symbol: String,
+    order_id: String,
+    side: String,
+    #[serde(default, rename = "type")]
+    order_type: Option<String>,
+    #[serde(default, rename = "orderType")]
+    order_type_str: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    price: Option<String>,
+    #[serde(default)]
+    size: Option<String>,
+    #[serde(default)]
+    filled_size: Option<String>,
+    #[serde(default, rename = "remainSize")]
+    remain_size: Option<String>,
+    #[serde(default)]
+    client_oid: Option<String>,
+    #[serde(default)]
+    ts: Option<i64>,
+    #[serde(default)]
+    order_time: Option<i64>,
+    #[serde(default)]
+    time_in_force: Option<String>,
+    // Match (trade) specific fields
+    #[serde(default)]
+    match_price: Option<String>,
+    #[serde(default)]
+    match_size: Option<String>,
+    #[serde(default)]
+    trade_id: Option<String>,
+    #[serde(default)]
+    liquidity: Option<String>,
+    #[serde(default)]
+    fee: Option<String>,
+    #[serde(default)]
+    fee_currency: Option<String>,
+    #[serde(default)]
+    fill_price: Option<String>,
+}
+
+/// 잔고 업데이트 데이터
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KucoinBalanceData {
+    currency: String,
+    total: String,
+    available: String,
+    hold: String,
+    #[serde(default)]
+    available_change: Option<String>,
+    #[serde(default)]
+    hold_change: Option<String>,
+    #[serde(default)]
+    relation_event: Option<String>,
+    #[serde(default)]
+    relation_event_id: Option<String>,
+    #[serde(default)]
+    time: Option<i64>,
+    #[serde(default)]
+    account_id: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -580,5 +1117,93 @@ mod tests {
         assert_eq!(KucoinWs::format_interval(Timeframe::Minute1), "1min");
         assert_eq!(KucoinWs::format_interval(Timeframe::Hour1), "1hour");
         assert_eq!(KucoinWs::format_interval(Timeframe::Day1), "1day");
+    }
+
+    #[test]
+    fn test_with_credentials() {
+        let client = KucoinWs::with_credentials("test_key", "test_secret", "test_pass");
+        assert_eq!(client.get_api_key(), Some("test_key"));
+        assert!(client.api_secret.is_some());
+        assert!(client.passphrase.is_some());
+    }
+
+    #[test]
+    fn test_set_credentials() {
+        let mut client = KucoinWs::new();
+        assert!(client.get_api_key().is_none());
+        client.set_credentials("api_key", "api_secret", "passphrase");
+        assert_eq!(client.get_api_key(), Some("api_key"));
+    }
+
+    #[test]
+    fn test_sign() {
+        let signature = KucoinWs::sign("secret", "message");
+        assert!(!signature.is_empty());
+        // Verify it's base64 encoded
+        assert!(general_purpose::STANDARD.decode(&signature).is_ok());
+    }
+
+    #[test]
+    fn test_parse_order_update() {
+        let json = r#"{"symbol":"BTC-USDT","orderId":"5c52423054d74a0001a8d123","side":"buy","orderType":"limit","type":"open","price":"10000","size":"0.1","filledSize":"0","remainSize":"0.1","clientOid":"test123","ts":1609459200000000000,"status":"open","timeInForce":"GTC"}"#;
+        let data: KucoinOrderData = serde_json::from_str(json).unwrap();
+        let event = KucoinWs::parse_order_update(&data);
+        assert!(event.is_some());
+        let order_event = event.unwrap();
+        assert_eq!(order_event.order.symbol, "BTC/USDT");
+        assert_eq!(order_event.order.side, OrderSide::Buy);
+        assert_eq!(order_event.order.order_type, OrderType::Limit);
+        assert_eq!(order_event.order.status, OrderStatus::Open);
+    }
+
+    #[test]
+    fn test_parse_my_trade() {
+        let json = r#"{"symbol":"BTC-USDT","orderId":"5c52423054d74a0001a8d123","side":"buy","orderType":"limit","type":"match","price":"10000","size":"0.1","filledSize":"0.05","remainSize":"0.05","matchPrice":"10000","matchSize":"0.05","tradeId":"trade123","liquidity":"taker","fee":"0.0001","feeCurrency":"USDT","ts":1609459200000000000}"#;
+        let data: KucoinOrderData = serde_json::from_str(json).unwrap();
+        let event = KucoinWs::parse_my_trade(&data);
+        assert!(event.is_some());
+        let trade_event = event.unwrap();
+        assert_eq!(trade_event.symbol, "BTC/USDT");
+        assert!(!trade_event.trades.is_empty());
+        assert_eq!(trade_event.trades[0].amount, Decimal::from_str("0.05").unwrap());
+    }
+
+    #[test]
+    fn test_parse_balance_update() {
+        let json = r#"{"currency":"USDT","total":"10000.00","available":"9000.00","hold":"1000.00","availableChange":"100.00","holdChange":"-100.00","relationEvent":"trade.setted","time":1609459200000}"#;
+        let data: KucoinBalanceData = serde_json::from_str(json).unwrap();
+        let event = KucoinWs::parse_balance_update(&data);
+        assert!(event.is_some());
+        let balance_event = event.unwrap();
+        assert!(balance_event.balances.currencies.contains_key("USDT"));
+        let usdt_balance = balance_event.balances.currencies.get("USDT").unwrap();
+        assert_eq!(usdt_balance.free, Some(Decimal::from_str("9000.00").unwrap()));
+        assert_eq!(usdt_balance.used, Some(Decimal::from_str("1000.00").unwrap()));
+        assert_eq!(usdt_balance.total, Some(Decimal::from_str("10000.00").unwrap()));
+    }
+
+    #[test]
+    fn test_process_message_order_update() {
+        let json = r#"{"type":"message","topic":"/spotMarket/tradeOrders","data":{"symbol":"BTC-USDT","orderId":"order123","side":"sell","orderType":"market","type":"open","status":"open","price":"50000","size":"0.01","ts":1609459200000000000}}"#;
+        let msg = KucoinWs::process_message(json);
+        assert!(msg.is_some());
+        if let Some(WsMessage::Order(event)) = msg {
+            assert_eq!(event.order.symbol, "BTC/USDT");
+            assert_eq!(event.order.side, OrderSide::Sell);
+        } else {
+            panic!("Expected Order message");
+        }
+    }
+
+    #[test]
+    fn test_process_message_balance_update() {
+        let json = r#"{"type":"message","topic":"/account/balance","data":{"currency":"BTC","total":"1.5","available":"1.0","hold":"0.5","time":1609459200000}}"#;
+        let msg = KucoinWs::process_message(json);
+        assert!(msg.is_some());
+        if let Some(WsMessage::Balance(event)) = msg {
+            assert!(event.balances.currencies.contains_key("BTC"));
+        } else {
+            panic!("Expected Balance message");
+        }
     }
 }

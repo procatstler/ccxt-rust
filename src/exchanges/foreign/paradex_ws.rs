@@ -1,14 +1,32 @@
 //! Paradex WebSocket Implementation
 //!
-//! Paradex WebSocket API for real-time market data
-//! URL: wss://ws.api.prod.paradex.trade/v1
+//! Paradex WebSocket API for real-time market data and private channels
+//!
+//! # Public Channels
+//! - `trades.{market}` - Trade updates
+//! - `order_book.{market}.snapshot` - Order book snapshots
+//! - `markets_summary` - Market ticker updates
+//!
+//! # Private Channels (requires JWT authentication)
+//! - `orders.{market}` - Order updates (new, filled, canceled)
+//! - `fills.{market}` - Fill/trade execution updates
+//! - `tradebusts.{market}` - Trade bust notifications
+//! - `positions` - Position updates
+//! - `account` - Account balance updates
+//!
+//! # Authentication
+//! Paradex uses JWT token authentication for private channels.
+//! Use `ParadexWs::with_jwt()` to create an authenticated client.
 
 #![allow(dead_code)]
 
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
+use rust_decimal::Decimal;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, RwLock};
@@ -16,31 +34,144 @@ use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
 
-use rust_decimal::Decimal;
-
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent,
+    Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide,
+    MarginMode, Ticker, Timeframe, Trade, TakerOrMaker, WsExchange, WsMessage,
+    WsTickerEvent, WsTradeEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsMyTradeEvent,
 };
 
 const WS_URL: &str = "wss://ws.api.prod.paradex.trade/v1";
+const WS_TESTNET_URL: &str = "wss://ws.api.testnet.paradex.trade/v1";
 
 /// Paradex WebSocket client
 pub struct ParadexWs {
     ws_stream: Option<Arc<RwLock<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
     subscriptions: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
     orderbook_cache: Arc<RwLock<HashMap<String, OrderBook>>>,
+    /// JWT token for private channel authentication
+    jwt_token: Option<String>,
+    /// Whether to use testnet
+    testnet: bool,
+    /// Whether authenticated
+    authenticated: Arc<RwLock<bool>>,
+}
+
+// ===== Private Channel Data Structures =====
+
+/// Order update from Paradex WebSocket
+#[derive(Debug, Clone, Deserialize)]
+pub struct ParadexOrderUpdate {
+    pub id: String,
+    pub market: String,
+    pub side: String,
+    pub r#type: String,
+    pub size: String,
+    pub price: Option<String>,
+    pub status: String,
+    pub filled_size: Option<String>,
+    pub avg_fill_price: Option<String>,
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+    pub client_id: Option<String>,
+    pub reduce_only: Option<bool>,
+    pub post_only: Option<bool>,
+}
+
+/// Fill update from Paradex WebSocket
+#[derive(Debug, Clone, Deserialize)]
+pub struct ParadexFillUpdate {
+    pub id: String,
+    pub order_id: String,
+    pub market: String,
+    pub side: String,
+    pub size: String,
+    pub price: String,
+    pub fee: Option<String>,
+    pub fee_currency: Option<String>,
+    pub liquidity: Option<String>,
+    pub created_at: Option<i64>,
+}
+
+/// Position update from Paradex WebSocket
+#[derive(Debug, Clone, Deserialize)]
+pub struct ParadexPositionUpdate {
+    pub market: String,
+    pub side: String,
+    pub size: String,
+    pub entry_price: Option<String>,
+    pub mark_price: Option<String>,
+    pub unrealized_pnl: Option<String>,
+    pub realized_pnl: Option<String>,
+    pub liquidation_price: Option<String>,
+    pub leverage: Option<String>,
+    pub updated_at: Option<i64>,
 }
 
 impl ParadexWs {
-    /// Create a new Paradex WebSocket client
+    /// Create a new Paradex WebSocket client (mainnet, public only)
     pub fn new() -> Self {
         Self {
             ws_stream: None,
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
             orderbook_cache: Arc::new(RwLock::new(HashMap::new())),
+            jwt_token: None,
+            testnet: false,
+            authenticated: Arc::new(RwLock::new(false)),
         }
+    }
+
+    /// Create a Paradex WebSocket client for testnet
+    pub fn testnet() -> Self {
+        Self {
+            ws_stream: None,
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            orderbook_cache: Arc::new(RwLock::new(HashMap::new())),
+            jwt_token: None,
+            testnet: true,
+            authenticated: Arc::new(RwLock::new(false)),
+        }
+    }
+
+    /// Create an authenticated Paradex WebSocket client with JWT token
+    ///
+    /// The JWT token can be obtained from Paradex REST API authentication.
+    /// Use this for private channels (orders, fills, positions).
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let paradex = Paradex::from_starknet_key(config, "0x...", false)?;
+    /// let jwt_token = paradex.authenticate().await?;
+    /// let ws = ParadexWs::with_jwt(&jwt_token, false);
+    /// ```
+    pub fn with_jwt(jwt_token: &str, testnet: bool) -> Self {
+        Self {
+            ws_stream: None,
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            orderbook_cache: Arc::new(RwLock::new(HashMap::new())),
+            jwt_token: Some(jwt_token.to_string()),
+            testnet,
+            authenticated: Arc::new(RwLock::new(false)),
+        }
+    }
+
+    /// Get WebSocket URL based on network
+    fn get_ws_url(&self) -> &str {
+        if self.testnet {
+            WS_TESTNET_URL
+        } else {
+            WS_URL
+        }
+    }
+
+    /// Check if this client has JWT token for private channels
+    pub fn has_jwt(&self) -> bool {
+        self.jwt_token.is_some()
+    }
+
+    /// Check if authenticated
+    pub async fn is_authenticated(&self) -> bool {
+        *self.authenticated.read().await
     }
 
     /// Convert unified symbol to Paradex format
@@ -92,11 +223,52 @@ impl ParadexWs {
                 .send(Message::Text(msg.to_string().into()))
                 .await
                 .map_err(|e| CcxtError::NetworkError {
-                    url: WS_URL.to_string(),
+                    url: self.get_ws_url().to_string(),
                     message: format!("Failed to send subscribe: {}", e),
                 })?;
         }
         Ok(())
+    }
+
+    /// Send authentication message with JWT token
+    async fn send_auth(&self) -> CcxtResult<()> {
+        let jwt_token = self.jwt_token.as_ref().ok_or_else(|| {
+            CcxtError::AuthenticationError {
+                message: "JWT token required for private channels. Use ParadexWs::with_jwt()".into(),
+            }
+        })?;
+
+        if let Some(ws) = &self.ws_stream {
+            let msg = json!({
+                "jsonrpc": "2.0",
+                "method": "auth",
+                "params": {
+                    "bearer": jwt_token,
+                },
+            });
+
+            let mut ws_guard = ws.write().await;
+            ws_guard
+                .send(Message::Text(msg.to_string().into()))
+                .await
+                .map_err(|e| CcxtError::NetworkError {
+                    url: self.get_ws_url().to_string(),
+                    message: format!("Failed to send auth: {}", e),
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Subscribe to a private channel (requires authentication)
+    async fn subscribe_private(&self, channel: &str) -> CcxtResult<()> {
+        // Ensure authenticated
+        if !*self.authenticated.read().await {
+            self.send_auth().await?;
+            // Wait for auth response (handled in message loop)
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        self.subscribe(channel).await
     }
 
     /// Start message processing loop
@@ -104,6 +276,7 @@ impl ParadexWs {
         let ws_stream = self.ws_stream.clone();
         let subscriptions = self.subscriptions.clone();
         let orderbook_cache = self.orderbook_cache.clone();
+        let authenticated = self.authenticated.clone();
 
         tokio::spawn(async move {
             if let Some(ws) = ws_stream {
@@ -116,7 +289,7 @@ impl ParadexWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache, &authenticated).await;
                             }
                         }
                         Some(Ok(Message::Ping(data))) => {
@@ -138,10 +311,26 @@ impl ParadexWs {
         data: &Value,
         subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
         orderbook_cache: &Arc<RwLock<HashMap<String, OrderBook>>>,
+        authenticated: &Arc<RwLock<bool>>,
     ) {
-        // Check for subscription method
         let method = data.get("method").and_then(|v| v.as_str()).unwrap_or("");
 
+        // Handle auth response
+        if method == "auth" {
+            if let Some(result) = data.get("result") {
+                if result.get("authenticated").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    *authenticated.write().await = true;
+                    // Notify subscribers of successful authentication
+                    let subs = subscriptions.read().await;
+                    if let Some(sender) = subs.get("private:auth") {
+                        let _ = sender.send(WsMessage::Authenticated);
+                    }
+                }
+            }
+            return;
+        }
+
+        // Only process subscription messages
         if method != "subscription" {
             return;
         }
@@ -150,9 +339,10 @@ impl ParadexWs {
         if let Some(params) = data.get("params") {
             let channel = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
             let parts: Vec<&str> = channel.split('.').collect();
-            let channel_type = parts.get(0).copied().unwrap_or("");
+            let channel_type = parts.first().copied().unwrap_or("");
 
             match channel_type {
+                // Public channels
                 "trades" => {
                     Self::handle_trade(params, subscriptions).await;
                 }
@@ -161,6 +351,16 @@ impl ParadexWs {
                 }
                 "markets_summary" => {
                     Self::handle_ticker(params, subscriptions).await;
+                }
+                // Private channels
+                "orders" => {
+                    Self::handle_orders(params, subscriptions).await;
+                }
+                "fills" => {
+                    Self::handle_fills(params, subscriptions).await;
+                }
+                "positions" => {
+                    Self::handle_positions(params, subscriptions).await;
                 }
                 _ => {}
             }
@@ -341,6 +541,256 @@ impl ParadexWs {
         }
         symbol.to_string()
     }
+
+    /// Handle orders update (private channel)
+    async fn handle_orders(
+        params: &Value,
+        subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
+    ) {
+        if let Some(data) = params.get("data") {
+            let market_id = data.get("market").and_then(|v| v.as_str()).unwrap_or("");
+            let symbol = Self::parse_symbol_static(market_id);
+
+            // Parse order status
+            let status_str = data.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let status = match status_str.to_uppercase().as_str() {
+                "NEW" | "OPEN" => OrderStatus::Open,
+                "FILLED" => OrderStatus::Closed,
+                "PARTIALLY_FILLED" => OrderStatus::Open,
+                "CANCELED" | "CANCELLED" => OrderStatus::Canceled,
+                "REJECTED" => OrderStatus::Rejected,
+                "EXPIRED" => OrderStatus::Expired,
+                _ => OrderStatus::Open,
+            };
+
+            // Parse order side
+            let side_str = data.get("side").and_then(|v| v.as_str()).unwrap_or("");
+            let side = match side_str.to_uppercase().as_str() {
+                "BUY" => OrderSide::Buy,
+                "SELL" => OrderSide::Sell,
+                _ => OrderSide::Buy,
+            };
+
+            // Parse order type
+            let type_str = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            let order_type = match type_str.to_uppercase().as_str() {
+                "LIMIT" => OrderType::Limit,
+                "MARKET" => OrderType::Market,
+                "STOP_LIMIT" => OrderType::StopLimit,
+                "STOP_MARKET" => OrderType::StopMarket,
+                _ => OrderType::Limit,
+            };
+
+            let price = data.get("price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok());
+            let amount = data.get("size")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default();
+            let filled = data.get("filled_size")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default();
+            let average = data.get("avg_fill_price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok());
+            let timestamp = data.get("updated_at").and_then(|v| v.as_i64())
+                .or_else(|| data.get("created_at").and_then(|v| v.as_i64()));
+
+            let order = Order {
+                id: data.get("id").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
+                client_order_id: data.get("client_id").and_then(|v| v.as_str()).map(String::from),
+                symbol: symbol.clone(),
+                order_type,
+                side,
+                price,
+                amount,
+                filled,
+                remaining: Some(amount - filled),
+                average,
+                status,
+                timestamp,
+                datetime: timestamp.map(|ts| {
+                    chrono::DateTime::from_timestamp_millis(ts)
+                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+                        .unwrap_or_default()
+                }),
+                reduce_only: data.get("reduce_only").and_then(|v| v.as_bool()),
+                post_only: data.get("post_only").and_then(|v| v.as_bool()),
+                ..Default::default()
+            };
+
+            let subs = subscriptions.read().await;
+            // Notify symbol-specific subscribers
+            let key = format!("orders:{}", symbol);
+            if let Some(sender) = subs.get(&key) {
+                let _ = sender.send(WsMessage::Order(WsOrderEvent { order: order.clone() }));
+            }
+            // Notify all-orders subscribers
+            if let Some(sender) = subs.get("orders:ALL") {
+                let _ = sender.send(WsMessage::Order(WsOrderEvent { order }));
+            }
+        }
+    }
+
+    /// Handle fills update (private channel)
+    async fn handle_fills(
+        params: &Value,
+        subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
+    ) {
+        if let Some(data) = params.get("data") {
+            let market_id = data.get("market").and_then(|v| v.as_str()).unwrap_or("");
+            let symbol = Self::parse_symbol_static(market_id);
+
+            let side_str = data.get("side").and_then(|v| v.as_str()).unwrap_or("");
+            let side = match side_str.to_uppercase().as_str() {
+                "BUY" => Some("buy".to_string()),
+                "SELL" => Some("sell".to_string()),
+                _ => None,
+            };
+
+            let liquidity = data.get("liquidity").and_then(|v| v.as_str()).unwrap_or("");
+            let taker_or_maker = match liquidity.to_uppercase().as_str() {
+                "MAKER" => Some(TakerOrMaker::Maker),
+                "TAKER" => Some(TakerOrMaker::Taker),
+                _ => None,
+            };
+
+            let price = data.get("price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default();
+            let amount = data.get("size")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default();
+            let timestamp = data.get("created_at").and_then(|v| v.as_i64());
+
+            // Build Fee struct
+            let fee_cost = data.get("fee")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok());
+            let fee_currency = data.get("fee_currency")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let fee = if fee_cost.is_some() || fee_currency.is_some() {
+                Some(Fee {
+                    cost: fee_cost,
+                    currency: fee_currency,
+                    rate: None,
+                })
+            } else {
+                None
+            };
+
+            let mut trade = Trade::new(
+                data.get("id").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
+                symbol.clone(),
+                price,
+                amount,
+            );
+
+            if let Some(ts) = timestamp {
+                trade = trade.with_timestamp(ts);
+            }
+            trade.side = side;
+            trade.taker_or_maker = taker_or_maker;
+            trade.order = data.get("order_id").and_then(|v| v.as_str()).map(String::from);
+            trade.fee = fee;
+
+            let subs = subscriptions.read().await;
+            // Notify symbol-specific subscribers
+            let key = format!("my_trades:{}", symbol);
+            if let Some(sender) = subs.get(&key) {
+                let _ = sender.send(WsMessage::MyTrade(WsMyTradeEvent {
+                    symbol: symbol.clone(),
+                    trades: vec![trade.clone()],
+                }));
+            }
+            // Notify all-trades subscribers
+            if let Some(sender) = subs.get("my_trades:ALL") {
+                let _ = sender.send(WsMessage::MyTrade(WsMyTradeEvent {
+                    symbol: symbol.clone(),
+                    trades: vec![trade],
+                }));
+            }
+        }
+    }
+
+    /// Handle positions update (private channel)
+    async fn handle_positions(
+        params: &Value,
+        subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
+    ) {
+        if let Some(data) = params.get("data") {
+            let positions = if data.is_array() {
+                data.as_array().cloned().unwrap_or_default()
+            } else {
+                vec![data.clone()]
+            };
+
+            let mut parsed_positions = Vec::new();
+            for pos_data in positions {
+                let market_id = pos_data.get("market").and_then(|v| v.as_str()).unwrap_or("");
+                let symbol = Self::parse_symbol_static(market_id);
+
+                let side_str = pos_data.get("side").and_then(|v| v.as_str()).unwrap_or("");
+                let side = match side_str.to_uppercase().as_str() {
+                    "LONG" | "BUY" => Some(PositionSide::Long),
+                    "SHORT" | "SELL" => Some(PositionSide::Short),
+                    _ => Some(PositionSide::Long),
+                };
+
+                let contracts = pos_data.get("size")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| Decimal::from_str(s).ok());
+                let entry_price = pos_data.get("entry_price")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| Decimal::from_str(s).ok());
+                let mark_price = pos_data.get("mark_price")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| Decimal::from_str(s).ok());
+                let unrealized_pnl = pos_data.get("unrealized_pnl")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| Decimal::from_str(s).ok());
+                let liquidation_price = pos_data.get("liquidation_price")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| Decimal::from_str(s).ok());
+                let leverage = pos_data.get("leverage")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| Decimal::from_str(s).ok());
+                let timestamp = pos_data.get("updated_at").and_then(|v| v.as_i64());
+
+                let mut position = Position::new(symbol.clone());
+                position.side = side;
+                position.contracts = contracts;
+                position.entry_price = entry_price;
+                position.mark_price = mark_price;
+                position.unrealized_pnl = unrealized_pnl;
+                position.liquidation_price = liquidation_price;
+                position.leverage = leverage;
+                position.margin_mode = Some(MarginMode::Cross); // Paradex uses cross margin
+                position.timestamp = timestamp;
+                position.datetime = timestamp.map(|ts| {
+                    chrono::DateTime::from_timestamp_millis(ts)
+                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+                        .unwrap_or_default()
+                });
+
+                parsed_positions.push(position);
+            }
+
+            if !parsed_positions.is_empty() {
+                let subs = subscriptions.read().await;
+                if let Some(sender) = subs.get("positions") {
+                    let _ = sender.send(WsMessage::Position(WsPositionEvent {
+                        positions: parsed_positions,
+                    }));
+                }
+            }
+        }
+    }
 }
 
 impl Default for ParadexWs {
@@ -352,10 +802,11 @@ impl Default for ParadexWs {
 #[async_trait]
 impl WsExchange for ParadexWs {
     async fn ws_connect(&mut self) -> CcxtResult<()> {
-        let (ws_stream, _) = connect_async(WS_URL)
+        let ws_url = self.get_ws_url();
+        let (ws_stream, _) = connect_async(ws_url)
             .await
             .map_err(|e| CcxtError::NetworkError {
-                url: WS_URL.to_string(),
+                url: ws_url.to_string(),
                 message: format!("WebSocket connection failed: {}", e),
             })?;
 
@@ -366,22 +817,46 @@ impl WsExchange for ParadexWs {
     }
 
     async fn ws_close(&mut self) -> CcxtResult<()> {
+        let ws_url = self.get_ws_url();
         if let Some(ws) = &self.ws_stream {
             let mut ws_guard = ws.write().await;
             ws_guard
                 .close(None)
                 .await
                 .map_err(|e| CcxtError::NetworkError {
-                    url: WS_URL.to_string(),
+                    url: ws_url.to_string(),
                     message: format!("Failed to close WebSocket: {}", e),
                 })?;
         }
         self.ws_stream = None;
+        *self.authenticated.write().await = false;
         Ok(())
     }
 
     async fn ws_is_connected(&self) -> bool {
         self.ws_stream.is_some()
+    }
+
+    async fn ws_authenticate(&mut self) -> CcxtResult<()> {
+        if !self.ws_is_connected().await {
+            return Err(CcxtError::NetworkError {
+                url: self.get_ws_url().to_string(),
+                message: "WebSocket not connected. Call ws_connect() first.".into(),
+            });
+        }
+
+        self.send_auth().await?;
+
+        // Wait for authentication response
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        if *self.authenticated.read().await {
+            Ok(())
+        } else {
+            Err(CcxtError::AuthenticationError {
+                message: "WebSocket authentication failed".into(),
+            })
+        }
     }
 
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -518,6 +993,91 @@ impl WsExchange for ParadexWs {
             feature: "Paradex WebSocket does not support OHLCV".to_string(),
         })
     }
+
+    // === Private Channels ===
+
+    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        if !self.has_jwt() {
+            return Err(CcxtError::AuthenticationError {
+                message: "JWT token required for watch_orders. Use ParadexWs::with_jwt()".into(),
+            });
+        }
+
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        if let Some(sym) = symbol {
+            let key = format!("orders:{}", sym);
+            {
+                let mut subs = self.subscriptions.write().await;
+                subs.insert(key, tx);
+            }
+            let market_id = self.format_symbol(sym);
+            let channel = format!("orders.{}", market_id);
+            self.subscribe_private(&channel).await?;
+        } else {
+            // Subscribe to all orders
+            {
+                let mut subs = self.subscriptions.write().await;
+                subs.insert("orders:ALL".to_string(), tx);
+            }
+            // Paradex may require subscribing to specific markets or use a wildcard
+            self.subscribe_private("orders").await?;
+        }
+
+        Ok(rx)
+    }
+
+    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        if !self.has_jwt() {
+            return Err(CcxtError::AuthenticationError {
+                message: "JWT token required for watch_my_trades. Use ParadexWs::with_jwt()".into(),
+            });
+        }
+
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        if let Some(sym) = symbol {
+            let key = format!("my_trades:{}", sym);
+            {
+                let mut subs = self.subscriptions.write().await;
+                subs.insert(key, tx);
+            }
+            let market_id = self.format_symbol(sym);
+            let channel = format!("fills.{}", market_id);
+            self.subscribe_private(&channel).await?;
+        } else {
+            // Subscribe to all fills
+            {
+                let mut subs = self.subscriptions.write().await;
+                subs.insert("my_trades:ALL".to_string(), tx);
+            }
+            self.subscribe_private("fills").await?;
+        }
+
+        Ok(rx)
+    }
+
+    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        if !self.has_jwt() {
+            return Err(CcxtError::AuthenticationError {
+                message: "JWT token required for watch_positions. Use ParadexWs::with_jwt()".into(),
+            });
+        }
+
+        let _ = symbols; // Paradex positions channel returns all positions
+
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        {
+            let mut subs = self.subscriptions.write().await;
+            subs.insert("positions".to_string(), tx);
+        }
+
+        // Paradex positions channel
+        self.subscribe_private("positions").await?;
+
+        Ok(rx)
+    }
 }
 
 #[cfg(test)]
@@ -526,20 +1086,167 @@ mod tests {
 
     #[test]
     fn test_paradex_ws_creation() {
-        let _ws = ParadexWs::new();
+        let ws = ParadexWs::new();
+        assert!(!ws.has_jwt());
+        assert!(!ws.testnet);
+    }
+
+    #[test]
+    fn test_paradex_ws_testnet() {
+        let ws = ParadexWs::testnet();
+        assert!(!ws.has_jwt());
+        assert!(ws.testnet);
+        assert_eq!(ws.get_ws_url(), WS_TESTNET_URL);
+    }
+
+    #[test]
+    fn test_paradex_ws_with_jwt() {
+        let ws = ParadexWs::with_jwt("test_jwt_token", false);
+        assert!(ws.has_jwt());
+        assert!(!ws.testnet);
+        assert_eq!(ws.get_ws_url(), WS_URL);
+    }
+
+    #[test]
+    fn test_paradex_ws_with_jwt_testnet() {
+        let ws = ParadexWs::with_jwt("test_jwt_token", true);
+        assert!(ws.has_jwt());
+        assert!(ws.testnet);
+        assert_eq!(ws.get_ws_url(), WS_TESTNET_URL);
     }
 
     #[test]
     fn test_format_symbol() {
         let ws = ParadexWs::new();
         assert_eq!(ws.format_symbol("BTC/USD:USD"), "BTC-USD-PERP");
+        assert_eq!(ws.format_symbol("ETH/USD:USD"), "ETH-USD-PERP");
         assert_eq!(ws.format_symbol("ETH/USD"), "ETH-USD");
+        assert_eq!(ws.format_symbol("SOL/USDC"), "SOL-USDC");
     }
 
     #[test]
     fn test_parse_symbol() {
         let ws = ParadexWs::new();
         assert_eq!(ws.parse_symbol("BTC-USD-PERP"), "BTC/USD:USD");
+        assert_eq!(ws.parse_symbol("ETH-USD-PERP"), "ETH/USD:USD");
         assert_eq!(ws.parse_symbol("ETH-USD"), "ETH/USD");
+        assert_eq!(ws.parse_symbol("SOL-USDC"), "SOL/USDC");
+    }
+
+    #[test]
+    fn test_parse_symbol_static() {
+        assert_eq!(ParadexWs::parse_symbol_static("BTC-USD-PERP"), "BTC/USD:USD");
+        assert_eq!(ParadexWs::parse_symbol_static("ETH-USD"), "ETH/USD");
+        assert_eq!(ParadexWs::parse_symbol_static("UNKNOWN"), "UNKNOWN");
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_flag() {
+        let ws = ParadexWs::new();
+        assert!(!ws.is_authenticated().await);
+    }
+
+    #[tokio::test]
+    async fn test_watch_orders_requires_jwt() {
+        let ws = ParadexWs::new();
+        let result = ws.watch_orders(Some("BTC/USD:USD")).await;
+        assert!(result.is_err());
+        if let Err(CcxtError::AuthenticationError { message }) = result {
+            assert!(message.contains("JWT token required"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_watch_my_trades_requires_jwt() {
+        let ws = ParadexWs::new();
+        let result = ws.watch_my_trades(Some("BTC/USD:USD")).await;
+        assert!(result.is_err());
+        if let Err(CcxtError::AuthenticationError { message }) = result {
+            assert!(message.contains("JWT token required"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_watch_positions_requires_jwt() {
+        let ws = ParadexWs::new();
+        let result = ws.watch_positions(None).await;
+        assert!(result.is_err());
+        if let Err(CcxtError::AuthenticationError { message }) = result {
+            assert!(message.contains("JWT token required"));
+        }
+    }
+
+    #[test]
+    fn test_order_update_parsing() {
+        let order_json = serde_json::json!({
+            "id": "123",
+            "market": "BTC-USD-PERP",
+            "side": "BUY",
+            "type": "LIMIT",
+            "size": "0.1",
+            "price": "50000",
+            "status": "OPEN",
+            "filled_size": "0",
+            "created_at": 1700000000000i64
+        });
+
+        let order: ParadexOrderUpdate = serde_json::from_value(order_json).unwrap();
+        assert_eq!(order.id, "123");
+        assert_eq!(order.market, "BTC-USD-PERP");
+        assert_eq!(order.side, "BUY");
+        assert_eq!(order.r#type, "LIMIT");
+        assert_eq!(order.size, "0.1");
+        assert_eq!(order.price, Some("50000".to_string()));
+        assert_eq!(order.status, "OPEN");
+    }
+
+    #[test]
+    fn test_fill_update_parsing() {
+        let fill_json = serde_json::json!({
+            "id": "fill_123",
+            "order_id": "order_456",
+            "market": "ETH-USD-PERP",
+            "side": "SELL",
+            "size": "1.5",
+            "price": "2000",
+            "fee": "0.5",
+            "fee_currency": "USD",
+            "liquidity": "MAKER",
+            "created_at": 1700000000000i64
+        });
+
+        let fill: ParadexFillUpdate = serde_json::from_value(fill_json).unwrap();
+        assert_eq!(fill.id, "fill_123");
+        assert_eq!(fill.order_id, "order_456");
+        assert_eq!(fill.market, "ETH-USD-PERP");
+        assert_eq!(fill.side, "SELL");
+        assert_eq!(fill.size, "1.5");
+        assert_eq!(fill.price, "2000");
+        assert_eq!(fill.fee, Some("0.5".to_string()));
+        assert_eq!(fill.liquidity, Some("MAKER".to_string()));
+    }
+
+    #[test]
+    fn test_position_update_parsing() {
+        let position_json = serde_json::json!({
+            "market": "BTC-USD-PERP",
+            "side": "LONG",
+            "size": "0.5",
+            "entry_price": "45000",
+            "mark_price": "46000",
+            "unrealized_pnl": "500",
+            "liquidation_price": "40000",
+            "leverage": "10",
+            "updated_at": 1700000000000i64
+        });
+
+        let position: ParadexPositionUpdate = serde_json::from_value(position_json).unwrap();
+        assert_eq!(position.market, "BTC-USD-PERP");
+        assert_eq!(position.side, "LONG");
+        assert_eq!(position.size, "0.5");
+        assert_eq!(position.entry_price, Some("45000".to_string()));
+        assert_eq!(position.mark_price, Some("46000".to_string()));
+        assert_eq!(position.unrealized_pnl, Some("500".to_string()));
+        assert_eq!(position.leverage, Some("10".to_string()));
     }
 }

@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use crate::errors::CcxtResult;
-use super::{OrderBook, Ticker, Trade, OHLCV, Order, Balances, Timeframe};
+use super::{OrderBook, Position, Ticker, Trade, OHLCV, Order, Balances, Timeframe};
 
 /// WebSocket 티커 이벤트
 #[derive(Debug, Clone)]
@@ -51,6 +51,19 @@ pub struct WsBalanceEvent {
     pub balances: Balances,
 }
 
+/// WebSocket 포지션 이벤트
+#[derive(Debug, Clone)]
+pub struct WsPositionEvent {
+    pub positions: Vec<Position>,
+}
+
+/// WebSocket 내 체결 이벤트 (Private)
+#[derive(Debug, Clone)]
+pub struct WsMyTradeEvent {
+    pub symbol: String,
+    pub trades: Vec<Trade>,
+}
+
 /// WebSocket 스트림 메시지 타입
 #[derive(Debug, Clone)]
 pub enum WsMessage {
@@ -66,6 +79,10 @@ pub enum WsMessage {
     Order(WsOrderEvent),
     /// 잔고 업데이트 (비공개)
     Balance(WsBalanceEvent),
+    /// 포지션 업데이트 (비공개)
+    Position(WsPositionEvent),
+    /// 내 체결 업데이트 (비공개)
+    MyTrade(WsMyTradeEvent),
     /// 연결됨
     Connected,
     /// 연결 해제됨

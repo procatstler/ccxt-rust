@@ -7,6 +7,7 @@
 //! - `common`: 공통 트레이트 및 유틸리티
 //! - `evm`: EVM 호환 체인용 (Keccak256, EIP-712, secp256k1)
 //! - `starknet`: StarkNet 체인용 (Poseidon, SNIP-12, StarkNet 곡선)
+//! - `cosmos`: Cosmos SDK 체인용 (BIP-44, Bech32, secp256k1)
 //!
 //! # 사용 예시
 //!
@@ -34,10 +35,26 @@
 //! let order = ParadexOrder::new("ETH-USD", "Buy", "Limit", "1.0");
 //! let (r, s) = wallet.sign_order(&order, "SN_MAIN")?;
 //! ```
+//!
+//! ## Cosmos SDK (dYdX v4)
+//!
+//! ```rust,ignore
+//! use ccxt_rust::crypto::cosmos::{CosmosWallet, DYDX_MAINNET};
+//!
+//! // 니모닉에서 dYdX 지갑 생성
+//! let wallet = CosmosWallet::from_mnemonic(&mnemonic, &DYDX_MAINNET, 0)?;
+//!
+//! // 주소 확인
+//! println!("Address: {}", wallet.address());
+//!
+//! // 메시지 서명
+//! let signature = wallet.sign_bytes(b"Hello, dYdX!")?;
+//! ```
 
 pub mod common;
 pub mod evm;
 pub mod starknet;
+pub mod cosmos;
 
 // Re-exports: Common
 pub use common::{Signature, Signer, TypedDataHasher};
@@ -58,4 +75,20 @@ pub use starknet::{
     StarkNetDomain, StarkNetTypedData, StarkNetTypedDataField, encode_typed_data_hash,
     StarkNetAccount, derive_starknet_private_key, compute_starknet_address,
     StarkNetWallet, ParadexOrder,
+};
+
+// Re-exports: Cosmos
+pub use cosmos::{
+    // Keys
+    derive_private_key as cosmos_derive_private_key,
+    mnemonic_to_seed, private_key_to_public_key as cosmos_public_key,
+    CosmosKeyPair,
+    // Address
+    public_key_to_address as cosmos_address,
+    ChainConfig, DYDX_MAINNET, DYDX_TESTNET, COSMOS_HUB, OSMOSIS, INJECTIVE,
+    // Signer
+    sign_bytes as cosmos_sign_bytes, sign_amino,
+    CosmosSignature,
+    // Wallet
+    CosmosWallet,
 };

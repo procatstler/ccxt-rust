@@ -10,11 +10,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
+use std::str::FromStr;
+
 use crate::client::{WsClient, WsConfig, WsEvent};
-use crate::errors::CcxtResult;
+use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, OHLCV,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent, WsOhlcvEvent,
+    Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe,
+    TimeInForce, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent,
+    WsOrderBookEvent, WsOrderEvent, WsOhlcvEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
 };
 
 const WS_BASE_URL: &str = "wss://fstream.binance.com/ws";
@@ -25,6 +29,9 @@ pub struct BinanceFuturesWs {
     ws_client: Option<WsClient>,
     subscriptions: Arc<RwLock<HashMap<String, String>>>,
     event_tx: Option<mpsc::UnboundedSender<WsMessage>>,
+    api_key: Option<String>,
+    api_secret: Option<String>,
+    listen_key: Option<String>,
 }
 
 impl BinanceFuturesWs {
@@ -34,7 +41,43 @@ impl BinanceFuturesWs {
             ws_client: None,
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
             event_tx: None,
+            api_key: None,
+            api_secret: None,
+            listen_key: None,
         }
+    }
+
+    /// API 자격 증명으로 클라이언트 생성
+    pub fn with_credentials(api_key: String, api_secret: String) -> Self {
+        Self {
+            ws_client: None,
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            event_tx: None,
+            api_key: Some(api_key),
+            api_secret: Some(api_secret),
+            listen_key: None,
+        }
+    }
+
+    /// API 자격 증명 설정
+    pub fn set_credentials(&mut self, api_key: String, api_secret: String) {
+        self.api_key = Some(api_key);
+        self.api_secret = Some(api_secret);
+    }
+
+    /// API 키 반환
+    pub fn get_api_key(&self) -> Option<&str> {
+        self.api_key.as_deref()
+    }
+
+    /// Listen Key 설정
+    pub fn set_listen_key(&mut self, listen_key: String) {
+        self.listen_key = Some(listen_key);
+    }
+
+    /// Listen Key 반환
+    pub fn get_listen_key(&self) -> Option<&str> {
+        self.listen_key.as_deref()
     }
 
     /// 심볼을 Binance 형식으로 변환 (BTC/USDT:USDT -> btcusdt)
@@ -328,7 +371,331 @@ impl BinanceFuturesWs {
             }
         }
 
+        // === Private Stream Events ===
+
+        // ORDER_TRADE_UPDATE - Order and trade updates
+        if msg.contains("\"e\":\"ORDER_TRADE_UPDATE\"") {
+            if let Ok(data) = serde_json::from_str::<BinanceFuturesOrderUpdate>(msg) {
+                // Check if this is a fill event
+                if data.o.x == "TRADE" {
+                    // This is a trade/fill event
+                    if let Some(trade_event) = Self::parse_my_trade(&data) {
+                        return Some(WsMessage::MyTrade(trade_event));
+                    }
+                }
+                // Always send order update
+                if let Some(order_event) = Self::parse_order_update(&data) {
+                    return Some(WsMessage::Order(order_event));
+                }
+            }
+        }
+
+        // ACCOUNT_UPDATE - Balance and position updates
+        if msg.contains("\"e\":\"ACCOUNT_UPDATE\"") {
+            if let Ok(data) = serde_json::from_str::<BinanceFuturesAccountUpdate>(msg) {
+                // Send position updates if available
+                if !data.a.P.is_empty() {
+                    if let Some(position_event) = Self::parse_position_update(&data) {
+                        return Some(WsMessage::Position(position_event));
+                    }
+                }
+                // Send balance updates if available
+                if !data.a.B.is_empty() {
+                    if let Some(balance_event) = Self::parse_balance_update(&data) {
+                        return Some(WsMessage::Balance(balance_event));
+                    }
+                }
+            }
+        }
+
+        // listenKeyExpired - Need to reconnect
+        if msg.contains("\"e\":\"listenKeyExpired\"") {
+            return Some(WsMessage::Error("Listen key expired, need to renew".into()));
+        }
+
         None
+    }
+
+    /// 주문 업데이트 파싱
+    fn parse_order_update(data: &BinanceFuturesOrderUpdate) -> Option<WsOrderEvent> {
+        let o = &data.o;
+        let symbol = Self::to_unified_symbol(&o.s);
+        let timestamp = data.E.unwrap_or_else(|| Utc::now().timestamp_millis());
+
+        let side = match o.S.as_str() {
+            "BUY" => OrderSide::Buy,
+            "SELL" => OrderSide::Sell,
+            _ => OrderSide::Buy,
+        };
+
+        let order_type = match o.o.as_str() {
+            "LIMIT" => OrderType::Limit,
+            "MARKET" => OrderType::Market,
+            "STOP" => OrderType::StopLimit,
+            "STOP_MARKET" => OrderType::StopMarket,
+            "TAKE_PROFIT" => OrderType::TakeProfitLimit,
+            "TAKE_PROFIT_MARKET" => OrderType::TakeProfitMarket,
+            "TRAILING_STOP_MARKET" => OrderType::TrailingStopMarket,
+            _ => OrderType::Limit,
+        };
+
+        let status = match o.X.as_str() {
+            "NEW" => OrderStatus::Open,
+            "PARTIALLY_FILLED" => OrderStatus::Open,
+            "FILLED" => OrderStatus::Closed,
+            "CANCELED" => OrderStatus::Canceled,
+            "EXPIRED" => OrderStatus::Expired,
+            "REJECTED" => OrderStatus::Rejected,
+            _ => OrderStatus::Open,
+        };
+
+        let time_in_force = match o.f.as_str() {
+            "GTC" => Some(TimeInForce::GTC),
+            "IOC" => Some(TimeInForce::IOC),
+            "FOK" => Some(TimeInForce::FOK),
+            "GTX" => Some(TimeInForce::PO), // Binance GTX = Post-Only
+            _ => None,
+        };
+
+        let amount = Decimal::from_str(&o.q).unwrap_or_default();
+        let filled = Decimal::from_str(&o.z).unwrap_or_default();
+        let price = Decimal::from_str(&o.p).unwrap_or_default();
+        let average = if filled > Decimal::ZERO {
+            let total_cost = Decimal::from_str(&o.Z).unwrap_or_default();
+            if total_cost > Decimal::ZERO {
+                Some(total_cost / filled)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let remaining = amount - filled;
+        let cost = if let Some(avg) = average {
+            Some(filled * avg)
+        } else {
+            None
+        };
+
+        let fee = if o.n.is_some() || o.N.is_some() {
+            Some(Fee {
+                currency: o.N.clone(),
+                cost: o.n.as_ref().and_then(|n| Decimal::from_str(n).ok()),
+                rate: None,
+            })
+        } else {
+            None
+        };
+
+        let order_timestamp = o.T.unwrap_or(timestamp);
+        let order = Order {
+            id: o.i.to_string(),
+            client_order_id: if o.c.is_empty() { None } else { Some(o.c.clone()) },
+            timestamp: Some(order_timestamp),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(order_timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
+            last_trade_timestamp: None,
+            last_update_timestamp: Some(timestamp),
+            status,
+            symbol: symbol.clone(),
+            order_type,
+            time_in_force,
+            side,
+            price: Some(price),
+            trigger_price: o.sp.as_ref().and_then(|sp| Decimal::from_str(sp).ok()),
+            stop_price: None,
+            take_profit_price: None,
+            stop_loss_price: None,
+            average,
+            amount,
+            filled,
+            remaining: Some(remaining),
+            cost,
+            trades: Vec::new(),
+            reduce_only: Some(o.R),
+            post_only: Some(o.f == "GTX"),
+            fee,
+            fees: Vec::new(),
+            info: serde_json::to_value(data).unwrap_or_default(),
+        };
+
+        Some(WsOrderEvent { order })
+    }
+
+    /// 내 체결 파싱
+    fn parse_my_trade(data: &BinanceFuturesOrderUpdate) -> Option<WsMyTradeEvent> {
+        let o = &data.o;
+        let symbol = Self::to_unified_symbol(&o.s);
+        let event_timestamp = data.E.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = o.T.unwrap_or(event_timestamp);
+
+        let side = if o.S == "BUY" { Some("buy".to_string()) } else { Some("sell".to_string()) };
+
+        let taker_or_maker = if o.m {
+            Some(TakerOrMaker::Maker)
+        } else {
+            Some(TakerOrMaker::Taker)
+        };
+
+        let last_qty = Decimal::from_str(&o.l).unwrap_or_default();
+        let last_price = Decimal::from_str(&o.L).unwrap_or_default();
+
+        if last_qty == Decimal::ZERO {
+            return None;
+        }
+
+        let fee = if o.n.is_some() || o.N.is_some() {
+            Some(Fee {
+                currency: o.N.clone(),
+                cost: o.n.as_ref().and_then(|n| Decimal::from_str(n).ok()),
+                rate: None,
+            })
+        } else {
+            None
+        };
+
+        let trade = Trade {
+            id: o.t.map(|t| t.to_string()).unwrap_or_default(),
+            order: Some(o.i.to_string()),
+            timestamp: Some(timestamp),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
+            symbol: symbol.clone(),
+            trade_type: None,
+            side,
+            taker_or_maker,
+            price: last_price,
+            amount: last_qty,
+            cost: Some(last_price * last_qty),
+            fee,
+            fees: Vec::new(),
+            info: serde_json::to_value(data).unwrap_or_default(),
+        };
+
+        Some(WsMyTradeEvent {
+            symbol,
+            trades: vec![trade],
+        })
+    }
+
+    /// 포지션 업데이트 파싱
+    fn parse_position_update(data: &BinanceFuturesAccountUpdate) -> Option<WsPositionEvent> {
+        let timestamp = data.E.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let mut positions = Vec::new();
+
+        for p in &data.a.P {
+            let symbol = Self::to_unified_symbol(&p.s);
+            let contracts = Decimal::from_str(&p.pa).unwrap_or_default();
+            let entry_price = Decimal::from_str(&p.ep).unwrap_or_default();
+            let unrealized_pnl = Decimal::from_str(&p.up).unwrap_or_default();
+
+            let side = if contracts > Decimal::ZERO {
+                Some(PositionSide::Long)
+            } else if contracts < Decimal::ZERO {
+                Some(PositionSide::Short)
+            } else {
+                None
+            };
+
+            let margin_mode = match p.mt.as_str() {
+                "cross" => Some(MarginMode::Cross),
+                "isolated" => Some(MarginMode::Isolated),
+                _ => None,
+            };
+
+            let position = Position {
+                id: None,
+                symbol: symbol.clone(),
+                timestamp: Some(timestamp),
+                datetime: Some(
+                    chrono::DateTime::from_timestamp_millis(timestamp)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
+                ),
+                side,
+                contracts: Some(contracts.abs()),
+                contract_size: None,
+                entry_price: Some(entry_price),
+                mark_price: None,
+                last_price: None,
+                notional: None,
+                leverage: None,
+                collateral: None,
+                initial_margin: None,
+                maintenance_margin: None,
+                initial_margin_percentage: None,
+                maintenance_margin_percentage: None,
+                unrealized_pnl: Some(unrealized_pnl),
+                realized_pnl: None,
+                liquidation_price: None,
+                margin_mode,
+                margin_ratio: None,
+                percentage: None,
+                hedged: None,
+                last_update_timestamp: Some(timestamp),
+                stop_loss_price: None,
+                take_profit_price: None,
+                info: serde_json::to_value(p).unwrap_or_default(),
+            };
+
+            positions.push(position);
+        }
+
+        if positions.is_empty() {
+            None
+        } else {
+            Some(WsPositionEvent { positions })
+        }
+    }
+
+    /// 잔고 업데이트 파싱
+    fn parse_balance_update(data: &BinanceFuturesAccountUpdate) -> Option<WsBalanceEvent> {
+        let timestamp = data.E.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let mut currencies: HashMap<String, Balance> = HashMap::new();
+
+        for b in &data.a.B {
+            let wallet_balance = Decimal::from_str(&b.wb).unwrap_or_default();
+            let cross_wallet_balance = Decimal::from_str(&b.cw).unwrap_or_default();
+            let _balance_change = Decimal::from_str(&b.bc).unwrap_or_default();
+
+            // For futures, 'free' is wallet balance, 'used' is in position margin
+            let free = cross_wallet_balance;
+            let used = wallet_balance - cross_wallet_balance;
+            let total = wallet_balance;
+
+            let balance = Balance {
+                free: Some(free),
+                used: Some(used),
+                total: Some(total),
+                debt: None,
+            };
+
+            currencies.insert(b.a.clone(), balance);
+        }
+
+        if currencies.is_empty() {
+            None
+        } else {
+            Some(WsBalanceEvent {
+                balances: Balances {
+                    currencies,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    info: serde_json::to_value(data).unwrap_or_default(),
+                },
+            })
+        }
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
@@ -429,6 +796,58 @@ impl BinanceFuturesWs {
 
         Ok(event_rx)
     }
+
+    /// Private 스트림 구독 (listenKey 사용)
+    async fn subscribe_private_stream(&mut self, listen_key: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        self.event_tx = Some(event_tx.clone());
+        self.listen_key = Some(listen_key.to_string());
+
+        let url = format!("{WS_BASE_URL}/{listen_key}");
+
+        let mut ws_client = WsClient::new(WsConfig {
+            url: url.clone(),
+            auto_reconnect: true,
+            reconnect_interval_ms: 5000,
+            max_reconnect_attempts: 10,
+            ping_interval_secs: 30,
+            connect_timeout_secs: 30,
+        });
+
+        let mut ws_rx = ws_client.connect().await?;
+        self.ws_client = Some(ws_client);
+
+        {
+            self.subscriptions.write().await.insert("private".to_string(), listen_key.to_string());
+        }
+
+        let tx = event_tx.clone();
+        tokio::spawn(async move {
+            while let Some(event) = ws_rx.recv().await {
+                match event {
+                    WsEvent::Connected => {
+                        let _ = tx.send(WsMessage::Connected);
+                        // Private stream은 연결 즉시 인증됨 (listenKey 사용)
+                        let _ = tx.send(WsMessage::Authenticated);
+                    }
+                    WsEvent::Disconnected => {
+                        let _ = tx.send(WsMessage::Disconnected);
+                    }
+                    WsEvent::Message(msg) => {
+                        if let Some(ws_msg) = Self::process_message(&msg) {
+                            let _ = tx.send(ws_msg);
+                        }
+                    }
+                    WsEvent::Error(err) => {
+                        let _ = tx.send(WsMessage::Error(err));
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(event_rx)
+    }
 }
 
 impl Default for BinanceFuturesWs {
@@ -515,6 +934,77 @@ impl WsExchange for BinanceFuturesWs {
         } else {
             false
         }
+    }
+
+    /// WebSocket 인증 (Private 스트림용)
+    /// Binance Futures는 listenKey를 통해 인증하므로 이 메서드는 성공 반환
+    async fn ws_authenticate(&mut self) -> CcxtResult<()> {
+        if self.listen_key.is_some() {
+            Ok(())
+        } else {
+            Err(CcxtError::AuthenticationError {
+                message: "Listen key not set. Call set_listen_key() first.".into(),
+            })
+        }
+    }
+
+    /// 주문 변경 구독 (인증 필요)
+    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let listen_key = self.listen_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "Listen key required for private streams. Call set_listen_key() first.".into(),
+        })?;
+
+        let mut client = Self::with_credentials(
+            self.api_key.clone().unwrap_or_default(),
+            self.api_secret.clone().unwrap_or_default(),
+        );
+
+        let _ = symbol; // Orders come for all symbols in user data stream
+        client.subscribe_private_stream(listen_key).await
+    }
+
+    /// 내 체결 내역 구독 (인증 필요)
+    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let listen_key = self.listen_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "Listen key required for private streams. Call set_listen_key() first.".into(),
+        })?;
+
+        let mut client = Self::with_credentials(
+            self.api_key.clone().unwrap_or_default(),
+            self.api_secret.clone().unwrap_or_default(),
+        );
+
+        let _ = symbol; // Trades come for all symbols in user data stream
+        client.subscribe_private_stream(listen_key).await
+    }
+
+    /// 포지션 구독 (인증 필요)
+    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let listen_key = self.listen_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "Listen key required for private streams. Call set_listen_key() first.".into(),
+        })?;
+
+        let mut client = Self::with_credentials(
+            self.api_key.clone().unwrap_or_default(),
+            self.api_secret.clone().unwrap_or_default(),
+        );
+
+        let _ = symbols; // Positions come for all symbols in user data stream
+        client.subscribe_private_stream(listen_key).await
+    }
+
+    /// 잔고 변경 구독 (인증 필요)
+    async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let listen_key = self.listen_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
+            message: "Listen key required for private streams. Call set_listen_key() first.".into(),
+        })?;
+
+        let mut client = Self::with_credentials(
+            self.api_key.clone().unwrap_or_default(),
+            self.api_secret.clone().unwrap_or_default(),
+        );
+
+        client.subscribe_private_stream(listen_key).await
     }
 }
 
@@ -663,6 +1153,119 @@ struct BinanceFuturesKline {
     Q: Option<String>,  // Taker buy quote volume
 }
 
+// === Private Stream Types ===
+
+/// ORDER_TRADE_UPDATE 이벤트
+#[derive(Debug, Deserialize, Serialize)]
+#[allow(non_snake_case)]
+struct BinanceFuturesOrderUpdate {
+    e: String,       // Event type
+    #[serde(default)]
+    E: Option<i64>,  // Event time
+    T: i64,          // Transaction time
+    o: BinanceFuturesOrderData,
+}
+
+/// 주문 데이터
+#[derive(Debug, Deserialize, Serialize)]
+#[allow(non_snake_case)]
+struct BinanceFuturesOrderData {
+    s: String,       // Symbol
+    c: String,       // Client order ID
+    S: String,       // Side (BUY/SELL)
+    o: String,       // Order type
+    f: String,       // Time in force
+    q: String,       // Original quantity
+    p: String,       // Original price
+    #[serde(default)]
+    ap: Option<String>, // Average price
+    #[serde(default)]
+    sp: Option<String>, // Stop price
+    x: String,       // Execution type (NEW, TRADE, CANCELED, etc.)
+    X: String,       // Order status
+    i: i64,          // Order ID
+    l: String,       // Last filled quantity
+    z: String,       // Cumulative filled quantity
+    L: String,       // Last filled price
+    #[serde(default)]
+    N: Option<String>, // Commission asset
+    #[serde(default)]
+    n: Option<String>, // Commission
+    #[serde(default)]
+    T: Option<i64>,  // Order trade time (optional, not present for NEW orders)
+    #[serde(default)]
+    t: Option<i64>,  // Trade ID
+    #[serde(default)]
+    b: Option<String>, // Bids notional
+    #[serde(default)]
+    a: Option<String>, // Asks notional
+    m: bool,         // Is maker
+    R: bool,         // Is reduce only
+    #[serde(default)]
+    wt: Option<String>, // Working type
+    #[serde(default)]
+    ot: Option<String>, // Original order type
+    #[serde(default)]
+    ps: Option<String>, // Position side
+    #[serde(default)]
+    cp: Option<bool>, // Close all
+    #[serde(default)]
+    AP: Option<String>, // Activation price
+    #[serde(default)]
+    cr: Option<String>, // Callback rate
+    #[serde(default)]
+    rp: Option<String>, // Realized profit
+    Z: String,       // Cumulative quote quantity
+}
+
+/// ACCOUNT_UPDATE 이벤트
+#[derive(Debug, Deserialize, Serialize)]
+#[allow(non_snake_case)]
+struct BinanceFuturesAccountUpdate {
+    e: String,       // Event type
+    #[serde(default)]
+    E: Option<i64>,  // Event time
+    T: i64,          // Transaction time
+    a: BinanceFuturesAccountData,
+}
+
+/// 계정 데이터
+#[derive(Debug, Deserialize, Serialize)]
+#[allow(non_snake_case)]
+struct BinanceFuturesAccountData {
+    m: String,       // Event reason type
+    #[serde(default)]
+    B: Vec<BinanceFuturesBalanceData>,
+    #[serde(default)]
+    P: Vec<BinanceFuturesPositionData>,
+}
+
+/// 잔고 데이터
+#[derive(Debug, Deserialize, Serialize)]
+#[allow(non_snake_case)]
+struct BinanceFuturesBalanceData {
+    a: String,       // Asset
+    wb: String,      // Wallet balance
+    cw: String,      // Cross wallet balance
+    bc: String,      // Balance change
+}
+
+/// 포지션 데이터
+#[derive(Debug, Deserialize, Serialize)]
+#[allow(non_snake_case)]
+struct BinanceFuturesPositionData {
+    s: String,       // Symbol
+    pa: String,      // Position amount
+    ep: String,      // Entry price
+    #[serde(default)]
+    cr: Option<String>, // Accumulated realized
+    up: String,      // Unrealized PnL
+    mt: String,      // Margin type
+    #[serde(default)]
+    iw: Option<String>, // Isolated wallet
+    ps: String,      // Position side
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -695,5 +1298,215 @@ mod tests {
 
         assert_eq!(event.symbol, "BTC/USDT:USDT");
         assert_eq!(event.ticker.close, Some(Decimal::new(5000000, 2)));
+    }
+
+    #[test]
+    fn test_with_credentials() {
+        let client = BinanceFuturesWs::with_credentials(
+            "test_api_key".to_string(),
+            "test_api_secret".to_string(),
+        );
+        assert_eq!(client.get_api_key(), Some("test_api_key"));
+    }
+
+    #[test]
+    fn test_set_listen_key() {
+        let mut client = BinanceFuturesWs::new();
+        assert!(client.get_listen_key().is_none());
+
+        client.set_listen_key("test_listen_key".to_string());
+        assert_eq!(client.get_listen_key(), Some("test_listen_key"));
+    }
+
+    #[test]
+    fn test_parse_order_update() {
+        let json = r#"{
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1568879465651,
+            "T": 1568879465650,
+            "o": {
+                "s": "BTCUSDT",
+                "c": "TEST",
+                "S": "BUY",
+                "o": "LIMIT",
+                "f": "GTC",
+                "q": "0.001",
+                "p": "50000.00",
+                "ap": "0",
+                "sp": "0",
+                "x": "NEW",
+                "X": "NEW",
+                "i": 8886774,
+                "l": "0",
+                "z": "0",
+                "L": "0",
+                "N": "USDT",
+                "n": "0",
+                "T": 1568879465651,
+                "t": 0,
+                "m": false,
+                "R": false,
+                "Z": "0"
+            }
+        }"#;
+
+        let data: BinanceFuturesOrderUpdate = serde_json::from_str(json).unwrap();
+        let event = BinanceFuturesWs::parse_order_update(&data).unwrap();
+
+        assert_eq!(event.order.symbol, "BTC/USDT:USDT");
+        assert_eq!(event.order.id, "8886774");
+        assert_eq!(event.order.side, OrderSide::Buy);
+        assert_eq!(event.order.order_type, OrderType::Limit);
+        assert_eq!(event.order.status, OrderStatus::Open);
+        assert_eq!(event.order.time_in_force, Some(TimeInForce::GTC));
+        assert_eq!(event.order.price, Some(Decimal::new(5000000, 2)));
+    }
+
+    #[test]
+    fn test_parse_my_trade() {
+        let json = r#"{
+            "e": "ORDER_TRADE_UPDATE",
+            "E": 1568879465651,
+            "T": 1568879465650,
+            "o": {
+                "s": "BTCUSDT",
+                "c": "TEST",
+                "S": "BUY",
+                "o": "LIMIT",
+                "f": "GTC",
+                "q": "0.001",
+                "p": "50000.00",
+                "ap": "50000.00",
+                "sp": "0",
+                "x": "TRADE",
+                "X": "FILLED",
+                "i": 8886774,
+                "l": "0.001",
+                "z": "0.001",
+                "L": "50000.00",
+                "N": "USDT",
+                "n": "0.025",
+                "T": 1568879465651,
+                "t": 123456,
+                "m": false,
+                "R": false,
+                "Z": "50.00"
+            }
+        }"#;
+
+        let data: BinanceFuturesOrderUpdate = serde_json::from_str(json).unwrap();
+        let event = BinanceFuturesWs::parse_my_trade(&data).unwrap();
+
+        assert_eq!(event.symbol, "BTC/USDT:USDT");
+        assert_eq!(event.trades.len(), 1);
+        let trade = &event.trades[0];
+        assert_eq!(trade.id, "123456");
+        assert_eq!(trade.side, Some("buy".to_string()));
+        assert_eq!(trade.price, Decimal::new(5000000, 2));
+        assert_eq!(trade.amount, Decimal::new(1, 3));
+        assert_eq!(trade.taker_or_maker, Some(TakerOrMaker::Taker));
+    }
+
+    #[test]
+    fn test_parse_position_update() {
+        let json = r#"{
+            "e": "ACCOUNT_UPDATE",
+            "E": 1564745798939,
+            "T": 1564745798938,
+            "a": {
+                "m": "ORDER",
+                "B": [],
+                "P": [
+                    {
+                        "s": "BTCUSDT",
+                        "pa": "1.000",
+                        "ep": "50000.00",
+                        "cr": "100.00",
+                        "up": "500.00",
+                        "mt": "cross",
+                        "iw": "0",
+                        "ps": "BOTH"
+                    }
+                ]
+            }
+        }"#;
+
+        let data: BinanceFuturesAccountUpdate = serde_json::from_str(json).unwrap();
+        let event = BinanceFuturesWs::parse_position_update(&data).unwrap();
+
+        assert_eq!(event.positions.len(), 1);
+        let position = &event.positions[0];
+        assert_eq!(position.symbol, "BTC/USDT:USDT");
+        assert_eq!(position.contracts, Some(Decimal::new(1000, 3)));
+        assert_eq!(position.entry_price, Some(Decimal::new(5000000, 2)));
+        assert_eq!(position.unrealized_pnl, Some(Decimal::new(50000, 2)));
+        assert_eq!(position.side, Some(PositionSide::Long));
+        assert_eq!(position.margin_mode, Some(MarginMode::Cross));
+    }
+
+    #[test]
+    fn test_parse_balance_update() {
+        let json = r#"{
+            "e": "ACCOUNT_UPDATE",
+            "E": 1564745798939,
+            "T": 1564745798938,
+            "a": {
+                "m": "DEPOSIT",
+                "B": [
+                    {
+                        "a": "USDT",
+                        "wb": "1000.00",
+                        "cw": "900.00",
+                        "bc": "100.00"
+                    }
+                ],
+                "P": []
+            }
+        }"#;
+
+        let data: BinanceFuturesAccountUpdate = serde_json::from_str(json).unwrap();
+        let event = BinanceFuturesWs::parse_balance_update(&data).unwrap();
+
+        let usdt_balance = event.balances.currencies.get("USDT").unwrap();
+        assert_eq!(usdt_balance.free, Some(Decimal::new(90000, 2)));
+        assert_eq!(usdt_balance.used, Some(Decimal::new(10000, 2)));
+        assert_eq!(usdt_balance.total, Some(Decimal::new(100000, 2)));
+    }
+
+    #[test]
+    fn test_process_message_order_update() {
+        let json = r#"{"e":"ORDER_TRADE_UPDATE","E":1568879465651,"T":1568879465650,"o":{"s":"BTCUSDT","c":"TEST","S":"SELL","o":"MARKET","f":"IOC","q":"0.5","p":"0","ap":"49000.00","sp":"0","x":"NEW","X":"NEW","i":8886774,"l":"0","z":"0","L":"0","m":false,"R":true,"Z":"0"}}"#;
+
+        let msg = BinanceFuturesWs::process_message(json);
+        assert!(msg.is_some());
+
+        if let Some(WsMessage::Order(event)) = msg {
+            assert_eq!(event.order.symbol, "BTC/USDT:USDT");
+            assert_eq!(event.order.side, OrderSide::Sell);
+            assert_eq!(event.order.order_type, OrderType::Market);
+            assert_eq!(event.order.reduce_only, Some(true));
+        } else {
+            panic!("Expected Order message");
+        }
+    }
+
+    #[test]
+    fn test_process_message_account_update() {
+        let json = r#"{"e":"ACCOUNT_UPDATE","E":1564745798939,"T":1564745798938,"a":{"m":"ORDER","B":[{"a":"BTC","wb":"10.0","cw":"9.0","bc":"1.0"}],"P":[{"s":"ETHUSDT","pa":"-2.0","ep":"3000.00","up":"-50.00","mt":"isolated","ps":"BOTH"}]}}"#;
+
+        // Test position message
+        let msg = BinanceFuturesWs::process_message(json);
+        assert!(msg.is_some());
+
+        if let Some(WsMessage::Position(event)) = msg {
+            assert_eq!(event.positions.len(), 1);
+            let pos = &event.positions[0];
+            assert_eq!(pos.symbol, "ETH/USDT:USDT");
+            assert_eq!(pos.side, Some(PositionSide::Short));
+            assert_eq!(pos.contracts, Some(Decimal::new(20, 1)));
+            assert_eq!(pos.margin_mode, Some(MarginMode::Isolated));
+        } else {
+            panic!("Expected Position message");
+        }
     }
 }
