@@ -1,6 +1,22 @@
 //! CCXT Type System
 //!
 //! CCXT 원본의 모든 타입을 Rust로 포팅
+//!
+//! # Module Organization
+//!
+//! ## Core Types
+//! Basic trading types like orders, trades, balances, etc.
+//!
+//! ## Sub-traits
+//! The monolithic `Exchange` trait is logically split into sub-traits:
+//! - [`traits::ExchangeBase`] - Core metadata and utilities
+//! - [`traits::PublicMarketApi`] - Public market data
+//! - [`traits::SpotTradingApi`] - Spot trading operations
+//! - [`traits::AccountApi`] - Account/wallet operations
+//! - [`traits::DerivativesApi`] - Futures/perpetual operations
+//! - [`traits::MarginApi`] - Margin trading
+//! - [`traits::OptionsApi`] - Options trading
+//! - [`traits::ConvertApi`] - Currency conversion
 
 // Core types
 mod balance;
@@ -31,6 +47,9 @@ mod account;
 // WebSocket types
 mod ws_exchange;
 
+// Sub-traits module
+pub mod traits;
+
 // Core type exports
 pub use balance::*;
 pub use currency::*;
@@ -59,3 +78,9 @@ pub use account::*;
 
 // WebSocket exports
 pub use ws_exchange::*;
+
+// Sub-trait re-exports for convenience
+pub use traits::{
+    AccountApi, ConvertApi, DerivativesApi, ExchangeBase, MarginApi,
+    OptionsApi, PublicMarketApi, SpotTradingApi,
+};
