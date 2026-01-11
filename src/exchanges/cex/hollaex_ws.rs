@@ -19,14 +19,14 @@ use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
-    OrderType, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
-    WsOrderEvent, WsOrderBookEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent, WsOrderEvent,
+    WsTradeEvent,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -76,12 +76,18 @@ impl HollaexWs {
 
     /// Generate authenticated WebSocket URL
     fn get_authenticated_url(&self) -> CcxtResult<String> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private streams".to_string(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private streams".to_string(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private streams".to_string(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for private streams".to_string(),
+                })?;
 
         // Calculate expiration (60 seconds from now)
         let expires = Utc::now().timestamp() + 60;
@@ -114,10 +120,12 @@ impl HollaexWs {
 
         let url = self.get_authenticated_url()?;
 
-        let (ws, _) = connect_async(&url).await.map_err(|e| CcxtError::NetworkError {
-            url: WS_URL.to_string(),
-            message: format!("Failed to connect to private WebSocket: {e}"),
-        })?;
+        let (ws, _) = connect_async(&url)
+            .await
+            .map_err(|e| CcxtError::NetworkError {
+                url: WS_URL.to_string(),
+                message: format!("Failed to connect to private WebSocket: {e}"),
+            })?;
 
         {
             let mut ws_guard = self.private_ws_stream.write().await;
@@ -174,17 +182,17 @@ impl HollaexWs {
                         if let Ok(data) = serde_json::from_str::<Value>(&text) {
                             Self::handle_private_message(&data, &subscriptions).await;
                         }
-                    }
+                    },
                     Some(Ok(Message::Ping(data))) => {
                         let mut ws_guard = ws_clone.write().await;
                         if let Some(ref mut ws) = *ws_guard {
                             let _ = ws.send(Message::Pong(data)).await;
                         }
-                    }
+                    },
                     Some(Ok(Message::Close(_))) => break,
                     Some(Err(_)) => break,
                     None => break,
-                    _ => {}
+                    _ => {},
                 }
             }
         });
@@ -200,11 +208,11 @@ impl HollaexWs {
         match topic {
             "wallet" => {
                 Self::handle_balance(data, subscriptions).await;
-            }
+            },
             "order" => {
                 Self::handle_order(data, subscriptions).await;
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -217,9 +225,7 @@ impl HollaexWs {
         let balance_data = data.get("data");
 
         if let Some(balance_data) = balance_data {
-            let timestamp = data.get("time")
-                .and_then(|v| v.as_i64())
-                .map(|t| t * 1000); // Convert to milliseconds
+            let timestamp = data.get("time").and_then(|v| v.as_i64()).map(|t| t * 1000); // Convert to milliseconds
 
             let mut currencies = HashMap::new();
 
@@ -238,7 +244,7 @@ impl HollaexWs {
                             match field_type {
                                 "available" => balance.free = decimal_amount,
                                 "balance" => balance.total = decimal_amount,
-                                _ => {}
+                                _ => {},
                             }
                         }
                     }
@@ -254,7 +260,11 @@ impl HollaexWs {
 
             let balances = Balances {
                 timestamp,
-                datetime: timestamp.and_then(|t| Utc.timestamp_millis_opt(t).single().map(|dt| dt.to_rfc3339())),
+                datetime: timestamp.and_then(|t| {
+                    Utc.timestamp_millis_opt(t)
+                        .single()
+                        .map(|dt| dt.to_rfc3339())
+                }),
                 currencies,
                 info: balance_data.clone(),
             };
@@ -279,18 +289,23 @@ impl HollaexWs {
         if let Some(order_data) = order_data {
             // Handle both single order and array of orders
             let orders: Vec<&Value> = if order_data.is_array() {
-                order_data.as_array().map(|a| a.iter().collect()).unwrap_or_default()
+                order_data
+                    .as_array()
+                    .map(|a| a.iter().collect())
+                    .unwrap_or_default()
             } else {
                 vec![order_data]
             };
 
             for order in orders {
-                let symbol = order.get("symbol")
+                let symbol = order
+                    .get("symbol")
                     .and_then(|v| v.as_str())
                     .map(|s| s.replace("-", "/").to_uppercase())
                     .unwrap_or_default();
 
-                let order_id = order.get("id")
+                let order_id = order
+                    .get("id")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string();
@@ -315,16 +330,19 @@ impl HollaexWs {
                     _ => OrderStatus::Open,
                 };
 
-                let price = order.get("price")
+                let price = order
+                    .get("price")
                     .and_then(|v| v.as_f64())
                     .and_then(Decimal::from_f64);
 
-                let amount = order.get("size")
+                let amount = order
+                    .get("size")
                     .and_then(|v| v.as_f64())
                     .and_then(Decimal::from_f64)
                     .unwrap_or(Decimal::ZERO);
 
-                let filled = order.get("filled")
+                let filled = order
+                    .get("filled")
                     .and_then(|v| v.as_f64())
                     .and_then(Decimal::from_f64)
                     .unwrap_or(Decimal::ZERO);
@@ -335,7 +353,8 @@ impl HollaexWs {
                     Some(Decimal::ZERO)
                 };
 
-                let timestamp = order.get("created_at")
+                let timestamp = order
+                    .get("created_at")
                     .and_then(|v| v.as_str())
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis());
@@ -355,7 +374,10 @@ impl HollaexWs {
                         cost: None,
                         average: None,
                         timestamp,
-                        datetime: order.get("created_at").and_then(|v| v.as_str()).map(String::from),
+                        datetime: order
+                            .get("created_at")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
                         last_trade_timestamp: None,
                         last_update_timestamp: None,
                         time_in_force: None,
@@ -373,7 +395,10 @@ impl HollaexWs {
                 };
 
                 // Compute symbol_hash before sending event to avoid borrow-after-move
-                let symbol_hash = format!("order:{}", event.order.symbol.to_lowercase().replace("/", "-"));
+                let symbol_hash = format!(
+                    "order:{}",
+                    event.order.symbol.to_lowercase().replace("/", "-")
+                );
 
                 let subs = subscriptions.read().await;
 
@@ -453,17 +478,22 @@ impl HollaexWs {
                                 }
 
                                 // Handle data messages
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -483,11 +513,11 @@ impl HollaexWs {
         match topic {
             "trade" => {
                 Self::handle_trades(data, subscriptions, symbol).await;
-            }
+            },
             "orderbook" => {
                 Self::handle_orderbook(data, subscriptions, orderbook_cache, symbol, action).await;
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -509,7 +539,8 @@ impl HollaexWs {
                         .ok()
                 });
 
-                let price = trade_data.get("price")
+                let price = trade_data
+                    .get("price")
                     .and_then(|v| {
                         if v.is_string() {
                             v.as_str().and_then(|s| s.parse::<Decimal>().ok())
@@ -521,7 +552,8 @@ impl HollaexWs {
                     })
                     .unwrap_or_default();
 
-                let amount = trade_data.get("size")
+                let amount = trade_data
+                    .get("size")
                     .and_then(|v| {
                         if v.is_string() {
                             v.as_str().and_then(|s| s.parse::<Decimal>().ok())
@@ -537,12 +569,7 @@ impl HollaexWs {
                     .map(|ts| ts.to_string())
                     .unwrap_or_else(|| chrono::Utc::now().timestamp_millis().to_string());
 
-                let mut trade = Trade::new(
-                    trade_id,
-                    symbol.clone(),
-                    price,
-                    amount,
-                );
+                let mut trade = Trade::new(trade_id, symbol.clone(), price, amount);
 
                 if let Some(ts) = timestamp {
                     trade = trade.with_timestamp(ts);
@@ -630,6 +657,7 @@ impl HollaexWs {
                     symbol: symbol.clone(),
                     bids,
                     asks,
+                    checksum: None,
                     timestamp,
                     datetime: None,
                     nonce: None,
@@ -648,6 +676,7 @@ impl HollaexWs {
                         symbol: symbol.clone(),
                         bids,
                         asks,
+                        checksum: None,
                         timestamp,
                         datetime: None,
                         nonce: None,
@@ -686,7 +715,11 @@ impl HollaexWs {
     }
 
     /// Apply delta updates to orderbook side
-    fn apply_deltas(book_side: &mut Vec<OrderBookEntry>, updates: &Vec<OrderBookEntry>, is_bid: bool) {
+    fn apply_deltas(
+        book_side: &mut Vec<OrderBookEntry>,
+        updates: &Vec<OrderBookEntry>,
+        is_bid: bool,
+    ) {
         for update in updates {
             // Find existing entry at this price
             let pos = book_side.iter().position(|e| e.price == update.price);
@@ -780,7 +813,10 @@ impl WsExchange for HollaexWs {
         })
     }
 
-    async fn watch_tickers(&self, _symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        _symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // HollaEx does not support ticker via WebSocket
         Err(CcxtError::NotSupported {
             feature: "HollaEx WebSocket does not support ticker".to_string(),
@@ -910,7 +946,10 @@ impl WsExchange for HollaexWs {
         Ok(rx)
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Private streams require authentication
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
@@ -971,8 +1010,14 @@ mod tests {
 
     #[test]
     fn test_parse_decimal() {
-        assert_eq!(HollaexWs::parse_decimal(&json!("123.45")), Decimal::new(12345, 2));
-        assert_eq!(HollaexWs::parse_decimal(&json!(123.45)), Decimal::from_f64(123.45).unwrap());
+        assert_eq!(
+            HollaexWs::parse_decimal(&json!("123.45")),
+            Decimal::new(12345, 2)
+        );
+        assert_eq!(
+            HollaexWs::parse_decimal(&json!(123.45)),
+            Decimal::from_f64(123.45).unwrap()
+        );
         assert_eq!(HollaexWs::parse_decimal(&json!(100)), Decimal::from(100));
     }
 }

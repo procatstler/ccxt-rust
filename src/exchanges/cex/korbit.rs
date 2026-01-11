@@ -131,19 +131,26 @@ impl Korbit {
         }
 
         // Need to get new token
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("client_id".into(), api_key.to_string());
         params.insert("client_secret".into(), secret.to_string());
         params.insert("grant_type".into(), "client_credentials".into());
 
-        let response: KorbitTokenResponse = self.public_client
+        let response: KorbitTokenResponse = self
+            .public_client
             .post_form("/v1/oauth2/access_token", &params, None)
             .await?;
 
@@ -199,9 +206,14 @@ impl Korbit {
 
         let mut headers = HashMap::new();
         headers.insert("Authorization".into(), format!("Bearer {token}"));
-        headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+        headers.insert(
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
 
-        self.private_client.post_form(path, params, Some(headers)).await
+        self.private_client
+            .post_form(path, params, Some(headers))
+            .await
     }
 
     /// 심볼 → 마켓 ID 변환 (BTC/KRW → btc_krw)
@@ -221,7 +233,9 @@ impl Korbit {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &KorbitTickerData, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -255,29 +269,33 @@ impl Korbit {
 
     /// 호가창 응답 파싱
     fn parse_order_book(&self, data: &KorbitOrderBookData, symbol: &str) -> OrderBook {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry::new(
-                    b[0].parse().ok()?,
-                    b[1].parse().ok()?,
-                ))
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry::new(b[0].parse().ok()?, b[1].parse().ok()?))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry::new(
-                    a[0].parse().ok()?,
-                    a[1].parse().ok()?,
-                ))
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry::new(a[0].parse().ok()?, a[1].parse().ok()?))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         OrderBook {
             symbol: symbol.to_string(),
@@ -289,17 +307,24 @@ impl Korbit {
             ),
             bids,
             asks,
+            checksum: None,
             nonce: None,
         }
     }
 
     /// 체결 내역 파싱
     fn parse_trade(&self, data: &KorbitTradeData, symbol: &str) -> Trade {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price: Decimal = data.price.as_ref()
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let price: Decimal = data
+            .price
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.amount.as_ref()
+        let amount: Decimal = data
+            .amount
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
 
@@ -331,10 +356,19 @@ impl Korbit {
 
         for (currency, balance_data) in data {
             let total: Option<Decimal> = balance_data.total.as_ref().and_then(|s| s.parse().ok());
-            let free: Option<Decimal> = balance_data.available.as_ref().and_then(|s| s.parse().ok());
-            let used: Option<Decimal> = balance_data.trade_in_use.as_ref().and_then(|s| s.parse().ok());
+            let free: Option<Decimal> =
+                balance_data.available.as_ref().and_then(|s| s.parse().ok());
+            let used: Option<Decimal> = balance_data
+                .trade_in_use
+                .as_ref()
+                .and_then(|s| s.parse().ok());
 
-            let balance = Balance { free, used, total, debt: None };
+            let balance = Balance {
+                free,
+                used,
+                total,
+                debt: None,
+            };
             balances.add(currency.to_uppercase(), balance);
         }
 
@@ -354,7 +388,9 @@ impl Korbit {
 
     /// 주문 응답 파싱
     fn parse_order(&self, data: &KorbitOrderData) -> Order {
-        let status = data.status.as_ref()
+        let status = data
+            .status
+            .as_ref()
             .map(|s| self.parse_order_status(s))
             .unwrap_or(OrderStatus::Open);
 
@@ -369,15 +405,21 @@ impl Korbit {
             _ => OrderSide::Buy,
         };
 
-        let symbol = data.currency_pair.as_ref()
+        let symbol = data
+            .currency_pair
+            .as_ref()
             .map(|cp| self.to_symbol(cp))
             .unwrap_or_default();
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|s| s.parse().ok());
-        let amount: Decimal = data.total.as_ref()
+        let amount: Decimal = data
+            .total
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.filled_total.as_ref()
+        let filled: Decimal = data
+            .filled_total
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
         let remaining = Some(amount - filled);
@@ -420,10 +462,14 @@ impl Korbit {
     /// 거래 내역 파싱
     fn parse_user_trade(&self, data: &KorbitUserTrade, symbol: &str) -> Trade {
         let timestamp = data.timestamp;
-        let price: Decimal = data.price.as_ref()
+        let price: Decimal = data
+            .price
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.amount.as_ref()
+        let amount: Decimal = data
+            .amount
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
         let fee_amount: Option<Decimal> = data.fee.as_ref().and_then(|s| s.parse().ok());
@@ -451,7 +497,9 @@ impl Korbit {
     /// 입출금 내역 파싱
     fn parse_transaction(&self, data: &KorbitTransaction, tx_type: TransactionType) -> Transaction {
         let timestamp = data.created_at;
-        let amount: Decimal = data.amount.as_ref()
+        let amount: Decimal = data
+            .amount
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
         let fee_amount: Option<Decimal> = data.fee.as_ref().and_then(|s| s.parse().ok());
@@ -478,7 +526,8 @@ impl Korbit {
             address: data.address.clone(),
             tag: data.destination_tag.clone(),
             txid: data.txid.clone(),
-            fee: fee_amount.map(|f| Fee::new(f, data.currency.clone().unwrap_or_default().to_uppercase())),
+            fee: fee_amount
+                .map(|f| Fee::new(f, data.currency.clone().unwrap_or_default().to_uppercase())),
             internal: None,
             confirmations: data.confirmations.map(|c| c as u32),
             info: serde_json::Value::Null,
@@ -550,7 +599,8 @@ impl Exchange for Korbit {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: KorbitTickersResponse = self.public_get("/v1/ticker/detailed/all", None).await?;
+        let response: KorbitTickersResponse =
+            self.public_get("/v1/ticker/detailed/all", None).await?;
 
         let mut markets = Vec::new();
         for (market_id, _) in response {
@@ -614,12 +664,17 @@ impl Exchange for Korbit {
         let mut params = HashMap::new();
         params.insert("currency_pair".into(), market_id);
 
-        let response: KorbitTickerData = self.public_get("/v1/ticker/detailed", Some(params)).await?;
+        let response: KorbitTickerData =
+            self.public_get("/v1/ticker/detailed", Some(params)).await?;
         Ok(self.parse_ticker(&response, symbol))
     }
 
-    async fn fetch_tickers(&self, _symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: KorbitTickersResponse = self.public_get("/v1/ticker/detailed/all", None).await?;
+    async fn fetch_tickers(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<HashMap<String, Ticker>> {
+        let response: KorbitTickersResponse =
+            self.public_get("/v1/ticker/detailed/all", None).await?;
 
         let mut tickers = HashMap::new();
         for (market_id, ticker_data) in response {
@@ -657,9 +712,11 @@ impl Exchange for Korbit {
             params.insert("time".into(), "minute".into());
         }
 
-        let response: Vec<KorbitTradeData> = self.public_get("/v1/transactions", Some(params)).await?;
+        let response: Vec<KorbitTradeData> =
+            self.public_get("/v1/transactions", Some(params)).await?;
 
-        let mut trades: Vec<Trade> = response.iter()
+        let mut trades: Vec<Trade> = response
+            .iter()
             .map(|t| self.parse_trade(t, symbol))
             .collect();
 
@@ -684,7 +741,8 @@ impl Exchange for Korbit {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: HashMap<String, KorbitBalanceData> = self.private_get("/v1/user/balances", None).await?;
+        let response: HashMap<String, KorbitBalanceData> =
+            self.private_get("/v1/user/balances", None).await?;
         Ok(self.parse_balance(&response))
     }
 
@@ -700,10 +758,14 @@ impl Exchange for Korbit {
 
         let mut params = HashMap::new();
         params.insert("currency_pair".into(), market_id);
-        params.insert("type".into(), match side {
-            OrderSide::Buy => "bid",
-            OrderSide::Sell => "ask",
-        }.into());
+        params.insert(
+            "type".into(),
+            match side {
+                OrderSide::Buy => "bid",
+                OrderSide::Sell => "ask",
+            }
+            .into(),
+        );
 
         match order_type {
             OrderType::Limit => {
@@ -712,23 +774,23 @@ impl Exchange for Korbit {
                 })?;
                 params.insert("price".into(), price_val.to_string());
                 params.insert("coin_amount".into(), amount.to_string());
-            }
+            },
             OrderType::Market => {
                 match side {
                     OrderSide::Buy => {
                         // For market buy, specify fiat amount
                         params.insert("fiat_amount".into(), amount.to_string());
-                    }
+                    },
                     OrderSide::Sell => {
                         params.insert("coin_amount".into(), amount.to_string());
-                    }
+                    },
                 }
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type: {order_type:?}"),
                 });
-            }
+            },
         }
 
         let endpoint = match side {
@@ -738,7 +800,10 @@ impl Exchange for Korbit {
         let response: KorbitOrderResponse = self.private_post(endpoint, &params).await?;
 
         Ok(Order {
-            id: response.order_id.map(|id| id.to_string()).unwrap_or_default(),
+            id: response
+                .order_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             client_order_id: None,
             timestamp: Some(Utc::now().timestamp_millis()),
             datetime: Some(Utc::now().to_rfc3339()),
@@ -775,7 +840,8 @@ impl Exchange for Korbit {
         params.insert("id".into(), id.to_string());
         params.insert("currency_pair".into(), market_id);
 
-        let _response: serde_json::Value = self.private_post("/v1/user/orders/cancel", &params).await?;
+        let _response: serde_json::Value =
+            self.private_post("/v1/user/orders/cancel", &params).await?;
 
         Ok(Order {
             id: id.to_string(),
@@ -832,10 +898,16 @@ impl Exchange for Korbit {
             params.insert("currency_pair".into(), mid);
         }
 
-        let response: Vec<KorbitOrderData> = self.private_get(
-            "/v1/user/orders/open",
-            if params.is_empty() { None } else { Some(params) }
-        ).await?;
+        let response: Vec<KorbitOrderData> = self
+            .private_get(
+                "/v1/user/orders/open",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
+            .await?;
 
         Ok(response.iter().map(|o| self.parse_order(o)).collect())
     }
@@ -856,13 +928,22 @@ impl Exchange for Korbit {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: Vec<KorbitOrderData> = self.private_get(
-            "/v1/user/orders",
-            if params.is_empty() { None } else { Some(params) }
-        ).await?;
+        let response: Vec<KorbitOrderData> = self
+            .private_get(
+                "/v1/user/orders",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
+            .await?;
 
-        Ok(response.iter()
-            .filter(|o| o.status.as_deref() == Some("filled") || o.status.as_deref() == Some("canceled"))
+        Ok(response
+            .iter()
+            .filter(|o| {
+                o.status.as_deref() == Some("filled") || o.status.as_deref() == Some("canceled")
+            })
             .map(|o| self.parse_order(o))
             .collect())
     }
@@ -883,13 +964,20 @@ impl Exchange for Korbit {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: Vec<KorbitUserTrade> = self.private_get(
-            "/v1/user/transactions",
-            if params.is_empty() { None } else { Some(params) }
-        ).await?;
+        let response: Vec<KorbitUserTrade> = self
+            .private_get(
+                "/v1/user/transactions",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
+            .await?;
 
         let symbol_str = symbol.unwrap_or("BTC/KRW");
-        Ok(response.iter()
+        Ok(response
+            .iter()
             .filter(|t| t.r#type.as_deref() == Some("buy") || t.r#type.as_deref() == Some("sell"))
             .map(|t| self.parse_user_trade(t, symbol_str))
             .collect())
@@ -906,12 +994,19 @@ impl Exchange for Korbit {
             params.insert("currency".into(), c.to_lowercase());
         }
 
-        let response: Vec<KorbitTransaction> = self.private_get(
-            "/v1/user/deposits",
-            if params.is_empty() { None } else { Some(params) }
-        ).await?;
+        let response: Vec<KorbitTransaction> = self
+            .private_get(
+                "/v1/user/deposits",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
+            .await?;
 
-        Ok(response.iter()
+        Ok(response
+            .iter()
             .map(|t| self.parse_transaction(t, TransactionType::Deposit))
             .collect())
     }
@@ -927,12 +1022,19 @@ impl Exchange for Korbit {
             params.insert("currency".into(), c.to_lowercase());
         }
 
-        let response: Vec<KorbitTransaction> = self.private_get(
-            "/v1/user/withdrawals",
-            if params.is_empty() { None } else { Some(params) }
-        ).await?;
+        let response: Vec<KorbitTransaction> = self
+            .private_get(
+                "/v1/user/withdrawals",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
+            .await?;
 
-        Ok(response.iter()
+        Ok(response
+            .iter()
             .map(|t| self.parse_transaction(t, TransactionType::Withdrawal))
             .collect())
     }
@@ -945,10 +1047,9 @@ impl Exchange for Korbit {
         let mut params = HashMap::new();
         params.insert("currency".into(), code.to_lowercase());
 
-        let response: KorbitDepositAddress = self.private_get(
-            "/v1/user/wallet_address",
-            Some(params)
-        ).await?;
+        let response: KorbitDepositAddress = self
+            .private_get("/v1/user/wallet_address", Some(params))
+            .await?;
 
         Ok(DepositAddress {
             currency: code.to_string(),
@@ -976,10 +1077,15 @@ impl Exchange for Korbit {
             params.insert("destination_tag".into(), t.to_string());
         }
 
-        let response: KorbitWithdrawResponse = self.private_post("/v1/user/withdrawals/coin", &params).await?;
+        let response: KorbitWithdrawResponse = self
+            .private_post("/v1/user/withdrawals/coin", &params)
+            .await?;
 
         Ok(Transaction {
-            id: response.transfer_id.map(|id| id.to_string()).unwrap_or_default(),
+            id: response
+                .transfer_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             timestamp: Some(Utc::now().timestamp_millis()),
             datetime: Some(Utc::now().to_rfc3339()),
             updated: None,
@@ -1028,27 +1134,44 @@ impl Exchange for Korbit {
 
     // === WebSocket Methods ===
 
-    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ticker(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ticker(symbol).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_tickers(symbols).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_order_book(symbol, limit).await
     }
 
-    async fn watch_trades(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_trades(symbol).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ohlcv(symbol, timeframe).await
     }

@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -94,10 +94,7 @@ impl Coincheck {
     }
 
     /// 공개 API 호출
-    async fn public_get<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> CcxtResult<T> {
+    async fn public_get<T: serde::de::DeserializeOwned>(&self, path: &str) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
         self.client.get(path, None, None).await
     }
@@ -111,17 +108,24 @@ impl Coincheck {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
         let url = format!("{}{}", Self::BASE_URL, path);
 
-        let body_str = params.as_ref()
+        let body_str = params
+            .as_ref()
             .map(|p| {
                 p.iter()
                     .map(|(k, v)| format!("{k}={v}"))
@@ -132,8 +136,11 @@ impl Coincheck {
 
         let message = format!("{nonce}{url}{body_str}");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -146,9 +153,10 @@ impl Coincheck {
             "GET" => self.client.get(path, None, Some(headers)).await,
             "POST" => {
                 headers.insert("Content-Type".into(), "application/json".into());
-                let body_value = params.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null));
+                let body_value =
+                    params.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null));
                 self.client.post(path, body_value, Some(headers)).await
-            }
+            },
             "DELETE" => self.client.delete(path, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -311,7 +319,8 @@ impl Exchange for Coincheck {
         let path = format!("/ticker?pair={market_id}");
         let response: CoincheckTicker = self.public_get(&path).await?;
 
-        let timestamp = response.timestamp
+        let timestamp = response
+            .timestamp
             .map(|t| t * 1000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -375,21 +384,31 @@ impl Exchange for Coincheck {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let path = format!("/trades?pair={market_id}");
         let response: CoincheckTradesResponse = self.public_get(&path).await?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.data.iter()
+        let trades: Vec<Trade> = response
+            .data
+            .iter()
             .take(limit)
             .map(|t| {
-                let timestamp = t.created_at.as_ref()
+                let timestamp = t
+                    .created_at
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -433,7 +452,9 @@ impl Exchange for Coincheck {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: CoincheckBalanceResponse = self.private_request("GET", "/accounts/balance", None).await?;
+        let response: CoincheckBalanceResponse = self
+            .private_request("GET", "/accounts/balance", None)
+            .await?;
 
         if !response.success.unwrap_or(false) {
             return Err(CcxtError::AuthenticationError {
@@ -449,7 +470,8 @@ impl Exchange for Coincheck {
         // JPY balance
         if let Some(jpy_str) = &response.jpy {
             if let Ok(jpy) = jpy_str.parse::<Decimal>() {
-                let reserved = response.jpy_reserved
+                let reserved = response
+                    .jpy_reserved
                     .as_ref()
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
@@ -469,7 +491,8 @@ impl Exchange for Coincheck {
         // BTC balance
         if let Some(btc_str) = &response.btc {
             if let Ok(btc) = btc_str.parse::<Decimal>() {
-                let reserved = response.btc_reserved
+                let reserved = response
+                    .btc_reserved
                     .as_ref()
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
@@ -518,7 +541,9 @@ impl Exchange for Coincheck {
             params.insert("rate".into(), price.to_string());
         }
 
-        let response: CoincheckOrderResponse = self.private_request("POST", "/exchange/orders", Some(params)).await?;
+        let response: CoincheckOrderResponse = self
+            .private_request("POST", "/exchange/orders", Some(params))
+            .await?;
 
         if !response.success.unwrap_or(false) {
             return Err(CcxtError::ExchangeError {
@@ -570,7 +595,10 @@ impl Exchange for Coincheck {
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
-            id: response.id.map(|i| i.to_string()).unwrap_or_else(|| id.to_string()),
+            id: response
+                .id
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| id.to_string()),
             client_order_id: None,
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
@@ -605,7 +633,8 @@ impl Exchange for Coincheck {
         // We need to check open orders
         let orders = self.fetch_open_orders(Some(symbol), None, None).await?;
 
-        orders.into_iter()
+        orders
+            .into_iter()
             .find(|o| o.id == id)
             .ok_or_else(|| CcxtError::OrderNotFound {
                 order_id: id.to_string(),
@@ -618,7 +647,9 @@ impl Exchange for Coincheck {
         _since: Option<i64>,
         _limit: Option<u32>,
     ) -> CcxtResult<Vec<Order>> {
-        let response: CoincheckOrdersResponse = self.private_request("GET", "/exchange/orders/opens", None).await?;
+        let response: CoincheckOrdersResponse = self
+            .private_request("GET", "/exchange/orders/opens", None)
+            .await?;
 
         if !response.success.unwrap_or(false) {
             return Err(CcxtError::AuthenticationError {
@@ -626,9 +657,13 @@ impl Exchange for Coincheck {
             });
         }
 
-        let orders: Vec<Order> = response.orders.iter()
+        let orders: Vec<Order> = response
+            .orders
+            .iter()
             .map(|o| {
-                let timestamp = o.created_at.as_ref()
+                let timestamp = o
+                    .created_at
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -646,7 +681,9 @@ impl Exchange for Coincheck {
                     _ => OrderType::Limit,
                 };
 
-                let symbol = o.pair.as_ref()
+                let symbol = o
+                    .pair
+                    .as_ref()
                     .map(|p| {
                         let parts: Vec<&str> = p.split('_').collect();
                         if parts.len() == 2 {
@@ -657,11 +694,15 @@ impl Exchange for Coincheck {
                     })
                     .unwrap_or_default();
 
-                let amount = o.amount.as_ref()
+                let amount = o
+                    .amount
+                    .as_ref()
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
 
-                let pending = o.pending_amount.as_ref()
+                let pending = o
+                    .pending_amount
+                    .as_ref()
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
 

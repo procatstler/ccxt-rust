@@ -16,10 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -81,12 +80,13 @@ impl Bullish {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/68f0686b-84f0-4da9-a751-f7089af3a9ed".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/68f0686b-84f0-4da9-a751-f7089af3a9ed"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://bullish.com/".into()),
-            doc: vec![
-                "https://api.exchange.bullish.com/docs/api/rest/".into(),
-            ],
+            doc: vec!["https://api.exchange.bullish.com/docs/api/rest/".into()],
             fees: None,
         };
 
@@ -144,12 +144,18 @@ impl Bullish {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // Add trading account ID if available
         if let Some(account_id) = self.trading_account_id.read().unwrap().as_ref() {
@@ -166,8 +172,8 @@ impl Bullish {
             .join("&");
 
         // Create HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -196,7 +202,9 @@ impl Bullish {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &BullishTicker, symbol: &str) -> Ticker {
-        let timestamp = data.created_at_timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .created_at_timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -253,16 +261,27 @@ impl Bullish {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.quantity.as_ref().and_then(|q| q.parse().ok()).unwrap_or_default();
-        let filled: Decimal = data.filled_quantity.as_ref().and_then(|f| f.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .quantity
+            .as_ref()
+            .and_then(|q| q.parse().ok())
+            .unwrap_or_default();
+        let filled: Decimal = data
+            .filled_quantity
+            .as_ref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
         let remaining = Some(amount - filled);
         let cost = data.cumulative_cost.as_ref().and_then(|c| c.parse().ok());
         let average = if filled > Decimal::ZERO {
@@ -334,7 +353,9 @@ impl Bullish {
 
     /// 거래 내역 파싱
     fn parse_trade(&self, trade: &BullishTrade, symbol: &str) -> Trade {
-        let timestamp = trade.created_at_timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = trade
+            .created_at_timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = trade.price.parse().unwrap_or_default();
         let amount: Decimal = trade.quantity.parse().unwrap_or_default();
         let cost = price * amount;
@@ -362,13 +383,15 @@ impl Bullish {
             price,
             amount,
             cost: Some(cost),
-            fee: trade.quote_fee.as_ref().and_then(|f| f.parse().ok()).map(|cost| {
-                crate::types::Fee {
+            fee: trade
+                .quote_fee
+                .as_ref()
+                .and_then(|f| f.parse().ok())
+                .map(|cost| crate::types::Fee {
                     cost: Some(cost),
                     currency: Some(symbol.split('/').nth(1).unwrap_or("USDC").to_string()),
                     rate: None,
-                }
-            }),
+                }),
             fees: Vec::new(),
             info: serde_json::to_value(trade).unwrap_or_default(),
         }
@@ -439,9 +462,7 @@ impl Exchange for Bullish {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: Vec<BullishMarket> = self
-            .public_get("/v1/markets", None)
-            .await?;
+        let response: Vec<BullishMarket> = self.public_get("/v1/markets", None).await?;
 
         let mut markets = Vec::new();
 
@@ -486,11 +507,26 @@ impl Exchange for Bullish {
                 strike: None,
                 option_type: None,
                 precision: MarketPrecision {
-                    amount: market_data.quantity_precision.clone().and_then(|p| p.parse().ok()),
-                    price: market_data.price_precision.clone().and_then(|p| p.parse().ok()),
-                    cost: market_data.cost_precision.clone().and_then(|p| p.parse().ok()),
-                    base: market_data.base_precision.clone().and_then(|p| p.parse().ok()),
-                    quote: market_data.quote_precision.clone().and_then(|p| p.parse().ok()),
+                    amount: market_data
+                        .quantity_precision
+                        .clone()
+                        .and_then(|p| p.parse().ok()),
+                    price: market_data
+                        .price_precision
+                        .clone()
+                        .and_then(|p| p.parse().ok()),
+                    cost: market_data
+                        .cost_precision
+                        .clone()
+                        .and_then(|p| p.parse().ok()),
+                    base: market_data
+                        .base_precision
+                        .clone()
+                        .and_then(|p| p.parse().ok()),
+                    quote: market_data
+                        .quote_precision
+                        .clone()
+                        .and_then(|p| p.parse().ok()),
                 },
                 limits: MarketLimits::default(),
                 margin_modes: None,
@@ -510,9 +546,7 @@ impl Exchange for Bullish {
         let market_id = self.to_market_id(symbol);
         let path = format!("/v1/markets/{market_id}/tick");
 
-        let response: BullishTicker = self
-            .public_get(&path, None)
-            .await?;
+        let response: BullishTicker = self.public_get(&path, None).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
@@ -521,9 +555,7 @@ impl Exchange for Bullish {
         let market_id = self.to_market_id(symbol);
         let path = format!("/v1/markets/{market_id}/orderbook/hybrid");
 
-        let response: BullishOrderBook = self
-            .public_get(&path, None)
-            .await?;
+        let response: BullishOrderBook = self.public_get(&path, None).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .bids
@@ -554,6 +586,7 @@ impl Exchange for Bullish {
             nonce: response.sequence_number,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -577,9 +610,7 @@ impl Exchange for Bullish {
             params.insert("createdAtDatetime[gte]".into(), datetime);
         }
 
-        let response: Vec<BullishTrade> = self
-            .public_get(&path, Some(params))
-            .await?;
+        let response: Vec<BullishTrade> = self.public_get(&path, Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -599,9 +630,12 @@ impl Exchange for Bullish {
         let market_id = self.to_market_id(symbol);
         let path = format!("/v1/markets/{market_id}/candle");
 
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("timeBucket".into(), interval.clone());
@@ -637,9 +671,7 @@ impl Exchange for Bullish {
         params.insert("createdAtDatetime[gte]".into(), start_datetime);
         params.insert("createdAtDatetime[lte]".into(), until_datetime);
 
-        let response: Vec<BullishCandle> = self
-            .public_get(&path, Some(params))
-            .await?;
+        let response: Vec<BullishCandle> = self.public_get(&path, Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
@@ -681,10 +713,14 @@ impl Exchange for Bullish {
         let mut params = HashMap::new();
         params.insert("commandType".into(), "V3CreateOrder".into());
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
         params.insert("quantity".into(), amount.to_string());
 
         let type_str = match order_type {
@@ -692,9 +728,11 @@ impl Exchange for Bullish {
             OrderType::Market => "MARKET",
             OrderType::LimitMaker => "POST_ONLY",
             OrderType::StopLossLimit => "STOP_LIMIT",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
         params.insert("type".into(), type_str.into());
 
@@ -707,9 +745,7 @@ impl Exchange for Bullish {
 
         params.insert("timeInForce".into(), "GTC".into());
 
-        let response: BullishOrder = self
-            .private_request("POST", "/v2/orders", params)
-            .await?;
+        let response: BullishOrder = self.private_request("POST", "/v2/orders", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -722,9 +758,7 @@ impl Exchange for Bullish {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: BullishOrder = self
-            .private_request("POST", "/v2/command", params)
-            .await?;
+        let response: BullishOrder = self.private_request("POST", "/v2/command", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -733,12 +767,12 @@ impl Exchange for Bullish {
         let path = format!("/v2/orders/{id}");
         let params = HashMap::new();
 
-        let response: BullishOrder = self
-            .private_request("GET", &path, params)
-            .await?;
+        let response: BullishOrder = self.private_request("GET", &path, params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let symbol = response.symbol.as_ref()
+        let symbol = response
+            .symbol
+            .as_ref()
             .and_then(|s| markets_by_id.get(s))
             .cloned()
             .unwrap_or_else(|| response.symbol.clone().unwrap_or_default());
@@ -762,16 +796,16 @@ impl Exchange for Bullish {
             params.insert("_pageSize".into(), l.min(100).to_string());
         }
 
-        let response: Vec<BullishOrder> = self
-            .private_request("GET", "/v2/orders", params)
-            .await?;
+        let response: Vec<BullishOrder> = self.private_request("GET", "/v2/orders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
 
         let orders: Vec<Order> = response
             .iter()
             .map(|o| {
-                let sym = o.symbol.as_ref()
+                let sym = o
+                    .symbol
+                    .as_ref()
                     .and_then(|s| markets_by_id.get(s))
                     .cloned()
                     .unwrap_or_else(|| o.symbol.clone().unwrap_or_default());
@@ -812,7 +846,9 @@ impl Exchange for Bullish {
         let trades: Vec<Trade> = response
             .iter()
             .map(|t| {
-                let sym = t.symbol.as_ref()
+                let sym = t
+                    .symbol
+                    .as_ref()
                     .and_then(|s| markets_by_id.get(s))
                     .map(|s| s.as_str())
                     .unwrap_or(symbol.unwrap_or("UNKNOWN"));
@@ -824,10 +860,7 @@ impl Exchange for Bullish {
     }
 
     async fn fetch_time(&self) -> CcxtResult<i64> {
-        let response: BullishTime = self
-            .public_client
-            .get("/v1/time", None, None)
-            .await?;
+        let response: BullishTime = self.public_client.get("/v1/time", None, None).await?;
 
         Ok(response.timestamp)
     }

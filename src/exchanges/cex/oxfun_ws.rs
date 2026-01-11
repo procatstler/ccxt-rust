@@ -29,9 +29,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage,
-    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent, WsOrderEvent,
+    WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -137,24 +137,66 @@ impl OxfunWs {
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default()
             }),
-            high: data.high_24h.as_ref().and_then(|h| Decimal::from_str(h).ok()),
-            low: data.low_24h.as_ref().and_then(|l| Decimal::from_str(l).ok()),
-            bid: data.best_bid.as_ref().and_then(|b| Decimal::from_str(b).ok()),
-            bid_volume: data.best_bid_size.as_ref().and_then(|b| Decimal::from_str(b).ok()),
-            ask: data.best_ask.as_ref().and_then(|a| Decimal::from_str(a).ok()),
-            ask_volume: data.best_ask_size.as_ref().and_then(|a| Decimal::from_str(a).ok()),
+            high: data
+                .high_24h
+                .as_ref()
+                .and_then(|h| Decimal::from_str(h).ok()),
+            low: data
+                .low_24h
+                .as_ref()
+                .and_then(|l| Decimal::from_str(l).ok()),
+            bid: data
+                .best_bid
+                .as_ref()
+                .and_then(|b| Decimal::from_str(b).ok()),
+            bid_volume: data
+                .best_bid_size
+                .as_ref()
+                .and_then(|b| Decimal::from_str(b).ok()),
+            ask: data
+                .best_ask
+                .as_ref()
+                .and_then(|a| Decimal::from_str(a).ok()),
+            ask_volume: data
+                .best_ask_size
+                .as_ref()
+                .and_then(|a| Decimal::from_str(a).ok()),
             vwap: None,
-            open: data.open_24h.as_ref().and_then(|o| Decimal::from_str(o).ok()),
-            close: data.last_price.as_ref().and_then(|c| Decimal::from_str(c).ok()),
-            last: data.last_price.as_ref().and_then(|l| Decimal::from_str(l).ok()),
+            open: data
+                .open_24h
+                .as_ref()
+                .and_then(|o| Decimal::from_str(o).ok()),
+            close: data
+                .last_price
+                .as_ref()
+                .and_then(|c| Decimal::from_str(c).ok()),
+            last: data
+                .last_price
+                .as_ref()
+                .and_then(|l| Decimal::from_str(l).ok()),
             previous_close: None,
             change: None,
-            percentage: data.price_change_24h.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            percentage: data
+                .price_change_24h
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             average: None,
-            base_volume: data.base_volume_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            quote_volume: data.volume_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            index_price: data.index_price.as_ref().and_then(|i| Decimal::from_str(i).ok()),
-            mark_price: data.mark_price.as_ref().and_then(|m| Decimal::from_str(m).ok()),
+            base_volume: data
+                .base_volume_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            quote_volume: data
+                .volume_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            index_price: data
+                .index_price
+                .as_ref()
+                .and_then(|i| Decimal::from_str(i).ok()),
+            mark_price: data
+                .mark_price
+                .as_ref()
+                .and_then(|m| Decimal::from_str(m).ok()),
             info: serde_json::to_value(data).unwrap_or_default(),
         }
     }
@@ -202,13 +244,22 @@ impl OxfunWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         }
     }
 
     /// Parse trade data
     fn parse_trade(data: &OxfunWsTrade, symbol: &str) -> Trade {
-        let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok()).unwrap_or_default();
-        let amount = data.quantity.as_ref().and_then(|q| Decimal::from_str(q).ok()).unwrap_or_default();
+        let price = data
+            .price
+            .as_ref()
+            .and_then(|p| Decimal::from_str(p).ok())
+            .unwrap_or_default();
+        let amount = data
+            .quantity
+            .as_ref()
+            .and_then(|q| Decimal::from_str(q).ok())
+            .unwrap_or_default();
 
         Trade {
             id: data.trade_id.clone().unwrap_or_default(),
@@ -269,8 +320,16 @@ impl OxfunWs {
         };
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.quantity.as_ref().and_then(|q| Decimal::from_str(q).ok()).unwrap_or_default();
-        let filled = data.filled_quantity.as_ref().and_then(|f| Decimal::from_str(f).ok()).unwrap_or_default();
+        let amount = data
+            .quantity
+            .as_ref()
+            .and_then(|q| Decimal::from_str(q).ok())
+            .unwrap_or_default();
+        let filled = data
+            .filled_quantity
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok())
+            .unwrap_or_default();
 
         Order {
             id: data.order_id.clone().unwrap_or_default(),
@@ -289,11 +348,17 @@ impl OxfunWs {
             time_in_force: None,
             side,
             price,
-            average: data.avg_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            average: data
+                .avg_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             amount,
             filled,
             remaining: Some(amount - filled),
-            stop_price: data.stop_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            stop_price: data
+                .stop_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
@@ -311,15 +376,24 @@ impl OxfunWs {
     fn parse_balance(data: &OxfunWsBalance) -> Option<(String, Balance)> {
         let currency = data.currency.clone()?;
         let total = data.total.as_ref().and_then(|t| Decimal::from_str(t).ok());
-        let free = data.available.as_ref().and_then(|a| Decimal::from_str(a).ok());
-        let used = data.reserved.as_ref().and_then(|r| Decimal::from_str(r).ok());
+        let free = data
+            .available
+            .as_ref()
+            .and_then(|a| Decimal::from_str(a).ok());
+        let used = data
+            .reserved
+            .as_ref()
+            .and_then(|r| Decimal::from_str(r).ok());
 
-        Some((currency, Balance {
-            free,
-            used,
-            total,
-            debt: None,
-        }))
+        Some((
+            currency,
+            Balance {
+                free,
+                used,
+                total,
+                debt: None,
+            },
+        ))
     }
 
     /// Process WebSocket message
@@ -334,24 +408,30 @@ impl OxfunWs {
             Some("ticker") => {
                 if let Some(data_arr) = data.and_then(|d| d.as_array()) {
                     for item in data_arr {
-                        if let Ok(ticker_data) = serde_json::from_value::<OxfunWsTicker>(item.clone()) {
-                            let symbol = ticker_data.market_code.as_ref()
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<OxfunWsTicker>(item.clone())
+                        {
+                            let symbol = ticker_data
+                                .market_code
+                                .as_ref()
                                 .map(|m| Self::to_unified_symbol(m))
                                 .unwrap_or_default();
                             let ticker = Self::parse_ticker(&ticker_data, &symbol);
-                            let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent {
-                                symbol,
-                                ticker,
-                            }));
+                            let _ =
+                                event_tx.send(WsMessage::Ticker(WsTickerEvent { symbol, ticker }));
                         }
                     }
                 }
-            }
+            },
             Some("depth") | Some("depthL2") => {
                 if let Some(data_arr) = data.and_then(|d| d.as_array()) {
                     for item in data_arr {
-                        if let Ok(depth_data) = serde_json::from_value::<OxfunWsOrderBook>(item.clone()) {
-                            let symbol = depth_data.market_code.as_ref()
+                        if let Ok(depth_data) =
+                            serde_json::from_value::<OxfunWsOrderBook>(item.clone())
+                        {
+                            let symbol = depth_data
+                                .market_code
+                                .as_ref()
                                 .map(|m| Self::to_unified_symbol(m))
                                 .unwrap_or_default();
                             let order_book = Self::parse_order_book(&depth_data, &symbol);
@@ -363,13 +443,16 @@ impl OxfunWs {
                         }
                     }
                 }
-            }
+            },
             Some("trade") => {
                 if let Some(data_arr) = data.and_then(|d| d.as_array()) {
                     let mut trades_by_symbol: HashMap<String, Vec<Trade>> = HashMap::new();
                     for item in data_arr {
-                        if let Ok(trade_data) = serde_json::from_value::<OxfunWsTrade>(item.clone()) {
-                            let symbol = trade_data.market_code.as_ref()
+                        if let Ok(trade_data) = serde_json::from_value::<OxfunWsTrade>(item.clone())
+                        {
+                            let symbol = trade_data
+                                .market_code
+                                .as_ref()
                                 .map(|m| Self::to_unified_symbol(m))
                                 .unwrap_or_default();
                             let trade = Self::parse_trade(&trade_data, &symbol);
@@ -378,63 +461,67 @@ impl OxfunWs {
                     }
                     for (symbol, trades) in trades_by_symbol {
                         if !trades.is_empty() {
-                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
-                                symbol,
-                                trades,
-                            }));
+                            let _ =
+                                event_tx.send(WsMessage::Trade(WsTradeEvent { symbol, trades }));
                         }
                     }
                 }
-            }
+            },
             Some("candle") | Some("candles60s") | Some("candles300s") | Some("candles3600s") => {
                 if let Some(data_arr) = data.and_then(|d| d.as_array()) {
                     for item in data_arr {
-                        if let Ok(candle_data) = serde_json::from_value::<OxfunWsCandle>(item.clone()) {
+                        if let Ok(candle_data) =
+                            serde_json::from_value::<OxfunWsCandle>(item.clone())
+                        {
                             if let Some(ohlcv) = Self::parse_ohlcv(&candle_data) {
-                                let symbol = candle_data.market_code.as_ref()
+                                let symbol = candle_data
+                                    .market_code
+                                    .as_ref()
                                     .map(|m| Self::to_unified_symbol(m))
                                     .unwrap_or_default();
-                                let _ = event_tx.send(WsMessage::Ohlcv(crate::types::WsOhlcvEvent {
-                                    symbol,
-                                    timeframe: Timeframe::Hour1,
-                                    ohlcv,
-                                }));
+                                let _ =
+                                    event_tx.send(WsMessage::Ohlcv(crate::types::WsOhlcvEvent {
+                                        symbol,
+                                        timeframe: Timeframe::Hour1,
+                                        ohlcv,
+                                    }));
                             }
                         }
                     }
                 }
-            }
+            },
             Some("order") => {
                 if let Some(data_arr) = data.and_then(|d| d.as_array()) {
                     for item in data_arr {
-                        if let Ok(order_data) = serde_json::from_value::<OxfunWsOrder>(item.clone()) {
-                            let symbol = order_data.market_code.as_ref()
+                        if let Ok(order_data) = serde_json::from_value::<OxfunWsOrder>(item.clone())
+                        {
+                            let symbol = order_data
+                                .market_code
+                                .as_ref()
                                 .map(|m| Self::to_unified_symbol(m))
                                 .unwrap_or_default();
                             let order = Self::parse_order(&order_data, &symbol);
-                            let _ = event_tx.send(WsMessage::Order(WsOrderEvent {
-                                order,
-                            }));
+                            let _ = event_tx.send(WsMessage::Order(WsOrderEvent { order }));
                         }
                     }
                 }
-            }
+            },
             Some("balance") => {
                 if let Some(data_arr) = data.and_then(|d| d.as_array()) {
                     let mut balances = Balances::new();
                     for item in data_arr {
-                        if let Ok(balance_data) = serde_json::from_value::<OxfunWsBalance>(item.clone()) {
+                        if let Ok(balance_data) =
+                            serde_json::from_value::<OxfunWsBalance>(item.clone())
+                        {
                             if let Some((currency, balance)) = Self::parse_balance(&balance_data) {
                                 balances.add(&currency, balance);
                             }
                         }
                     }
-                    let _ = event_tx.send(WsMessage::Balance(WsBalanceEvent {
-                        balances,
-                    }));
+                    let _ = event_tx.send(WsMessage::Balance(WsBalanceEvent { balances }));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(())
@@ -450,7 +537,11 @@ impl OxfunWs {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
-        let ws_url = if requires_auth { WS_PRIVATE_URL } else { WS_PUBLIC_URL };
+        let ws_url = if requires_auth {
+            WS_PRIVATE_URL
+        } else {
+            WS_PUBLIC_URL
+        };
 
         let mut ws_client = WsClient::new(WsConfig {
             url: ws_url.to_string(),
@@ -459,6 +550,7 @@ impl OxfunWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -507,19 +599,24 @@ impl OxfunWs {
                 match event {
                     WsEvent::Message(msg) => {
                         let _ = Self::process_message(&msg, &event_tx);
-                    }
+                    },
                     WsEvent::Connected => {
                         // Connection established
-                    }
+                    },
                     WsEvent::Disconnected => {
                         break;
-                    }
+                    },
                     WsEvent::Error(e) => {
                         eprintln!("OxFun WebSocket error: {e}");
-                    }
+                    },
                     WsEvent::Ping | WsEvent::Pong => {
+                        // Heartbeat handled
+                    },
+                    _ => {
+                        // Handle new events (Reconnecting, Reconnected, HealthOk, HealthWarning)
+
                         // Heartbeat
-                    }
+                    },
                 }
             }
 
@@ -532,7 +629,10 @@ impl OxfunWs {
     }
 
     /// Subscribe to order updates (private channel)
-    pub async fn watch_orders(&mut self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    pub async fn watch_orders(
+        &mut self,
+        symbol: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let market_id = Self::format_symbol(symbol);
         self.subscribe_stream("order", &market_id, true).await
     }
@@ -569,7 +669,11 @@ impl WsExchange for OxfunWs {
         ws.subscribe_stream("ticker", &market_id, false).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let market_id = Self::format_symbol(symbol);
         ws.subscribe_stream("depth", &market_id, false).await
@@ -581,7 +685,11 @@ impl WsExchange for OxfunWs {
         ws.subscribe_stream("trade", &market_id, false).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let market_id = Self::format_symbol(symbol);
         let channel = format!("candles{}", Self::format_interval(timeframe));
@@ -597,6 +705,7 @@ impl WsExchange for OxfunWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             ws_client.connect().await?;
@@ -804,7 +913,10 @@ mod tests {
     #[test]
     fn test_to_unified_symbol() {
         assert_eq!(OxfunWs::to_unified_symbol("BTC-USD"), "BTC/USD");
-        assert_eq!(OxfunWs::to_unified_symbol("BTC-USD-SWAP-LIN"), "BTC/USD:USD");
+        assert_eq!(
+            OxfunWs::to_unified_symbol("BTC-USD-SWAP-LIN"),
+            "BTC/USD:USD"
+        );
     }
 
     #[test]
@@ -849,12 +961,8 @@ mod tests {
     fn test_parse_order_book() {
         let data = OxfunWsOrderBook {
             market_code: Some("BTC-USD-SWAP-LIN".to_string()),
-            bids: vec![
-                vec!["49999.0".to_string(), "10.0".to_string()],
-            ],
-            asks: vec![
-                vec!["50001.0".to_string(), "5.0".to_string()],
-            ],
+            bids: vec![vec!["49999.0".to_string(), "10.0".to_string()]],
+            asks: vec![vec!["50001.0".to_string(), "5.0".to_string()]],
             timestamp: Some(1234567890000),
         };
 

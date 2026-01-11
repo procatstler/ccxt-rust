@@ -19,10 +19,10 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, TimeInForce, OHLCV,
-    Position, PositionSide, MarginMode, FundingRate, FundingRateHistory, Trade,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, FundingRate,
+    FundingRateHistory, MarginMode, Market, MarketLimits, MarketPrecision, MarketType, MinMax,
+    Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide,
+    SignedRequest, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://www.bitmex.com";
@@ -548,15 +548,18 @@ impl Bitmex {
 
     /// Generate HMAC-SHA256 signature
     fn sign(&self, message: &str) -> CcxtResult<String> {
-        let secret = self.config.secret()
+        let secret = self
+            .config
+            .secret()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API secret required".to_string(),
             })?;
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
@@ -570,7 +573,9 @@ impl Bitmex {
         params: Option<HashMap<String, String>>,
         body: Option<Value>,
     ) -> CcxtResult<T> {
-        let api_key = self.config.api_key()
+        let api_key = self
+            .config
+            .api_key()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API key required".to_string(),
             })?;
@@ -578,7 +583,8 @@ impl Bitmex {
         self.rate_limiter.throttle(1.0).await;
 
         let expires = chrono::Utc::now().timestamp() + 5;
-        let query_string = params.as_ref()
+        let query_string = params
+            .as_ref()
             .map(|p| {
                 p.iter()
                     .map(|(k, v)| format!("{k}={v}"))
@@ -587,9 +593,7 @@ impl Bitmex {
             })
             .unwrap_or_default();
 
-        let body_str = body.as_ref()
-            .map(|b| b.to_string())
-            .unwrap_or_default();
+        let body_str = body.as_ref().map(|b| b.to_string()).unwrap_or_default();
 
         let full_path = if query_string.is_empty() {
             format!("/api/v1{path}")
@@ -607,22 +611,18 @@ impl Bitmex {
         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
         match method {
-            "GET" => {
-                self.client.get(&full_path, None, Some(headers)).await
-            }
-            "POST" => {
-                self.client.post(&full_path, body, Some(headers)).await
-            }
-            "DELETE" => {
-                self.client.delete(&full_path, None, Some(headers)).await
-            }
+            "GET" => self.client.get(&full_path, None, Some(headers)).await,
+            "POST" => self.client.post(&full_path, body, Some(headers)).await,
+            "DELETE" => self.client.delete(&full_path, None, Some(headers)).await,
             "PUT" => {
                 if let Some(params) = params {
                     self.client.put(&full_path, params, Some(headers)).await
                 } else {
-                    self.client.put(&full_path, HashMap::new(), Some(headers)).await
+                    self.client
+                        .put(&full_path, HashMap::new(), Some(headers))
+                        .await
                 }
-            }
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -682,7 +682,9 @@ impl Bitmex {
 
     /// Convert order to unified format
     fn parse_order(&self, order: &BitmexOrder) -> Order {
-        let timestamp = order.timestamp.as_ref()
+        let timestamp = order
+            .timestamp
+            .as_ref()
             .and_then(|ts| Self::parse_timestamp(ts));
         let datetime = timestamp.map(|t| {
             chrono::DateTime::from_timestamp_millis(t)
@@ -697,9 +699,15 @@ impl Bitmex {
         let amount = order.order_qty.map(Decimal::from).unwrap_or(Decimal::ZERO);
         let filled = order.cum_qty.map(Decimal::from).unwrap_or(Decimal::ZERO);
         let remaining = order.leaves_qty.map(Decimal::from).unwrap_or(Decimal::ZERO);
-        let price = order.price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let average = order.avg_px.map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let stop_price = order.stop_px.map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
+        let price = order
+            .price
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
+        let average = order
+            .avg_px
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
+        let stop_price = order
+            .stop_px
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
 
         let cost = if let (Some(avg), Some(qty)) = (average, order.cum_qty) {
             Some(avg * Decimal::from(qty))
@@ -707,14 +715,12 @@ impl Bitmex {
             None
         };
 
-        let time_in_force = order.time_in_force.as_ref().map(|tif| {
-            match tif.as_str() {
-                "GTC" => TimeInForce::GTC,
-                "IOC" => TimeInForce::IOC,
-                "FOK" => TimeInForce::FOK,
-                "PO" => TimeInForce::PO,
-                _ => TimeInForce::GTC,
-            }
+        let time_in_force = order.time_in_force.as_ref().map(|tif| match tif.as_str() {
+            "GTC" => TimeInForce::GTC,
+            "IOC" => TimeInForce::IOC,
+            "FOK" => TimeInForce::FOK,
+            "PO" => TimeInForce::PO,
+            _ => TimeInForce::GTC,
         });
 
         Order {
@@ -736,7 +742,10 @@ impl Bitmex {
             remaining: Some(remaining),
             cost,
             reduce_only: None,
-            post_only: order.exec_inst.as_ref().map(|e| e.contains("ParticipateDoNotInitiate")),
+            post_only: order
+                .exec_inst
+                .as_ref()
+                .map(|e| e.contains("ParticipateDoNotInitiate")),
             stop_price,
             trigger_price: stop_price,
             take_profit_price: None,
@@ -750,7 +759,9 @@ impl Bitmex {
 
     /// Convert position to unified format
     fn parse_position(&self, pos: &BitmexPosition) -> Position {
-        let timestamp = pos.timestamp.as_ref()
+        let timestamp = pos
+            .timestamp
+            .as_ref()
             .and_then(|ts| Self::parse_timestamp(ts));
         let datetime = timestamp.map(|t| {
             chrono::DateTime::from_timestamp_millis(t)
@@ -767,27 +778,37 @@ impl Bitmex {
         };
 
         let contracts = Some(Decimal::from(pos.current_qty.abs()));
-        let entry_price = pos.avg_entry_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let mark_price = pos.mark_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let liquidation_price = pos.liquidation_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let leverage = pos.leverage.map(|l| Decimal::from_f64_retain(l).unwrap_or_default());
+        let entry_price = pos
+            .avg_entry_price
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
+        let mark_price = pos
+            .mark_price
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
+        let liquidation_price = pos
+            .liquidation_price
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
+        let leverage = pos
+            .leverage
+            .map(|l| Decimal::from_f64_retain(l).unwrap_or_default());
         let unrealized_pnl = pos.unrealised_pnl.map(|p| {
             // Convert from satoshis to BTC
             Decimal::from(p) / Decimal::from(100_000_000)
         });
-        let realized_pnl = pos.realised_pnl.map(|p| {
-            Decimal::from(p) / Decimal::from(100_000_000)
-        });
+        let realized_pnl = pos
+            .realised_pnl
+            .map(|p| Decimal::from(p) / Decimal::from(100_000_000));
         let margin_mode = if pos.cross_margin.unwrap_or(false) {
             Some(MarginMode::Cross)
         } else {
             Some(MarginMode::Isolated)
         };
 
-        let notional = pos.foreign_notional.map(|n| Decimal::from_f64_retain(n).unwrap_or_default());
-        let collateral = pos.pos_margin.map(|m| {
-            Decimal::from(m) / Decimal::from(100_000_000)
-        });
+        let notional = pos
+            .foreign_notional
+            .map(|n| Decimal::from_f64_retain(n).unwrap_or_default());
+        let collateral = pos
+            .pos_margin
+            .map(|m| Decimal::from(m) / Decimal::from(100_000_000));
 
         Position {
             symbol: pos.symbol.clone(),
@@ -808,16 +829,28 @@ impl Bitmex {
             liquidation_price,
             margin_mode,
             hedged: Some(false),
-            maintenance_margin: pos.maint_margin.map(|m| Decimal::from(m) / Decimal::from(100_000_000)),
-            maintenance_margin_percentage: pos.maint_margin_req.map(|r| Decimal::from_f64_retain(r).unwrap_or_default()),
-            initial_margin: pos.init_margin.map(|m| Decimal::from(m) / Decimal::from(100_000_000)),
-            initial_margin_percentage: pos.init_margin_req.map(|r| Decimal::from_f64_retain(r).unwrap_or_default()),
+            maintenance_margin: pos
+                .maint_margin
+                .map(|m| Decimal::from(m) / Decimal::from(100_000_000)),
+            maintenance_margin_percentage: pos
+                .maint_margin_req
+                .map(|r| Decimal::from_f64_retain(r).unwrap_or_default()),
+            initial_margin: pos
+                .init_margin
+                .map(|m| Decimal::from(m) / Decimal::from(100_000_000)),
+            initial_margin_percentage: pos
+                .init_margin_req
+                .map(|r| Decimal::from_f64_retain(r).unwrap_or_default()),
             margin_ratio: None,
             last_update_timestamp: None,
-            last_price: pos.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            last_price: pos
+                .last_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             stop_loss_price: None,
             take_profit_price: None,
-            percentage: pos.unrealised_pnl_pcnt.map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
+            percentage: pos
+                .unrealised_pnl_pcnt
+                .map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
         }
     }
 }
@@ -840,7 +873,8 @@ impl Exchange for Bitmex {
             }
         }
 
-        let instruments: Vec<BitmexInstrument> = self.public_get("/instrument/active", None).await?;
+        let instruments: Vec<BitmexInstrument> =
+            self.public_get("/instrument/active", None).await?;
 
         let mut markets = HashMap::new();
         let mut markets_by_id = HashMap::new();
@@ -853,16 +887,32 @@ impl Exchange for Bitmex {
                     inst.symbol.chars().take(3).collect()
                 }
             });
-            let quote = inst.quote_currency.clone().unwrap_or_else(|| "USD".to_string());
-            let settle = inst.settle_currency.clone().unwrap_or_else(|| "XBt".to_string());
+            let quote = inst
+                .quote_currency
+                .clone()
+                .unwrap_or_else(|| "USD".to_string());
+            let settle = inst
+                .settle_currency
+                .clone()
+                .unwrap_or_else(|| "XBt".to_string());
 
             let is_inverse = inst.is_inverse.unwrap_or(false);
             let is_swap = inst.expiry.is_none();
 
             let symbol = if is_swap {
-                format!("{}/{}:{}", base, quote, if settle == "XBt" { "BTC" } else { &settle })
+                format!(
+                    "{}/{}:{}",
+                    base,
+                    quote,
+                    if settle == "XBt" { "BTC" } else { &settle }
+                )
             } else {
-                format!("{}/{}:{}", base, quote, if settle == "XBt" { "BTC" } else { &settle })
+                format!(
+                    "{}/{}:{}",
+                    base,
+                    quote,
+                    if settle == "XBt" { "BTC" } else { &settle }
+                )
             };
 
             let tick_size = inst.tick_size.unwrap_or(0.5);
@@ -883,9 +933,14 @@ impl Exchange for Bitmex {
                 },
                 price: MinMax {
                     min: Some(Decimal::from_f64_retain(tick_size).unwrap_or(Decimal::ONE)),
-                    max: inst.max_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    max: inst
+                        .max_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                 },
-                cost: MinMax { min: None, max: None },
+                cost: MinMax {
+                    min: None,
+                    max: None,
+                },
                 leverage: MinMax {
                     min: Some(Decimal::ONE),
                     max: Some(Decimal::from(100)),
@@ -900,9 +955,17 @@ impl Exchange for Bitmex {
                 quote: quote.clone(),
                 base_id: base.clone(),
                 quote_id: quote.clone(),
-                settle_id: Some(if settle == "XBt" { "BTC".to_string() } else { settle.clone() }),
+                settle_id: Some(if settle == "XBt" {
+                    "BTC".to_string()
+                } else {
+                    settle.clone()
+                }),
                 active: inst.state.as_ref().map(|s| s == "Open").unwrap_or(true),
-                market_type: if is_swap { MarketType::Swap } else { MarketType::Future },
+                market_type: if is_swap {
+                    MarketType::Swap
+                } else {
+                    MarketType::Future
+                },
                 spot: false,
                 margin: true,
                 swap: is_swap,
@@ -910,7 +973,11 @@ impl Exchange for Bitmex {
                 option: false,
                 index: false,
                 contract: true,
-                settle: Some(if settle == "XBt" { "BTC".to_string() } else { settle.clone() }),
+                settle: Some(if settle == "XBt" {
+                    "BTC".to_string()
+                } else {
+                    settle.clone()
+                }),
                 contract_size: Some(Decimal::ONE),
                 linear: Some(!is_inverse),
                 inverse: Some(is_inverse),
@@ -919,8 +986,12 @@ impl Exchange for Bitmex {
                 expiry_datetime: inst.expiry.clone(),
                 strike: None,
                 option_type: None,
-                taker: inst.taker_fee.map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),
-                maker: inst.maker_fee.map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),
+                taker: inst
+                    .taker_fee
+                    .map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),
+                maker: inst
+                    .maker_fee
+                    .map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),
                 percentage: true,
                 tier_based: false,
                 precision,
@@ -950,19 +1021,27 @@ impl Exchange for Bitmex {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
 
-        let instruments: Vec<BitmexInstrument> = self.public_get("/instrument", Some(params)).await?;
-        let inst = instruments.first()
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+        let instruments: Vec<BitmexInstrument> =
+            self.public_get("/instrument", Some(params)).await?;
+        let inst = instruments.first().ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.to_string(),
+        })?;
 
-        let timestamp = inst.timestamp.as_ref().and_then(|ts| Self::parse_timestamp(ts));
+        let timestamp = inst
+            .timestamp
+            .as_ref()
+            .and_then(|ts| Self::parse_timestamp(ts));
         let datetime = timestamp.map(|t| {
             chrono::DateTime::from_timestamp_millis(t)
                 .map(|dt| dt.to_rfc3339())
@@ -973,28 +1052,52 @@ impl Exchange for Bitmex {
             symbol: symbol.to_string(),
             timestamp,
             datetime,
-            high: inst.high_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            low: inst.low_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            bid: inst.bid_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            high: inst
+                .high_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            low: inst
+                .low_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            bid: inst
+                .bid_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             bid_volume: None,
-            ask: inst.ask_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            ask: inst
+                .ask_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             ask_volume: None,
             vwap: None,
-            open: inst.prev_close_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            close: inst.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            last: inst.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            previous_close: inst.prev_close_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            change: inst.last_price.zip(inst.prev_close_price)
+            open: inst
+                .prev_close_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            close: inst
+                .last_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            last: inst
+                .last_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            previous_close: inst
+                .prev_close_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            change: inst
+                .last_price
+                .zip(inst.prev_close_price)
                 .map(|(last, prev)| Decimal::from_f64_retain(last - prev).unwrap_or_default()),
-            percentage: inst.last_change_pcnt.map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
-            average: inst.mid_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            percentage: inst
+                .last_change_pcnt
+                .map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
+            average: inst
+                .mid_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             base_volume: inst.volume_24h.map(Decimal::from),
             quote_volume: inst.turnover_24h.map(|t| {
                 // Convert from satoshis to BTC
                 Decimal::from(t) / Decimal::from(100_000_000)
             }),
             index_price: None,
-            mark_price: inst.mark_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            mark_price: inst
+                .mark_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             info: serde_json::to_value(inst).unwrap_or(Value::Null),
         })
     }
@@ -1002,7 +1105,8 @@ impl Exchange for Bitmex {
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
         self.load_markets(false).await?;
 
-        let instruments: Vec<BitmexInstrument> = self.public_get("/instrument/active", None).await?;
+        let instruments: Vec<BitmexInstrument> =
+            self.public_get("/instrument/active", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut result = HashMap::new();
@@ -1015,7 +1119,10 @@ impl Exchange for Bitmex {
                     }
                 }
 
-                let timestamp = inst.timestamp.as_ref().and_then(|ts| Self::parse_timestamp(ts));
+                let timestamp = inst
+                    .timestamp
+                    .as_ref()
+                    .and_then(|ts| Self::parse_timestamp(ts));
                 let datetime = timestamp.map(|t| {
                     chrono::DateTime::from_timestamp_millis(t)
                         .map(|dt| dt.to_rfc3339())
@@ -1026,24 +1133,46 @@ impl Exchange for Bitmex {
                     symbol: symbol.clone(),
                     timestamp,
                     datetime,
-                    high: inst.high_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    low: inst.low_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    bid: inst.bid_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    high: inst
+                        .high_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    low: inst
+                        .low_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    bid: inst
+                        .bid_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     bid_volume: None,
-                    ask: inst.ask_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    ask: inst
+                        .ask_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     ask_volume: None,
                     vwap: None,
-                    open: inst.prev_close_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    close: inst.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    last: inst.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    previous_close: inst.prev_close_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    open: inst
+                        .prev_close_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    close: inst
+                        .last_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    last: inst
+                        .last_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    previous_close: inst
+                        .prev_close_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     change: None,
-                    percentage: inst.last_change_pcnt.map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
+                    percentage: inst
+                        .last_change_pcnt
+                        .map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
                     average: None,
                     base_volume: inst.volume_24h.map(Decimal::from),
-                    quote_volume: inst.turnover_24h.map(|t| Decimal::from(t) / Decimal::from(100_000_000)),
+                    quote_volume: inst
+                        .turnover_24h
+                        .map(|t| Decimal::from(t) / Decimal::from(100_000_000)),
                     index_price: None,
-                    mark_price: inst.mark_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                    mark_price: inst
+                        .mark_price
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     info: serde_json::to_value(&inst).unwrap_or(Value::Null),
                 };
 
@@ -1059,9 +1188,12 @@ impl Exchange for Bitmex {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
@@ -1070,7 +1202,8 @@ impl Exchange for Bitmex {
             params.insert("depth".to_string(), l.to_string());
         }
 
-        let entries: Vec<BitmexOrderBookEntry> = self.public_get("/orderBook/L2", Some(params)).await?;
+        let entries: Vec<BitmexOrderBookEntry> =
+            self.public_get("/orderBook/L2", Some(params)).await?;
 
         let mut bids = Vec::new();
         let mut asks = Vec::new();
@@ -1084,7 +1217,7 @@ impl Exchange for Bitmex {
             match entry.side.as_str() {
                 "Buy" => bids.push(book_entry),
                 "Sell" => asks.push(book_entry),
-                _ => {}
+                _ => {},
             }
         }
 
@@ -1101,6 +1234,7 @@ impl Exchange for Bitmex {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -1114,9 +1248,12 @@ impl Exchange for Bitmex {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
@@ -1128,7 +1265,8 @@ impl Exchange for Bitmex {
 
         let trades: Vec<BitmexTrade> = self.public_get("/trade", Some(params)).await?;
 
-        let result: Vec<Trade> = trades.iter()
+        let result: Vec<Trade> = trades
+            .iter()
             .map(|t| {
                 let timestamp = Self::parse_timestamp(&t.timestamp);
                 let datetime = timestamp.map(|ts| {
@@ -1179,12 +1317,17 @@ impl Exchange for Bitmex {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
-        let bin_size = self.timeframes.get(&timeframe)
+        let bin_size = self
+            .timeframes
+            .get(&timeframe)
             .cloned()
             .unwrap_or_else(|| "1h".to_string());
 
@@ -1207,7 +1350,8 @@ impl Exchange for Bitmex {
 
         let candles: Vec<BitmexOhlcv> = self.public_get("/trade/bucketed", Some(params)).await?;
 
-        let mut result: Vec<OHLCV> = candles.iter()
+        let mut result: Vec<OHLCV> = candles
+            .iter()
             .filter_map(|c| {
                 let timestamp = Self::parse_timestamp(&c.timestamp)?;
                 Some(OHLCV {
@@ -1228,7 +1372,9 @@ impl Exchange for Bitmex {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let wallet: BitmexWallet = self.private_request("GET", "/user/wallet", None, None).await?;
+        let wallet: BitmexWallet = self
+            .private_request("GET", "/user/wallet", None, None)
+            .await?;
 
         let mut result = Balances::new();
 
@@ -1239,14 +1385,21 @@ impl Exchange for Bitmex {
         let available = Decimal::from(wallet.amount - pending_debit) / Decimal::from(100_000_000);
         let pending = Decimal::from(pending_credit + pending_debit) / Decimal::from(100_000_000);
 
-        let currency = if wallet.currency == "XBt" { "BTC" } else { &wallet.currency };
+        let currency = if wallet.currency == "XBt" {
+            "BTC"
+        } else {
+            &wallet.currency
+        };
 
-        result.currencies.insert(currency.to_string(), Balance {
-            free: Some(available),
-            used: Some(pending),
-            total: Some(amount_dec),
-            debt: None,
-        });
+        result.currencies.insert(
+            currency.to_string(),
+            Balance {
+                free: Some(available),
+                used: Some(pending),
+                total: Some(amount_dec),
+                debt: None,
+            },
+        );
 
         result.info = serde_json::to_value(&wallet).unwrap_or(Value::Null);
 
@@ -1267,9 +1420,12 @@ impl Exchange for Bitmex {
         if let Some(sym) = symbol {
             let market_id = {
                 let markets = self.markets.read().unwrap();
-                markets.get(sym)
+                markets
+                    .get(sym)
                     .map(|m| m.id.clone())
-                    .ok_or_else(|| CcxtError::BadSymbol { symbol: sym.to_string() })?
+                    .ok_or_else(|| CcxtError::BadSymbol {
+                        symbol: sym.to_string(),
+                    })?
             };
             params.insert("symbol".to_string(), market_id);
         }
@@ -1278,10 +1434,13 @@ impl Exchange for Bitmex {
             params.insert("count".to_string(), l.to_string());
         }
 
-        let orders: Vec<BitmexOrder> = self.private_request("GET", "/order", Some(params), None).await?;
+        let orders: Vec<BitmexOrder> = self
+            .private_request("GET", "/order", Some(params), None)
+            .await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let result: Vec<Order> = orders.iter()
+        let result: Vec<Order> = orders
+            .iter()
             .map(|o| {
                 let mut order = self.parse_order(o);
                 if let Some(symbol) = markets_by_id.get(&o.symbol) {
@@ -1299,19 +1458,25 @@ impl Exchange for Bitmex {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
         params.insert("filter".to_string(), format!(r#"{{"orderID":"{id}"}}"#));
 
-        let orders: Vec<BitmexOrder> = self.private_request("GET", "/order", Some(params), None).await?;
+        let orders: Vec<BitmexOrder> = self
+            .private_request("GET", "/order", Some(params), None)
+            .await?;
 
-        let order = orders.first()
-            .ok_or_else(|| CcxtError::OrderNotFound { order_id: id.to_string() })?;
+        let order = orders.first().ok_or_else(|| CcxtError::OrderNotFound {
+            order_id: id.to_string(),
+        })?;
 
         let mut result = self.parse_order(order);
         result.symbol = symbol.to_string();
@@ -1322,10 +1487,12 @@ impl Exchange for Bitmex {
     async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         self.load_markets(false).await?;
 
-        let positions: Vec<BitmexPosition> = self.private_request("GET", "/position", None, None).await?;
+        let positions: Vec<BitmexPosition> =
+            self.private_request("GET", "/position", None, None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let result: Vec<Position> = positions.iter()
+        let result: Vec<Position> = positions
+            .iter()
             .filter(|p| p.current_qty != 0)
             .filter_map(|p| {
                 let symbol = markets_by_id.get(&p.symbol)?;
@@ -1345,10 +1512,14 @@ impl Exchange for Bitmex {
         Ok(result)
     }
 
-    async fn fetch_funding_rates(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, FundingRate>> {
+    async fn fetch_funding_rates(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<HashMap<String, FundingRate>> {
         self.load_markets(false).await?;
 
-        let instruments: Vec<BitmexInstrument> = self.public_get("/instrument/active", None).await?;
+        let instruments: Vec<BitmexInstrument> =
+            self.public_get("/instrument/active", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut result = HashMap::new();
@@ -1362,36 +1533,46 @@ impl Exchange for Bitmex {
                 }
 
                 if let Some(rate) = inst.funding_rate {
-                    let timestamp = inst.timestamp.as_ref().and_then(|ts| Self::parse_timestamp(ts));
+                    let timestamp = inst
+                        .timestamp
+                        .as_ref()
+                        .and_then(|ts| Self::parse_timestamp(ts));
                     let datetime = timestamp.map(|t| {
                         chrono::DateTime::from_timestamp_millis(t)
                             .map(|dt| dt.to_rfc3339())
                             .unwrap_or_default()
                     });
 
-                    let next_funding_time = inst.funding_timestamp.as_ref()
+                    let next_funding_time = inst
+                        .funding_timestamp
+                        .as_ref()
                         .and_then(|ts| Self::parse_timestamp(ts));
 
-                    result.insert(symbol.clone(), FundingRate {
-                        info: serde_json::to_value(&inst).unwrap_or(Value::Null),
-                        symbol: symbol.clone(),
-                        mark_price: inst.mark_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                        index_price: None,
-                        interest_rate: None,
-                        estimated_settle_price: None,
-                        timestamp,
-                        datetime,
-                        funding_rate: Some(Decimal::from_f64_retain(rate).unwrap_or_default()),
-                        funding_timestamp: next_funding_time,
-                        funding_datetime: inst.funding_timestamp.clone(),
-                        next_funding_rate: None,
-                        next_funding_timestamp: None,
-                        next_funding_datetime: None,
-                        previous_funding_rate: None,
-                        previous_funding_timestamp: None,
-                        previous_funding_datetime: None,
-                        interval: Some("8h".to_string()),
-                    });
+                    result.insert(
+                        symbol.clone(),
+                        FundingRate {
+                            info: serde_json::to_value(&inst).unwrap_or(Value::Null),
+                            symbol: symbol.clone(),
+                            mark_price: inst
+                                .mark_price
+                                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                            index_price: None,
+                            interest_rate: None,
+                            estimated_settle_price: None,
+                            timestamp,
+                            datetime,
+                            funding_rate: Some(Decimal::from_f64_retain(rate).unwrap_or_default()),
+                            funding_timestamp: next_funding_time,
+                            funding_datetime: inst.funding_timestamp.clone(),
+                            next_funding_rate: None,
+                            next_funding_timestamp: None,
+                            next_funding_datetime: None,
+                            previous_funding_rate: None,
+                            previous_funding_timestamp: None,
+                            previous_funding_datetime: None,
+                            interval: Some("8h".to_string()),
+                        },
+                    );
                 }
             }
         }
@@ -1409,9 +1590,12 @@ impl Exchange for Bitmex {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
@@ -1431,11 +1615,12 @@ impl Exchange for Bitmex {
 
         let funding: Vec<BitmexFunding> = self.public_get("/funding", Some(params)).await?;
 
-        let result: Vec<FundingRateHistory> = funding.iter()
+        let result: Vec<FundingRateHistory> = funding
+            .iter()
             .filter_map(|f| {
                 let timestamp = Self::parse_timestamp(&f.timestamp)?;
-                let datetime = chrono::DateTime::from_timestamp_millis(timestamp)
-                    .map(|dt| dt.to_rfc3339());
+                let datetime =
+                    chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339());
 
                 Some(FundingRateHistory {
                     info: serde_json::to_value(f).unwrap_or(Value::Null),
@@ -1462,9 +1647,12 @@ impl Exchange for Bitmex {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let side_str = match side {
@@ -1491,7 +1679,9 @@ impl Exchange for Bitmex {
             body["price"] = json!(p.to_string().parse::<f64>().unwrap_or(0.0));
         }
 
-        let order: BitmexOrder = self.private_request("POST", "/order", None, Some(body)).await?;
+        let order: BitmexOrder = self
+            .private_request("POST", "/order", None, Some(body))
+            .await?;
 
         let mut result = self.parse_order(&order);
         result.symbol = symbol.to_string();
@@ -1504,10 +1694,13 @@ impl Exchange for Bitmex {
             "orderID": id
         });
 
-        let orders: Vec<BitmexOrder> = self.private_request("DELETE", "/order", None, Some(body)).await?;
+        let orders: Vec<BitmexOrder> = self
+            .private_request("DELETE", "/order", None, Some(body))
+            .await?;
 
-        let order = orders.first()
-            .ok_or_else(|| CcxtError::OrderNotFound { order_id: id.to_string() })?;
+        let order = orders.first().ok_or_else(|| CcxtError::OrderNotFound {
+            order_id: id.to_string(),
+        })?;
 
         Ok(self.parse_order(order))
     }
@@ -1566,9 +1759,18 @@ mod tests {
 
     #[test]
     fn test_order_status_parsing() {
-        assert!(matches!(Bitmex::parse_order_status("New"), OrderStatus::Open));
-        assert!(matches!(Bitmex::parse_order_status("Filled"), OrderStatus::Closed));
-        assert!(matches!(Bitmex::parse_order_status("Canceled"), OrderStatus::Canceled));
+        assert!(matches!(
+            Bitmex::parse_order_status("New"),
+            OrderStatus::Open
+        ));
+        assert!(matches!(
+            Bitmex::parse_order_status("Filled"),
+            OrderStatus::Closed
+        ));
+        assert!(matches!(
+            Bitmex::parse_order_status("Canceled"),
+            OrderStatus::Canceled
+        ));
     }
 
     #[test]

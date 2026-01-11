@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -122,12 +122,18 @@ impl Bitstamp {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
         let timestamp = Utc::now().timestamp_millis().to_string();
@@ -137,7 +143,8 @@ impl Bitstamp {
         let body = if body_params.is_empty() {
             String::new()
         } else {
-            body_params.iter()
+            body_params
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&")
@@ -148,8 +155,11 @@ impl Bitstamp {
             "BITSTAMP {api_key}POSTwww.bitstamp.net/api/v2{path}{content_type}{nonce}v2{body}"
         );
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -161,7 +171,9 @@ impl Bitstamp {
         headers.insert("X-Auth-Version".into(), "v2".into());
         headers.insert("Content-Type".into(), content_type.into());
 
-        self.client.post_form(path, &body_params, Some(headers)).await
+        self.client
+            .post_form(path, &body_params, Some(headers))
+            .await
     }
 
     /// Convert symbol to market ID (BTC/USD -> btcusd)
@@ -322,7 +334,9 @@ impl Exchange for Bitstamp {
         let path = format!("/ticker/{market_id}/");
         let response: BitstampTicker = self.public_get(&path, None).await?;
 
-        let timestamp = response.timestamp.as_ref()
+        let timestamp = response
+            .timestamp
+            .as_ref()
             .and_then(|s| s.parse::<i64>().ok())
             .map(|t| t * 1000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -362,7 +376,9 @@ impl Exchange for Bitstamp {
         let path = format!("/order_book/{market_id}/");
         let response: BitstampOrderBook = self.public_get(&path, None).await?;
 
-        let timestamp = response.timestamp.as_ref()
+        let timestamp = response
+            .timestamp
+            .as_ref()
             .and_then(|s| s.parse::<i64>().ok())
             .map(|t| t * 1000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -393,27 +409,44 @@ impl Exchange for Bitstamp {
                     .unwrap_or_default(),
             ),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let path = format!("/transactions/{market_id}/");
         let response: Vec<BitstampTrade> = self.public_get(&path, None).await?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .take(limit)
             .map(|t| {
-                let timestamp = t.date.as_ref()
+                let timestamp = t
+                    .date
+                    .as_ref()
                     .and_then(|s| s.parse::<i64>().ok())
                     .map(|ts| ts * 1000)
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-                let price: Decimal = t.price.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-                let amount: Decimal = t.amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+                let price: Decimal = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
+                let amount: Decimal = t
+                    .amount
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
 
                 let side = match t.trade_type.as_deref() {
                     Some("0") => "buy".to_string(),
@@ -455,7 +488,11 @@ impl Exchange for Bitstamp {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let step = self.timeframes.get(&timeframe).cloned().unwrap_or("3600".into());
+        let step = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or("3600".into());
         let path = format!("/ohlc/{market_id}/");
 
         let mut params = HashMap::new();
@@ -464,22 +501,28 @@ impl Exchange for Bitstamp {
 
         let response: BitstampOhlcvResponse = self.public_get(&path, Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.data.ohlc.iter().filter_map(|c| {
-            Some(OHLCV {
-                timestamp: c.timestamp.as_ref()?.parse::<i64>().ok()? * 1000,
-                open: c.open.as_ref()?.parse().ok()?,
-                high: c.high.as_ref()?.parse().ok()?,
-                low: c.low.as_ref()?.parse().ok()?,
-                close: c.close.as_ref()?.parse().ok()?,
-                volume: c.volume.as_ref()?.parse().ok()?,
+        let ohlcv: Vec<OHLCV> = response
+            .data
+            .ohlc
+            .iter()
+            .filter_map(|c| {
+                Some(OHLCV {
+                    timestamp: c.timestamp.as_ref()?.parse::<i64>().ok()? * 1000,
+                    open: c.open.as_ref()?.parse().ok()?,
+                    high: c.high.as_ref()?.parse().ok()?,
+                    low: c.low.as_ref()?.parse().ok()?,
+                    close: c.close.as_ref()?.parse().ok()?,
+                    volume: c.volume.as_ref()?.parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(ohlcv)
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: HashMap<String, serde_json::Value> = self.private_post("/balance/", None).await?;
+        let response: HashMap<String, serde_json::Value> =
+            self.private_post("/balance/", None).await?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -489,10 +532,14 @@ impl Exchange for Bitstamp {
         for (key, value) in &response {
             if key.ends_with("_available") {
                 let currency = key.replace("_available", "").to_uppercase();
-                let free: Decimal = value.as_str().and_then(|s| s.parse().ok()).unwrap_or_default();
+                let free: Decimal = value
+                    .as_str()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
 
                 let used_key = format!("{}_reserved", currency.to_lowercase());
-                let used: Decimal = response.get(&used_key)
+                let used: Decimal = response
+                    .get(&used_key)
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok())
                     .unwrap_or_default();
@@ -542,7 +589,9 @@ impl Exchange for Bitstamp {
 
         let response: BitstampOrder = self.private_post(&path, Some(params)).await?;
 
-        let timestamp = response.datetime.as_ref()
+        let timestamp = response
+            .datetime
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -626,7 +675,9 @@ impl Exchange for Bitstamp {
 
         let response: BitstampOrder = self.private_post("/order_status/", Some(params)).await?;
 
-        let timestamp = response.datetime.as_ref()
+        let timestamp = response
+            .datetime
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -644,7 +695,9 @@ impl Exchange for Bitstamp {
             _ => OrderType::Limit,
         };
 
-        let amount: Decimal = response.amount.as_ref()
+        let amount: Decimal = response
+            .amount
+            .as_ref()
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or_default();
 
@@ -703,14 +756,19 @@ impl Exchange for Bitstamp {
 
         let response: Vec<BitstampOrder> = self.private_post(&path, None).await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|o| {
-                let timestamp = o.datetime.as_ref()
+                let timestamp = o
+                    .datetime
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-                let amount: Decimal = o.amount.as_ref()
+                let amount: Decimal = o
+                    .amount
+                    .as_ref()
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
 

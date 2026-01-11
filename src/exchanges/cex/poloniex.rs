@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -13,14 +14,14 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::RwLock;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, Fee, OHLCV,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade,
+    OHLCV,
 };
 
 const BASE_URL: &str = "https://api.poloniex.com";
@@ -179,12 +180,18 @@ impl Poloniex {
             },
             limits: MarketLimits {
                 amount: MinMax {
-                    min: trade_limit.min_quantity.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                    min: trade_limit
+                        .min_quantity
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
                     max: None,
                 },
                 price: MinMax::default(),
                 cost: MinMax {
-                    min: trade_limit.min_amount.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                    min: trade_limit
+                        .min_amount
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
                     max: None,
                 },
                 leverage: MinMax::default(),
@@ -214,21 +221,36 @@ impl Poloniex {
             high: data.high.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             low: data.low.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             bid: data.bid.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            bid_volume: data.bid_quantity.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            bid_volume: data
+                .bid_quantity
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             ask: data.ask.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            ask_volume: data.ask_quantity.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            ask_volume: data
+                .ask_quantity
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             vwap: None,
             open: data.open.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             close: data.close.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             last: data.close.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             previous_close: None,
-            change: data.daily_change.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            change: data
+                .daily_change
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             percentage: None,
             average: None,
-            base_volume: data.quantity.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            base_volume: data
+                .quantity
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             quote_volume: data.amount.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             index_price: None,
-            mark_price: data.mark_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            mark_price: data
+                .mark_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             info: serde_json::to_value(data).unwrap_or_default(),
         }
     }
@@ -295,7 +317,10 @@ impl Poloniex {
             _ => None,
         };
 
-        let fee_cost = data.fee_amount.as_ref().and_then(|f| Decimal::from_str(f).ok());
+        let fee_cost = data
+            .fee_amount
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok());
         let fee = fee_cost.map(|cost| Fee {
             cost: Some(cost),
             currency: data.fee_currency.clone(),
@@ -311,7 +336,11 @@ impl Poloniex {
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default(),
             ),
-            symbol: data.symbol.as_ref().map(|s| self.to_symbol(s)).unwrap_or_default(),
+            symbol: data
+                .symbol
+                .as_ref()
+                .map(|s| self.to_symbol(s))
+                .unwrap_or_default(),
             trade_type: None,
             side,
             taker_or_maker: data.role.as_ref().and_then(|r| match r.as_str() {
@@ -341,7 +370,9 @@ impl Poloniex {
             _ => OrderStatus::Open,
         };
 
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| self.to_symbol(s))
             .unwrap_or_default();
 
@@ -358,19 +389,25 @@ impl Poloniex {
             _ => OrderType::Limit,
         };
 
-        let price = data.price.as_ref()
-            .and_then(|p| Decimal::from_str(p).ok());
+        let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
 
-        let amount = data.quantity.as_ref()
+        let amount = data
+            .quantity
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
-        let filled = data.filled_quantity.as_ref()
+        let filled = data
+            .filled_quantity
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
         let remaining = amount - filled;
-        let cost = data.filled_amount.as_ref().and_then(|c| Decimal::from_str(c).ok());
+        let cost = data
+            .filled_amount
+            .as_ref()
+            .and_then(|c| Decimal::from_str(c).ok());
         let average = if filled > Decimal::ZERO {
             cost.map(|c| c / filled)
         } else {
@@ -429,12 +466,15 @@ impl Poloniex {
                 let used = Decimal::from_str(&balance.hold).unwrap_or_default();
                 let total = free + used;
 
-                currencies.insert(currency, Balance {
-                    free: Some(free),
-                    used: Some(used),
-                    total: Some(total),
-                    debt: None,
-                });
+                currencies.insert(
+                    currency,
+                    Balance {
+                        free: Some(free),
+                        used: Some(used),
+                        total: Some(total),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -447,10 +487,19 @@ impl Poloniex {
     }
 
     /// API 서명 생성
-    fn sign_request(&self, method: &str, path: &str, timestamp: &str, body: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+    fn sign_request(
+        &self,
+        method: &str,
+        path: &str,
+        timestamp: &str,
+        body: &str,
+    ) -> CcxtResult<String> {
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         // Sign format: METHOD\n/path\nrequestBody=body&signTimestamp=timestamp
         let mut auth = format!("{method}\n{path}\n");
@@ -470,10 +519,11 @@ impl Poloniex {
         }
 
         // HMAC-SHA256
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(auth.as_bytes());
         let signature = mac.finalize().into_bytes();
 
@@ -499,9 +549,12 @@ impl Poloniex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let path = endpoint;
@@ -515,7 +568,8 @@ impl Poloniex {
             (body, String::new())
         } else {
             // GET request
-            let query = params.iter()
+            let query = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -545,8 +599,16 @@ impl Poloniex {
         match method {
             "GET" => self.client.get(&full_path, None, Some(headers)).await,
             "POST" => self.client.post(&full_path, json_body, Some(headers)).await,
-            "PUT" => self.client.put_json(&full_path, json_body, Some(headers)).await,
-            "DELETE" => self.client.delete_json(&full_path, json_body, Some(headers)).await,
+            "PUT" => {
+                self.client
+                    .put_json(&full_path, json_body, Some(headers))
+                    .await
+            },
+            "DELETE" => {
+                self.client
+                    .delete_json(&full_path, json_body, Some(headers))
+                    .await
+            },
             _ => Err(CcxtError::BadRequest {
                 message: format!("Unsupported method: {method}"),
             }),
@@ -612,9 +674,12 @@ impl Exchange for Poloniex {
             *m = markets_map.clone();
         }
         {
-            let mut m = self.markets_by_id.write().map_err(|_| CcxtError::ExchangeError {
-                message: "Failed to acquire write lock".into(),
-            })?;
+            let mut m = self
+                .markets_by_id
+                .write()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to acquire write lock".into(),
+                })?;
             *m = markets_by_id_map;
         }
 
@@ -665,9 +730,13 @@ impl Exchange for Poloniex {
 
         let response: PoloniexOrderBook = self.public_get(&path, Some(params)).await?;
 
-        let timestamp = response.time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = response.bids.iter()
+        let bids: Vec<OrderBookEntry> = response
+            .bids
+            .iter()
             .step_by(2)
             .enumerate()
             .filter_map(|(i, price_str)| {
@@ -679,7 +748,9 @@ impl Exchange for Poloniex {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = response.asks.iter()
+        let asks: Vec<OrderBookEntry> = response
+            .asks
+            .iter()
             .step_by(2)
             .enumerate()
             .filter_map(|(i, price_str)| {
@@ -702,10 +773,16 @@ impl Exchange for Poloniex {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let poloniex_symbol = self.to_market_id(symbol);
         let path = format!("/markets/{poloniex_symbol}/trades");
 
@@ -741,7 +818,9 @@ impl Exchange for Poloniex {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let poloniex_symbol = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -790,9 +869,11 @@ impl Exchange for Poloniex {
         let type_str = match order_type {
             OrderType::Market => "MARKET",
             OrderType::Limit => "LIMIT",
-            _ => return Err(CcxtError::BadRequest {
-                message: format!("Unsupported order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: format!("Unsupported order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -830,14 +911,17 @@ impl Exchange for Poloniex {
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let path = format!("/orders/{id}");
 
-        let response: PoloniexOrder = self
-            .private_request("GET", &path, HashMap::new())
-            .await?;
+        let response: PoloniexOrder = self.private_request("GET", &path, HashMap::new()).await?;
 
         self.parse_order(&response)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
 
         if let Some(sym) = symbol {
@@ -849,9 +933,7 @@ impl Exchange for Poloniex {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let response: Vec<PoloniexOrder> = self
-            .private_request("GET", "/orders", params)
-            .await?;
+        let response: Vec<PoloniexOrder> = self.private_request("GET", "/orders", params).await?;
 
         let mut orders = Vec::new();
         for order_data in response {
@@ -861,7 +943,12 @@ impl Exchange for Poloniex {
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("state".to_string(), "FILLED".to_string());
 
@@ -890,7 +977,12 @@ impl Exchange for Poloniex {
         Ok(orders)
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut params = HashMap::new();
 
         if let Some(sym) = symbol {
@@ -906,9 +998,7 @@ impl Exchange for Poloniex {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let response: Vec<PoloniexMyTrade> = self
-            .private_request("GET", "/trades", params)
-            .await?;
+        let response: Vec<PoloniexMyTrade> = self.private_request("GET", "/trades", params).await?;
 
         let mut trades = Vec::new();
         for trade_data in response {
@@ -937,7 +1027,8 @@ impl Exchange for Poloniex {
 
             if let Ok(signature) = self.sign_request(method, path, &timestamp, body_str) {
                 if let Some(api_key) = self.config.api_key() {
-                    result_headers.insert("Content-Type".to_string(), "application/json".to_string());
+                    result_headers
+                        .insert("Content-Type".to_string(), "application/json".to_string());
                     result_headers.insert("key".to_string(), api_key.to_string());
                     result_headers.insert("signTimestamp".to_string(), timestamp);
                     result_headers.insert("signature".to_string(), signature);
@@ -948,7 +1039,8 @@ impl Exchange for Poloniex {
         let url = if params.is_empty() {
             format!("{BASE_URL}{path}")
         } else {
-            let query = params.iter()
+            let query = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -1164,8 +1256,14 @@ mod tests {
     fn test_timeframes() {
         let poloniex = create_test_poloniex();
         let timeframes = poloniex.timeframes();
-        assert_eq!(timeframes.get(&Timeframe::Minute1), Some(&"MINUTE_1".to_string()));
-        assert_eq!(timeframes.get(&Timeframe::Hour1), Some(&"HOUR_1".to_string()));
+        assert_eq!(
+            timeframes.get(&Timeframe::Minute1),
+            Some(&"MINUTE_1".to_string())
+        );
+        assert_eq!(
+            timeframes.get(&Timeframe::Hour1),
+            Some(&"HOUR_1".to_string())
+        );
         assert_eq!(timeframes.get(&Timeframe::Day1), Some(&"DAY_1".to_string()));
     }
 }

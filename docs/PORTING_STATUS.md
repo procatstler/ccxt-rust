@@ -224,7 +224,7 @@ Each private channel implementation includes:
 
 ```
 src/exchanges/
-├── cex/               # Centralized Exchanges (201 files)
+├── cex/               # Centralized Exchanges (202 files)
 │   ├── mod.rs
 │   ├── binance.rs
 │   ├── binance_ws.rs
@@ -236,8 +236,8 @@ src/exchanges/
 │   ├── upbit_ws.rs
 │   ├── bithumb.rs
 │   ├── bithumb_ws.rs
-│   └── ... (190 more files)
-├── dex/               # Decentralized Exchanges (17 files)
+│   └── ... (191 more files)
+├── dex/               # Decentralized Exchanges (18 files)
 │   ├── mod.rs
 │   ├── hyperliquid.rs
 │   ├── hyperliquid_ws.rs
@@ -247,26 +247,44 @@ src/exchanges/
 │   ├── dydxv4_ws.rs
 │   ├── paradex.rs
 │   ├── paradex_ws.rs
-│   └── ... (8 more files)
+│   └── ... (9 more files)
 └── mod.rs             # Module exports (CEX + DEX re-exports)
+
+tests/
+├── dex_tests.rs              # DEX unit tests
+├── error_handling_tests.rs   # Error handling tests
+├── exchange_trait_tests.rs   # Exchange trait tests
+├── live_api_tests.rs         # Live CEX API tests (ignored)
+├── live_dex_tests.rs         # Live DEX API tests (ignored)
+├── major_cex_tests.rs        # Major CEX tests
+├── type_system_tests.rs      # Type system tests
+└── websocket_tests.rs        # WebSocket tests
 ```
 
 ---
 
 ## Test Coverage
 
-- **Total Tests**: 1,558+
-- **Unit Tests**: 1,543 passed
-- **Integration Tests**: 15 passed
-- **Doc Tests**: 2 passed (16 ignored - require network)
-- **Clippy Warnings**: 9 (acceptable - too_many_arguments)
+- **Total Tests**: 1,747+
+- **Unit Tests**: 1,700+ passed
+- **Integration Tests**: 47+ passed
+- **Live API Tests**: 28 (ignored by default - manual execution)
+  - CEX: 17 tests (Binance, OKX, Bybit, Kraken, Upbit, Bithumb)
+  - DEX: 11 tests (Hyperliquid, dYdX v4, Paradex)
+- **Doc Tests**: 2 passed (19 ignored - require network)
+- **Clippy Warnings**: 6 (acceptable - too_many_arguments)
 
 Run tests:
 ```bash
-cargo test              # All tests
-cargo test --lib        # Unit tests only
-cargo clippy            # Lint check
-cargo doc               # Build documentation
+cargo test                    # All tests
+cargo test --lib              # Unit tests only
+cargo test --features full    # All features
+cargo clippy                  # Lint check
+cargo doc                     # Build documentation
+
+# Live API tests (manual execution)
+cargo test --features full live_api -- --ignored --test-threads=1
+cargo test --features full live_dex -- --ignored --test-threads=1
 ```
 
 ---
@@ -289,6 +307,32 @@ When implementing a new exchange:
 ---
 
 ## Changelog
+
+### 2026-01-12 (Phase 30-31: Final Polish and Release Preparation)
+- **Open Source Community Files**:
+  - Added SECURITY.md with vulnerability reporting policy
+  - Added CODE_OF_CONDUCT.md (Contributor Covenant v2.1)
+- **Development Configuration**:
+  - Added codecov.yml for code coverage thresholds and flags
+  - Added cliff.toml for git-cliff automated changelog generation
+  - Added .editorconfig for consistent coding style across editors
+- **Project Status**: Ready for public release
+
+### 2026-01-11 (Phase 24-26: Feature Flags, Live Tests, Documentation)
+- **Phase 26: Documentation Updates**
+  - Updated test coverage statistics (1,747+ tests)
+  - Added live API test documentation
+  - Updated file structure documentation
+- **Phase 25: Live API Integration Tests**
+  - Added 28 live API tests (17 CEX + 11 DEX)
+  - Tests use `#[ignore]` for manual execution
+  - CI workflow updated with `workflow_dispatch` for manual live tests
+  - Cross-exchange price comparison test
+  - DEX latency measurement test
+- **Phase 24: Feature Flags**
+  - Added `cex` (default), `dex`, and `full` feature flags
+  - DEX crypto dependencies now optional
+  - Reduced compile time and binary size for CEX-only usage
 
 ### 2026-01-11 (Directory Restructuring & Project Setup)
 - **Directory Restructuring**: Reorganized from `foreign/korean` to `cex/dex` structure

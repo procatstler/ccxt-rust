@@ -12,8 +12,8 @@ type HmacSha512 = Hmac<Sha512>;
 
 /// HMAC-SHA256 서명 생성
 pub fn hmac_sha256(secret: &str, message: &str) -> Vec<u8> {
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC can take key of any size");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
     mac.update(message.as_bytes());
     mac.finalize().into_bytes().to_vec()
 }
@@ -30,8 +30,7 @@ pub fn hmac_sha256_base64(secret: &str, message: &str) -> String {
 
 /// HMAC-SHA384 서명 생성
 pub fn hmac_sha384(secret: &[u8], message: &str) -> Vec<u8> {
-    let mut mac = HmacSha384::new_from_slice(secret)
-        .expect("HMAC can take key of any size");
+    let mut mac = HmacSha384::new_from_slice(secret).expect("HMAC can take key of any size");
     mac.update(message.as_bytes());
     mac.finalize().into_bytes().to_vec()
 }
@@ -43,8 +42,8 @@ pub fn hmac_sha384_hex(secret: &[u8], message: &str) -> String {
 
 /// HMAC-SHA512 서명 생성
 pub fn hmac_sha512(secret: &str, message: &str) -> Vec<u8> {
-    let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-        .expect("HMAC can take key of any size");
+    let mut mac =
+        HmacSha512::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
     mac.update(message.as_bytes());
     mac.finalize().into_bytes().to_vec()
 }
@@ -84,11 +83,7 @@ pub fn base64_url_decode(data: &str) -> Result<Vec<u8>, base64::DecodeError> {
 /// * `secret` - HMAC secret key
 /// * `payload` - JWT payload as JSON value
 /// * `expiry_seconds` - Token expiry in seconds from now
-pub fn create_jwt_hs256(
-    secret: &str,
-    payload: serde_json::Value,
-    expiry_seconds: u64,
-) -> String {
+pub fn create_jwt_hs256(secret: &str, payload: serde_json::Value, expiry_seconds: u64) -> String {
     let header = serde_json::json!({
         "alg": "HS256",
         "typ": "JWT"
@@ -124,15 +119,14 @@ pub fn create_jwt_rs256(
     private_key_pem: &str,
     claims: &impl serde::Serialize,
 ) -> Result<String, JwtError> {
-    use jsonwebtoken::{encode, EncodingKey, Header, Algorithm};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
     let key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
         .map_err(|e| JwtError::KeyError(e.to_string()))?;
 
     let header = Header::new(Algorithm::RS256);
 
-    encode(&header, claims, &key)
-        .map_err(|e| JwtError::EncodingError(e.to_string()))
+    encode(&header, claims, &key).map_err(|e| JwtError::EncodingError(e.to_string()))
 }
 
 /// JWT 생성 (ES256)
@@ -144,15 +138,14 @@ pub fn create_jwt_es256(
     private_key_pem: &str,
     claims: &impl serde::Serialize,
 ) -> Result<String, JwtError> {
-    use jsonwebtoken::{encode, EncodingKey, Header, Algorithm};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
     let key = EncodingKey::from_ec_pem(private_key_pem.as_bytes())
         .map_err(|e| JwtError::KeyError(e.to_string()))?;
 
     let header = Header::new(Algorithm::ES256);
 
-    encode(&header, claims, &key)
-        .map_err(|e| JwtError::EncodingError(e.to_string()))
+    encode(&header, claims, &key).map_err(|e| JwtError::EncodingError(e.to_string()))
 }
 
 /// JWT 검증 (RS256)
@@ -160,7 +153,7 @@ pub fn verify_jwt_rs256<T: serde::de::DeserializeOwned>(
     token: &str,
     public_key_pem: &str,
 ) -> Result<T, JwtError> {
-    use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 
     let key = DecodingKey::from_rsa_pem(public_key_pem.as_bytes())
         .map_err(|e| JwtError::KeyError(e.to_string()))?;

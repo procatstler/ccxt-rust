@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -125,12 +125,18 @@ impl Bitvavo {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let body_str = body.unwrap_or("");
@@ -138,8 +144,11 @@ impl Bitvavo {
         // Message to sign: timestamp + method + path + body
         let message = format!("{timestamp}{method}{path}{body_str}");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -159,7 +168,7 @@ impl Bitvavo {
                     Some(serde_json::from_str(body_str).unwrap_or(serde_json::Value::Null))
                 };
                 self.client.post(path, body_value, Some(headers)).await
-            }
+            },
             "DELETE" => self.client.delete(path, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method {method}"),
@@ -174,10 +183,14 @@ impl Bitvavo {
         let quote = data.get("quote")?.as_str()?;
         let symbol = format!("{}/{}", base.to_uppercase(), quote.to_uppercase());
 
-        let status = data.get("status").and_then(|s| s.as_str()).unwrap_or("trading");
+        let status = data
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("trading");
         let active = status == "trading";
 
-        let price_precision = data.get("pricePrecision")
+        let price_precision = data
+            .get("pricePrecision")
             .and_then(|v| v.as_i64())
             .map(|p| p as i32);
 
@@ -302,7 +315,8 @@ impl Exchange for Bitvavo {
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
         let response: serde_json::Value = self.public_get("/markets", None).await?;
 
-        let markets_data = response.as_array()
+        let markets_data = response
+            .as_array()
             .ok_or_else(|| CcxtError::ExchangeError {
                 message: "Invalid markets response".into(),
             })?;
@@ -333,7 +347,9 @@ impl Exchange for Bitvavo {
         let path = format!("/ticker/24h?market={market_id}");
         let response: BitvavoTicker = self.public_get(&path, None).await?;
 
-        let timestamp = response.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Ticker {
             symbol: symbol.to_string(),
@@ -380,15 +396,18 @@ impl Exchange for Bitvavo {
         let timestamp = Utc::now().timestamp_millis();
 
         let parse_entries = |entries: &Vec<Vec<String>>| -> Vec<OrderBookEntry> {
-            entries.iter().filter_map(|e| {
-                if e.len() >= 2 {
-                    let price = e[0].parse::<Decimal>().ok()?;
-                    let amount = e[1].parse::<Decimal>().ok()?;
-                    Some(OrderBookEntry { price, amount })
-                } else {
-                    None
-                }
-            }).collect()
+            entries
+                .iter()
+                .filter_map(|e| {
+                    if e.len() >= 2 {
+                        let price = e[0].parse::<Decimal>().ok()?;
+                        let amount = e[1].parse::<Decimal>().ok()?;
+                        Some(OrderBookEntry { price, amount })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         };
 
         Ok(OrderBook {
@@ -398,10 +417,16 @@ impl Exchange for Bitvavo {
             nonce: response.nonce,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.market_id(symbol).ok_or_else(|| CcxtError::BadSymbol {
             symbol: symbol.to_string(),
         })?;
@@ -414,7 +439,8 @@ impl Exchange for Bitvavo {
         let path = format!("/{market_id}/trades");
         let response: Vec<BitvavoTrade> = self.public_get(&path, Some(params)).await?;
 
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .map(|t| {
                 let timestamp = t.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
                 Trade {
@@ -454,9 +480,12 @@ impl Exchange for Bitvavo {
             symbol: symbol.to_string(),
         })?;
 
-        let tf = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::NotSupported {
-            feature: "Timeframe not supported".to_string(),
-        })?;
+        let tf = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::NotSupported {
+                feature: "Timeframe not supported".to_string(),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("interval".into(), tf.to_string());
@@ -471,7 +500,8 @@ impl Exchange for Bitvavo {
         let path = format!("/{market_id}/candles");
         let response: Vec<Vec<serde_json::Value>> = self.public_get(&path, Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.iter()
+        let ohlcv: Vec<OHLCV> = response
+            .iter()
             .filter_map(|c| {
                 if c.len() >= 6 {
                     Some(OHLCV {
@@ -551,14 +581,15 @@ impl Exchange for Bitvavo {
             order_data["price"] = serde_json::json!(p.to_string());
         }
 
-        let body = serde_json::to_string(&order_data)
-            .map_err(|e| CcxtError::ExchangeError {
-                message: format!("Failed to serialize order: {e}"),
-            })?;
+        let body = serde_json::to_string(&order_data).map_err(|e| CcxtError::ExchangeError {
+            message: format!("Failed to serialize order: {e}"),
+        })?;
 
         let response: BitvavoOrder = self.private_request("POST", "/order", Some(&body)).await?;
 
-        let timestamp = response.created.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .created
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Order {
             id: response.order_id.clone(),
@@ -574,7 +605,9 @@ impl Exchange for Bitvavo {
             status: match response.status.as_deref() {
                 Some("new") | Some("open") | Some("partiallyFilled") => OrderStatus::Open,
                 Some("filled") => OrderStatus::Closed,
-                Some("canceled") | Some("cancelled") | Some("expired") | Some("rejected") => OrderStatus::Canceled,
+                Some("canceled") | Some("cancelled") | Some("expired") | Some("rejected") => {
+                    OrderStatus::Canceled
+                },
                 _ => OrderStatus::Open,
             },
             symbol: symbol.to_string(),
@@ -608,7 +641,9 @@ impl Exchange for Bitvavo {
         let path = format!("/order?market={market_id}&orderId={id}");
         let response: BitvavoOrder = self.private_request("DELETE", &path, None).await?;
 
-        let timestamp = response.created.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .created
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Order {
             id: response.order_id.clone(),
@@ -657,7 +692,9 @@ impl Exchange for Bitvavo {
         let path = format!("/order?market={market_id}&orderId={id}");
         let response: BitvavoOrder = self.private_request("GET", &path, None).await?;
 
-        let timestamp = response.created.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .created
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Order {
             id: response.order_id.clone(),
@@ -673,7 +710,9 @@ impl Exchange for Bitvavo {
             status: match response.status.as_deref() {
                 Some("new") | Some("open") | Some("partiallyFilled") => OrderStatus::Open,
                 Some("filled") => OrderStatus::Closed,
-                Some("canceled") | Some("cancelled") | Some("expired") | Some("rejected") => OrderStatus::Canceled,
+                Some("canceled") | Some("cancelled") | Some("expired") | Some("rejected") => {
+                    OrderStatus::Canceled
+                },
                 _ => OrderStatus::Open,
             },
             symbol: symbol.to_string(),
@@ -724,14 +763,16 @@ impl Exchange for Bitvavo {
 
         let response: Vec<BitvavoOrder> = self.private_request("GET", &path, None).await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|o| {
                 let timestamp = o.created.unwrap_or_else(|| Utc::now().timestamp_millis());
                 let order_symbol = if let Some(sym) = symbol {
                     sym.to_string()
                 } else {
                     // Try to find symbol from market_id
-                    o.market.as_ref()
+                    o.market
+                        .as_ref()
                         .and_then(|m| self.symbol(m))
                         .unwrap_or_default()
                 };

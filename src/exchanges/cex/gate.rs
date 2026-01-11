@@ -7,7 +7,7 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha512, Digest};
+use sha2::{Digest, Sha512};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -17,8 +17,8 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, DepositAddress, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    FundingRate, FundingRateHistory, Leverage, Liquidation, Market, MarketLimits, MarketPrecision,
-    MarketType, MarginMode, MarginModeInfo, OpenInterest, Order, OrderBook, OrderBookEntry,
+    FundingRate, FundingRateHistory, Leverage, Liquidation, MarginMode, MarginModeInfo, Market,
+    MarketLimits, MarketPrecision, MarketType, OpenInterest, Order, OrderBook, OrderBookEntry,
     OrderSide, OrderStatus, OrderType, Position, PositionSide, SignedRequest, Ticker, Timeframe,
     Trade, Transaction, TransactionStatus, TransactionType, WsExchange, WsMessage, OHLCV,
 };
@@ -155,12 +155,18 @@ impl Gate {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp();
         let full_path = format!("/api/v4/spot{path}");
@@ -185,13 +191,15 @@ impl Gate {
         };
 
         // String to sign
-        let sign_string = format!(
-            "{method}\n{full_path}\n{query_string}\n{body_hash}\n{timestamp}"
-        );
+        let sign_string =
+            format!("{method}\n{full_path}\n{query_string}\n{body_hash}\n{timestamp}");
 
         // HMAC-SHA512
-        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret".into() })?;
+        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret".into(),
+            }
+        })?;
         mac.update(sign_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -205,11 +213,15 @@ impl Gate {
 
         match method {
             "GET" => {
-                let query_params = if query_string.is_empty() { None } else {
+                let query_params = if query_string.is_empty() {
+                    None
+                } else {
                     Some(params)
                 };
-                self.client.get(&api_path, query_params, Some(headers)).await
-            }
+                self.client
+                    .get(&api_path, query_params, Some(headers))
+                    .await
+            },
             "POST" => {
                 let json_body: Option<serde_json::Value> = if body.is_empty() {
                     None
@@ -217,14 +229,20 @@ impl Gate {
                     Some(serde_json::from_str(&body).unwrap_or_default())
                 };
                 self.client.post(&api_path, json_body, Some(headers)).await
-            }
+            },
             "DELETE" => {
-                let query_params = if query_string.is_empty() { None } else {
+                let query_params = if query_string.is_empty() {
+                    None
+                } else {
                     Some(params)
                 };
-                self.client.delete(&api_path, query_params, Some(headers)).await
-            }
-            _ => Err(CcxtError::BadRequest { message: "Invalid HTTP method".into() }),
+                self.client
+                    .delete(&api_path, query_params, Some(headers))
+                    .await
+            },
+            _ => Err(CcxtError::BadRequest {
+                message: "Invalid HTTP method".into(),
+            }),
         }
     }
 
@@ -237,7 +255,8 @@ impl Gate {
         let ask: Option<Decimal> = data.lowest_ask.as_ref().and_then(|v| v.parse().ok());
         let base_volume: Option<Decimal> = data.base_volume.as_ref().and_then(|v| v.parse().ok());
         let quote_volume: Option<Decimal> = data.quote_volume.as_ref().and_then(|v| v.parse().ok());
-        let percentage: Option<Decimal> = data.change_percentage.as_ref().and_then(|v| v.parse().ok());
+        let percentage: Option<Decimal> =
+            data.change_percentage.as_ref().and_then(|v| v.parse().ok());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -266,12 +285,15 @@ impl Gate {
     }
 
     fn parse_order(&self, data: &GateOrder, symbol: &str) -> Order {
-        let timestamp = data.create_time
+        let timestamp = data
+            .create_time
             .map(|t| (t * 1000.0) as i64)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let amount: Decimal = data.amount.parse().unwrap_or_default();
-        let filled: Decimal = data.filled_total.as_ref()
+        let filled: Decimal = data
+            .filled_total
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
         let price: Option<Decimal> = data.price.as_ref().and_then(|v| v.parse().ok());
@@ -303,7 +325,7 @@ impl Gate {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             last_trade_timestamp: None,
             last_update_timestamp: data.update_time.map(|t| (t * 1000.0) as i64),
@@ -437,12 +459,18 @@ impl Gate {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let full_path = format!("/futures/usdt{path}");
         let timestamp = Utc::now().timestamp().to_string();
@@ -463,10 +491,13 @@ impl Gate {
             hex::encode(hasher.finalize())
         };
 
-        let sign_string = format!("{}\n{}\n{}\n{}\n{}", method, &full_path, query_string, body_hash, timestamp);
+        let sign_string = format!(
+            "{}\n{}\n{}\n{}\n{}",
+            method, &full_path, query_string, body_hash, timestamp
+        );
 
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha512::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(sign_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -509,10 +540,15 @@ impl Gate {
         let entry_price: Option<Decimal> = data.entry_price.as_ref().and_then(|p| p.parse().ok());
         let mark_price: Option<Decimal> = data.mark_price.as_ref().and_then(|p| p.parse().ok());
         let leverage: Option<Decimal> = data.leverage.map(Decimal::from);
-        let unrealized_pnl: Option<Decimal> = data.unrealised_pnl.as_ref().and_then(|u| u.parse().ok());
+        let unrealized_pnl: Option<Decimal> =
+            data.unrealised_pnl.as_ref().and_then(|u| u.parse().ok());
         let liquidation_price: Option<Decimal> = data.liq_price.as_ref().and_then(|l| {
             let val: Decimal = l.parse().ok()?;
-            if val == Decimal::ZERO { None } else { Some(val) }
+            if val == Decimal::ZERO {
+                None
+            } else {
+                Some(val)
+            }
         });
         let margin: Option<Decimal> = data.margin.as_ref().and_then(|m| m.parse().ok());
 
@@ -586,7 +622,11 @@ impl Gate {
     }
 
     /// 펀딩 레이트 기록 파싱
-    fn parse_funding_rate_history(&self, data: &GateFundingRateHistoryData, contract: &str) -> FundingRateHistory {
+    fn parse_funding_rate_history(
+        &self,
+        data: &GateFundingRateHistoryData,
+        contract: &str,
+    ) -> FundingRateHistory {
         let timestamp = Some(data.t * 1000);
         let symbol = contract.replace("_", "/");
         let funding_rate: Decimal = data.r.parse().unwrap_or_default();
@@ -742,8 +782,9 @@ impl Exchange for Gate {
 
         let response: Vec<GateTicker> = self.public_get("/tickers", Some(params)).await?;
 
-        let ticker = response.first()
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.into() })?;
+        let ticker = response.first().ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.into(),
+        })?;
 
         Ok(self.parse_ticker(ticker, symbol))
     }
@@ -782,7 +823,9 @@ impl Exchange for Gate {
 
         let response: GateOrderBook = self.public_get("/order_book", Some(params)).await?;
 
-        let bids: Vec<OrderBookEntry> = response.bids.iter()
+        let bids: Vec<OrderBookEntry> = response
+            .bids
+            .iter()
             .filter_map(|b| {
                 if b.len() >= 2 {
                     Some(OrderBookEntry {
@@ -795,7 +838,9 @@ impl Exchange for Gate {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = response.asks.iter()
+        let asks: Vec<OrderBookEntry> = response
+            .asks
+            .iter()
             .filter_map(|a| {
                 if a.len() >= 2 {
                     Some(OrderBookEntry {
@@ -808,7 +853,8 @@ impl Exchange for Gate {
             })
             .collect();
 
-        let timestamp = response.current
+        let timestamp = response
+            .current
             .map(|t| (t * 1000.0) as i64)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -818,11 +864,12 @@ impl Exchange for Gate {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -841,34 +888,38 @@ impl Exchange for Gate {
 
         let response: Vec<GateTrade> = self.public_get("/trades", Some(params)).await?;
 
-        let trades: Vec<Trade> = response.iter().map(|t| {
-            let timestamp = t.create_time
-                .map(|ts| (ts * 1000.0) as i64)
-                .unwrap_or_else(|| Utc::now().timestamp_millis());
-            let price: Decimal = t.price.parse().unwrap_or_default();
-            let amount: Decimal = t.amount.parse().unwrap_or_default();
+        let trades: Vec<Trade> = response
+            .iter()
+            .map(|t| {
+                let timestamp = t
+                    .create_time
+                    .map(|ts| (ts * 1000.0) as i64)
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
+                let price: Decimal = t.price.parse().unwrap_or_default();
+                let amount: Decimal = t.amount.parse().unwrap_or_default();
 
-            Trade {
-                id: t.id.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                ),
-                symbol: symbol.to_string(),
-                trade_type: None,
-                side: t.side.clone(),
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: Vec::new(),
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.id.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.to_string(),
+                    trade_type: None,
+                    side: t.side.clone(),
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: Vec::new(),
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         Ok(trades)
     }
@@ -881,9 +932,12 @@ impl Exchange for Gate {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("currency_pair".into(), market_id);
@@ -897,19 +951,22 @@ impl Exchange for Gate {
 
         let response: Vec<Vec<String>> = self.public_get("/candlesticks", Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.iter().filter_map(|c| {
-            if c.len() < 6 {
-                return None;
-            }
-            Some(OHLCV {
-                timestamp: c[0].parse::<i64>().ok()? * 1000,
-                open: c[5].parse().ok()?,
-                high: c[3].parse().ok()?,
-                low: c[4].parse().ok()?,
-                close: c[2].parse().ok()?,
-                volume: c[1].parse().ok()?,
+        let ohlcv: Vec<OHLCV> = response
+            .iter()
+            .filter_map(|c| {
+                if c.len() < 6 {
+                    return None;
+                }
+                Some(OHLCV {
+                    timestamp: c[0].parse::<i64>().ok()? * 1000,
+                    open: c[5].parse().ok()?,
+                    high: c[3].parse().ok()?,
+                    low: c[4].parse().ok()?,
+                    close: c[2].parse().ok()?,
+                    volume: c[1].parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(ohlcv)
     }
@@ -934,10 +991,14 @@ impl Exchange for Gate {
 
         let mut params = HashMap::new();
         params.insert("currency_pair".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .into(),
+        );
         params.insert("amount".into(), amount.to_string());
 
         match order_type {
@@ -947,19 +1008,19 @@ impl Exchange for Gate {
                 })?;
                 params.insert("type".into(), "limit".into());
                 params.insert("price".into(), price_val.to_string());
-            }
+            },
             OrderType::Market => {
                 params.insert("type".into(), "market".into());
                 params.insert("time_in_force".into(), "ioc".into());
-            }
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            },
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         }
 
-        let response: GateOrder = self
-            .private_request("POST", "/orders", params)
-            .await?;
+        let response: GateOrder = self.private_request("POST", "/orders", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -971,9 +1032,7 @@ impl Exchange for Gate {
         params.insert("currency_pair".into(), market_id);
 
         let path = format!("/orders/{id}");
-        let response: GateOrder = self
-            .private_request("DELETE", &path, params)
-            .await?;
+        let response: GateOrder = self.private_request("DELETE", &path, params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -1001,9 +1060,7 @@ impl Exchange for Gate {
         }
 
         let path = format!("/orders/{id}");
-        let response: GateOrder = self
-            .private_request("PATCH", &path, params)
-            .await?;
+        let response: GateOrder = self.private_request("PATCH", &path, params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -1015,9 +1072,7 @@ impl Exchange for Gate {
         params.insert("currency_pair".into(), market_id);
 
         let path = format!("/orders/{id}");
-        let response: GateOrder = self
-            .private_request("GET", &path, params)
-            .await?;
+        let response: GateOrder = self.private_request("GET", &path, params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -1037,11 +1092,12 @@ impl Exchange for Gate {
         params.insert("currency_pair".into(), market_id);
         params.insert("status".into(), "open".into());
 
-        let response: Vec<GateOrder> = self
-            .private_request("GET", "/orders", params)
-            .await?;
+        let response: Vec<GateOrder> = self.private_request("GET", "/orders", params).await?;
 
-        Ok(response.iter().map(|o| self.parse_order(o, symbol)).collect())
+        Ok(response
+            .iter()
+            .map(|o| self.parse_order(o, symbol))
+            .collect())
     }
 
     async fn fetch_closed_orders(
@@ -1062,11 +1118,12 @@ impl Exchange for Gate {
             params.insert("limit".into(), l.min(100).to_string());
         }
 
-        let response: Vec<GateOrder> = self
-            .private_request("GET", "/orders", params)
-            .await?;
+        let response: Vec<GateOrder> = self.private_request("GET", "/orders", params).await?;
 
-        Ok(response.iter().map(|o| self.parse_order(o, symbol)).collect())
+        Ok(response
+            .iter()
+            .map(|o| self.parse_order(o, symbol))
+            .collect())
     }
 
     async fn fetch_my_trades(
@@ -1086,9 +1143,7 @@ impl Exchange for Gate {
             params.insert("limit".into(), l.min(100).to_string());
         }
 
-        let response: Vec<GateMyTrade> = self
-            .private_request("GET", "/my_trades", params)
-            .await?;
+        let response: Vec<GateMyTrade> = self.private_request("GET", "/my_trades", params).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -1147,14 +1202,10 @@ impl Exchange for Gate {
             params.insert("limit".into(), l.min(100).to_string());
         }
 
-        let response: Vec<GateDeposit> = self
-            .private_request("GET", "/deposits", params)
-            .await?;
+        let response: Vec<GateDeposit> = self.private_request("GET", "/deposits", params).await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|d| self.parse_deposit(d))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|d| self.parse_deposit(d)).collect();
 
         Ok(transactions)
     }
@@ -1174,14 +1225,11 @@ impl Exchange for Gate {
             params.insert("limit".into(), l.min(100).to_string());
         }
 
-        let response: Vec<GateWithdrawal> = self
-            .private_request("GET", "/withdrawals", params)
-            .await?;
+        let response: Vec<GateWithdrawal> =
+            self.private_request("GET", "/withdrawals", params).await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|w| self.parse_withdrawal(w))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|w| self.parse_withdrawal(w)).collect();
 
         Ok(transactions)
     }
@@ -1206,9 +1254,8 @@ impl Exchange for Gate {
             params.insert("chain".into(), n.to_string());
         }
 
-        let response: GateWithdrawResponse = self
-            .private_request("POST", "/withdrawals", params)
-            .await?;
+        let response: GateWithdrawResponse =
+            self.private_request("POST", "/withdrawals", params).await?;
 
         let info = serde_json::to_value(&response).unwrap_or_default();
 
@@ -1246,14 +1293,17 @@ impl Exchange for Gate {
 
         // If network specified, find the matching one
         let addr_data = if let Some(n) = network {
-            response.multichain_addresses
+            response
+                .multichain_addresses
                 .iter()
                 .find(|a| a.chain.eq_ignore_ascii_case(n))
                 .ok_or_else(|| CcxtError::BadResponse {
                     message: format!("No deposit address found for {code} on {n}"),
                 })?
         } else {
-            response.multichain_addresses.first()
+            response
+                .multichain_addresses
+                .first()
                 .ok_or_else(|| CcxtError::BadResponse {
                     message: format!("No deposit address found for {code}"),
                 })?
@@ -1297,45 +1347,57 @@ impl Exchange for Gate {
 
     // === WebSocket Methods ===
 
-    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ticker(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ticker(symbol).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_tickers(symbols).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_order_book(symbol, limit).await
     }
 
-    async fn watch_trades(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_trades(symbol).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ohlcv(symbol, timeframe).await
     }
 
     // === Futures Methods ===
 
-    async fn fetch_positions(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
+    async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         let response: Vec<GatePosition> = self
             .futures_private_request("GET", "/positions", HashMap::new())
             .await?;
 
-        let mut positions: Vec<Position> = response
-            .iter()
-            .map(|p| self.parse_position(p))
-            .collect();
+        let mut positions: Vec<Position> =
+            response.iter().map(|p| self.parse_position(p)).collect();
 
         // Filter by symbols if provided
         if let Some(filter_symbols) = symbols {
@@ -1345,11 +1407,7 @@ impl Exchange for Gate {
         Ok(positions)
     }
 
-    async fn set_leverage(
-        &self,
-        leverage: Decimal,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn set_leverage(&self, leverage: Decimal, symbol: &str) -> CcxtResult<Leverage> {
         let market_id = self.to_futures_market_id(symbol);
 
         let mut params = HashMap::new();
@@ -1363,10 +1421,7 @@ impl Exchange for Gate {
         Ok(Leverage::new(symbol, MarginMode::Cross, leverage, leverage))
     }
 
-    async fn fetch_leverage(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn fetch_leverage(&self, symbol: &str) -> CcxtResult<Leverage> {
         let positions = self.fetch_positions(Some(&[symbol])).await?;
 
         if let Some(pos) = positions.first() {
@@ -1374,7 +1429,12 @@ impl Exchange for Gate {
             let margin_mode = pos.margin_mode.clone().unwrap_or(MarginMode::Cross);
             Ok(Leverage::new(symbol, margin_mode, leverage, leverage))
         } else {
-            Ok(Leverage::new(symbol, MarginMode::Cross, Decimal::ONE, Decimal::ONE))
+            Ok(Leverage::new(
+                symbol,
+                MarginMode::Cross,
+                Decimal::ONE,
+                Decimal::ONE,
+            ))
         }
     }
 
@@ -1388,9 +1448,11 @@ impl Exchange for Gate {
         let mode_str = match margin_mode {
             MarginMode::Cross => "0",
             MarginMode::Isolated => "1",
-            MarginMode::Unknown => return Err(CcxtError::BadRequest {
-                message: "Unknown margin mode is not supported".into(),
-            }),
+            MarginMode::Unknown => {
+                return Err(CcxtError::BadRequest {
+                    message: "Unknown margin mode is not supported".into(),
+                })
+            },
         };
 
         let mut params = HashMap::new();
@@ -1404,10 +1466,7 @@ impl Exchange for Gate {
         Ok(MarginModeInfo::new(symbol, margin_mode))
     }
 
-    async fn fetch_funding_rate(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<FundingRate> {
+    async fn fetch_funding_rate(&self, symbol: &str) -> CcxtResult<FundingRate> {
         let market_id = self.to_futures_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("contract".into(), market_id);
@@ -1490,10 +1549,14 @@ impl Exchange for Gate {
         })?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let amount: Decimal = data.open_interest.as_ref()
+        let amount: Decimal = data
+            .open_interest
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
-        let value: Decimal = data.open_interest_usd.as_ref()
+        let value: Decimal = data
+            .open_interest_usd
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
 
@@ -1538,9 +1601,9 @@ impl Exchange for Gate {
                 let qty: Decimal = liq.size.parse().unwrap_or_default();
                 let timestamp = liq.time.map(|t| t * 1000).unwrap_or_default();
                 let side = if liq.side.as_deref() == Some("short") {
-                    OrderSide::Buy  // Short liquidation = forced buy
+                    OrderSide::Buy // Short liquidation = forced buy
                 } else {
-                    OrderSide::Sell  // Long liquidation = forced sell
+                    OrderSide::Sell // Long liquidation = forced sell
                 };
 
                 Liquidation {
@@ -1580,10 +1643,14 @@ impl Exchange for Gate {
         })?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let index_price: Decimal = data.index_price.as_ref()
+        let index_price: Decimal = data
+            .index_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let mark_price: Decimal = data.mark_price.as_ref()
+        let mark_price: Decimal = data
+            .mark_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
 

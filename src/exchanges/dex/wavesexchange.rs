@@ -15,9 +15,9 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, DepositAddress, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade,
-    Transaction, OHLCV,
+    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, Transaction,
+    OHLCV,
 };
 
 /// Wavesexchange 거래소 (DEX)
@@ -217,9 +217,11 @@ impl Wavesexchange {
         self.rate_limiter.throttle(1.0).await;
 
         let access_token = self.access_token.read().unwrap().clone();
-        let token = access_token.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Access token required".into(),
-        })?;
+        let token = access_token
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Access token required".into(),
+            })?;
 
         let mut headers = HashMap::new();
         headers.insert("Authorization".into(), format!("Bearer {token}"));
@@ -255,7 +257,9 @@ impl Wavesexchange {
 
     /// 티커 파싱
     fn parse_ticker(&self, ticker: &WavesTicker, market: &Market) -> Ticker {
-        let timestamp = ticker.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = ticker
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: market.symbol.clone(),
@@ -539,9 +543,12 @@ impl Exchange for Wavesexchange {
 
         let market = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).cloned().ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?
+            markets
+                .get(symbol)
+                .cloned()
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
@@ -549,9 +556,12 @@ impl Exchange for Wavesexchange {
 
         let response: WavesPairsResponse = self.public_get("/pairs", Some(params)).await?;
 
-        let ticker = response.data.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No ticker data".into(),
-        })?;
+        let ticker = response
+            .data
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No ticker data".into(),
+            })?;
 
         Ok(self.parse_ticker(&ticker.data, &market))
     }
@@ -640,6 +650,7 @@ impl Exchange for Wavesexchange {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -654,14 +665,22 @@ impl Exchange for Wavesexchange {
         let market_id = self.to_market_id(symbol)?;
 
         let mut params = HashMap::new();
-        params.insert("amountAsset".into(), market_id.split('/').next().unwrap_or("").to_string());
-        params.insert("priceAsset".into(), market_id.split('/').nth(1).unwrap_or("").to_string());
+        params.insert(
+            "amountAsset".into(),
+            market_id.split('/').next().unwrap_or("").to_string(),
+        );
+        params.insert(
+            "priceAsset".into(),
+            market_id.split('/').nth(1).unwrap_or("").to_string(),
+        );
 
         if let Some(l) = limit {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: Vec<WavesTrade> = self.public_get("/transactions/exchange", Some(params)).await?;
+        let response: Vec<WavesTrade> = self
+            .public_get("/transactions/exchange", Some(params))
+            .await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -688,9 +707,12 @@ impl Exchange for Wavesexchange {
             });
         }
 
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("timeframe".into(), interval.clone());
@@ -722,20 +744,20 @@ impl Exchange for Wavesexchange {
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let waves_address = self.waves_address.read().unwrap().clone();
-        let address = waves_address.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Waves address required".into(),
-        })?;
+        let address = waves_address
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Waves address required".into(),
+            })?;
 
         let path = format!("/addresses/balance/details/{address}");
         let response: WavesBalanceResponse = self.node_client.get(&path, None, None).await?;
 
-        let balances = vec![
-            WavesBalance {
-                currency: "WAVES".to_string(),
-                balance: response.available.to_string(),
-                available: response.available.to_string(),
-            }
-        ];
+        let balances = vec![WavesBalance {
+            currency: "WAVES".to_string(),
+            balance: response.available.to_string(),
+            available: response.available.to_string(),
+        }];
 
         Ok(self.parse_balance(&balances))
     }
@@ -755,9 +777,11 @@ impl Exchange for Wavesexchange {
         let order_type_str = match order_type {
             OrderType::Limit => "limit",
             OrderType::Market => "market",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -766,8 +790,14 @@ impl Exchange for Wavesexchange {
         };
 
         let mut params = HashMap::new();
-        params.insert("amountAsset".into(), market_id.split('/').next().unwrap_or("").to_string());
-        params.insert("priceAsset".into(), market_id.split('/').nth(1).unwrap_or("").to_string());
+        params.insert(
+            "amountAsset".into(),
+            market_id.split('/').next().unwrap_or("").to_string(),
+        );
+        params.insert(
+            "priceAsset".into(),
+            market_id.split('/').nth(1).unwrap_or("").to_string(),
+        );
         params.insert("orderType".into(), order_type_str.to_string());
         params.insert("side".into(), side_str.to_string());
         params.insert("amount".into(), amount.to_string());
@@ -776,7 +806,9 @@ impl Exchange for Wavesexchange {
             params.insert("price".into(), p.to_string());
         }
 
-        let response: WavesOrder = self.private_request("POST", "/matcher/orderbook", params).await?;
+        let response: WavesOrder = self
+            .private_request("POST", "/matcher/orderbook", params)
+            .await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -801,9 +833,11 @@ impl Exchange for Wavesexchange {
         self.load_markets(false).await?;
 
         let waves_address = self.waves_address.read().unwrap().clone();
-        let address = waves_address.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Waves address required".into(),
-        })?;
+        let address = waves_address
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Waves address required".into(),
+            })?;
 
         let path = format!("/matcher/orders/{address}/{id}");
         let response: WavesOrder = self.matcher_get(&path, None).await?;
@@ -820,15 +854,23 @@ impl Exchange for Wavesexchange {
         self.load_markets(false).await?;
 
         let waves_address = self.waves_address.read().unwrap().clone();
-        let address = waves_address.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Waves address required".into(),
-        })?;
+        let address = waves_address
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Waves address required".into(),
+            })?;
 
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             let market_id = self.to_market_id(s)?;
-            params.insert("amountAsset".into(), market_id.split('/').next().unwrap_or("").to_string());
-            params.insert("priceAsset".into(), market_id.split('/').nth(1).unwrap_or("").to_string());
+            params.insert(
+                "amountAsset".into(),
+                market_id.split('/').next().unwrap_or("").to_string(),
+            );
+            params.insert(
+                "priceAsset".into(),
+                market_id.split('/').nth(1).unwrap_or("").to_string(),
+            );
         }
 
         let path = format!("/matcher/orders/{address}");
@@ -840,8 +882,12 @@ impl Exchange for Wavesexchange {
             .iter()
             .filter(|o| o.status == "Accepted" || o.status == "PartiallyFilled")
             .map(|o| {
-                let market_id = format!("{}/{}", o.asset_pair.amount_asset, o.asset_pair.price_asset);
-                let sym = markets_by_id.get(&market_id).map(|s| s.as_str()).unwrap_or(symbol.unwrap_or(""));
+                let market_id =
+                    format!("{}/{}", o.asset_pair.amount_asset, o.asset_pair.price_asset);
+                let sym = markets_by_id
+                    .get(&market_id)
+                    .map(|s| s.as_str())
+                    .unwrap_or(symbol.unwrap_or(""));
                 self.parse_order(o, sym)
             })
             .collect();
@@ -911,30 +957,37 @@ impl Exchange for Wavesexchange {
         self.load_markets(false).await?;
 
         let waves_address = self.waves_address.read().unwrap().clone();
-        let address = waves_address.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Waves address required".into(),
-        })?;
+        let address = waves_address
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Waves address required".into(),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("sender".into(), address.clone());
 
         if let Some(s) = symbol {
             let market_id = self.to_market_id(s)?;
-            params.insert("amountAsset".into(), market_id.split('/').next().unwrap_or("").to_string());
-            params.insert("priceAsset".into(), market_id.split('/').nth(1).unwrap_or("").to_string());
+            params.insert(
+                "amountAsset".into(),
+                market_id.split('/').next().unwrap_or("").to_string(),
+            );
+            params.insert(
+                "priceAsset".into(),
+                market_id.split('/').nth(1).unwrap_or("").to_string(),
+            );
         }
 
         if let Some(l) = limit {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: Vec<WavesTrade> = self.public_get("/transactions/exchange", Some(params)).await?;
+        let response: Vec<WavesTrade> = self
+            .public_get("/transactions/exchange", Some(params))
+            .await?;
 
         let sym = symbol.unwrap_or("");
-        let trades: Vec<Trade> = response
-            .iter()
-            .map(|t| self.parse_trade(t, sym))
-            .collect();
+        let trades: Vec<Trade> = response.iter().map(|t| self.parse_trade(t, sym)).collect();
 
         Ok(trades)
     }
@@ -948,15 +1001,23 @@ impl Exchange for Wavesexchange {
         self.load_markets(false).await?;
 
         let waves_address = self.waves_address.read().unwrap().clone();
-        let address = waves_address.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Waves address required".into(),
-        })?;
+        let address = waves_address
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Waves address required".into(),
+            })?;
 
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             let market_id = self.to_market_id(s)?;
-            params.insert("amountAsset".into(), market_id.split('/').next().unwrap_or("").to_string());
-            params.insert("priceAsset".into(), market_id.split('/').nth(1).unwrap_or("").to_string());
+            params.insert(
+                "amountAsset".into(),
+                market_id.split('/').next().unwrap_or("").to_string(),
+            );
+            params.insert(
+                "priceAsset".into(),
+                market_id.split('/').nth(1).unwrap_or("").to_string(),
+            );
         }
 
         let path = format!("/matcher/orders/{address}");
@@ -968,8 +1029,12 @@ impl Exchange for Wavesexchange {
             .iter()
             .filter(|o| o.status == "Filled" || o.status == "Cancelled")
             .map(|o| {
-                let market_id = format!("{}/{}", o.asset_pair.amount_asset, o.asset_pair.price_asset);
-                let sym = markets_by_id.get(&market_id).map(|s| s.as_str()).unwrap_or(symbol.unwrap_or(""));
+                let market_id =
+                    format!("{}/{}", o.asset_pair.amount_asset, o.asset_pair.price_asset);
+                let sym = markets_by_id
+                    .get(&market_id)
+                    .map(|s| s.as_str())
+                    .unwrap_or(symbol.unwrap_or(""));
                 self.parse_order(o, sym)
             })
             .collect();
@@ -983,7 +1048,8 @@ impl Exchange for Wavesexchange {
         _network: Option<&str>,
     ) -> CcxtResult<DepositAddress> {
         let path = format!("/deposit/addresses/{code}");
-        let response: WavesDepositAddress = self.private_request("GET", &path, HashMap::new()).await?;
+        let response: WavesDepositAddress =
+            self.private_request("GET", &path, HashMap::new()).await?;
 
         let mut address = DepositAddress::new(response.currency, response.address);
 
@@ -1015,7 +1081,8 @@ impl Exchange for Wavesexchange {
             params.insert("tag".into(), t.to_string());
         }
 
-        let _response: serde_json::Value = self.private_request("POST", "/withdraw", params).await?;
+        let _response: serde_json::Value =
+            self.private_request("POST", "/withdraw", params).await?;
 
         Ok(Transaction {
             id: String::new(),

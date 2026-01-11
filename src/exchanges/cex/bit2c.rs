@@ -18,10 +18,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Fee, OHLCV,
-    TakerOrMaker,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
+    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://bit2c.co.il";
@@ -138,7 +137,10 @@ impl Bit2c {
         api_urls.insert("rest".into(), BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/db0bce50-6842-4c09-a1d5-0c87d22118aa".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/db0bce50-6842-4c09-a1d5-0c87d22118aa"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.bit2c.co.il".into()),
             doc: vec![
@@ -244,10 +246,22 @@ impl Bit2c {
                         quote: None,
                     },
                     limits: MarketLimits {
-                        amount: MinMax { min: None, max: None },
-                        price: MinMax { min: None, max: None },
-                        cost: MinMax { min: None, max: None },
-                        leverage: MinMax { min: None, max: None },
+                        amount: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        price: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        cost: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        leverage: MinMax {
+                            min: None,
+                            max: None,
+                        },
                     },
                     margin_modes: None,
                     created: None,
@@ -288,15 +302,19 @@ impl Bit2c {
 
     /// HMAC-SHA512 signature (Base64 encoded)
     fn create_signature(&self, data: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".to_string(),
-        })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".to_string(),
+            })?;
 
         type HmacSha512 = Hmac<Sha512>;
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha512::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".to_string(),
-            })?;
+            }
+        })?;
         mac.update(data.as_bytes());
 
         Ok(BASE64.encode(mac.finalize().into_bytes()))
@@ -337,12 +355,19 @@ impl Bit2c {
     }
 
     /// Private API request (GET)
-    async fn private_get(&self, path: &str, params: &HashMap<String, String>) -> CcxtResult<serde_json::Value> {
+    async fn private_get(
+        &self,
+        path: &str,
+        params: &HashMap<String, String>,
+    ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".to_string(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".to_string(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis();
         let mut query_params = params.clone();
@@ -358,7 +383,10 @@ impl Bit2c {
         let signature = self.create_signature(&query)?;
 
         let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        );
         headers.insert("key".to_string(), api_key.to_string());
         headers.insert("sign".to_string(), signature);
 
@@ -370,12 +398,19 @@ impl Bit2c {
     }
 
     /// Private API request (POST)
-    async fn private_post(&self, path: &str, params: &HashMap<String, String>) -> CcxtResult<serde_json::Value> {
+    async fn private_post(
+        &self,
+        path: &str,
+        params: &HashMap<String, String>,
+    ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".to_string(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".to_string(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis();
         let mut form_params = params.clone();
@@ -391,7 +426,10 @@ impl Bit2c {
         let signature = self.create_signature(&body)?;
 
         let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        );
         headers.insert("key".to_string(), api_key.to_string());
         headers.insert("sign".to_string(), signature);
 
@@ -399,7 +437,10 @@ impl Bit2c {
 
         // Post with form-encoded body
         let body_value = serde_json::Value::String(body);
-        let response: serde_json::Value = self.client.post(&url, Some(body_value), Some(headers)).await?;
+        let response: serde_json::Value = self
+            .client
+            .post(&url, Some(body_value), Some(headers))
+            .await?;
 
         self.check_error(&response)?;
         Ok(response)
@@ -457,11 +498,17 @@ impl Bit2c {
             _ => OrderSide::Buy,
         };
 
-        let price = order.price.map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
-        let amount = order.initial_amount.or(order.amount)
+        let price = order
+            .price
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
+        let amount = order
+            .initial_amount
+            .or(order.amount)
             .map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO))
             .unwrap_or(Decimal::ZERO);
-        let remaining = order.amount.map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO));
+        let remaining = order
+            .amount
+            .map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO));
         let filled = remaining.map(|r| amount - r);
 
         Order {
@@ -500,15 +547,25 @@ impl Bit2c {
     }
 
     /// Parse new order from create response
-    fn parse_new_order(&self, order: &Bit2cNewOrder, symbol: &str, side: OrderSide, order_type: OrderType) -> Order {
+    fn parse_new_order(
+        &self,
+        order: &Bit2cNewOrder,
+        symbol: &str,
+        side: OrderSide,
+        order_type: OrderType,
+    ) -> Order {
         let status = match order.status_type {
             Some(0) | Some(1) => OrderStatus::Open,
             Some(5) => OrderStatus::Closed,
             _ => OrderStatus::Open,
         };
 
-        let price = order.price.map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
-        let amount = order.amount.map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO))
+        let price = order
+            .price
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
+        let amount = order
+            .amount
+            .map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO))
             .unwrap_or(Decimal::ZERO);
 
         Order {
@@ -616,7 +673,10 @@ impl Exchange for Bit2c {
                 .join("&");
 
             if let Ok(signature) = self.create_signature(&query) {
-                final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                final_headers.insert(
+                    "Content-Type".to_string(),
+                    "application/x-www-form-urlencoded".to_string(),
+                );
                 final_headers.insert("key".to_string(), api_key.to_string());
                 final_headers.insert("sign".to_string(), signature);
             }
@@ -681,22 +741,31 @@ impl Exchange for Bit2c {
         ];
 
         for (code, name) in currency_list {
-            currencies.insert(code.to_string(), crate::types::Currency {
-                id: code.to_lowercase(),
-                code: code.to_string(),
-                name: Some(name.to_string()),
-                active: true,
-                deposit: Some(code != "NIS"),
-                withdraw: Some(code != "NIS"),
-                fee: None,
-                precision: Some(8),
-                limits: Some(crate::types::CurrencyLimits {
-                    withdraw: MinMax { min: None, max: None },
-                    deposit: MinMax { min: None, max: None },
-                }),
-                networks: HashMap::new(),
-                info: serde_json::Value::Null,
-            });
+            currencies.insert(
+                code.to_string(),
+                crate::types::Currency {
+                    id: code.to_lowercase(),
+                    code: code.to_string(),
+                    name: Some(name.to_string()),
+                    active: true,
+                    deposit: Some(code != "NIS"),
+                    withdraw: Some(code != "NIS"),
+                    fee: None,
+                    precision: Some(8),
+                    limits: Some(crate::types::CurrencyLimits {
+                        withdraw: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        deposit: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                    }),
+                    networks: HashMap::new(),
+                    info: serde_json::Value::Null,
+                },
+            );
         }
 
         Ok(currencies)
@@ -707,17 +776,27 @@ impl Exchange for Bit2c {
         let path = format!("Exchanges/{market_id}/Ticker");
 
         let response = self.public_request(&path).await?;
-        let ticker: Bit2cTicker = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let ticker: Bit2cTicker =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "Bit2cTicker".to_string(),
                 message: e.to_string(),
             })?;
 
-        let last = ticker.last.map(|l| Decimal::from_f64_retain(l).unwrap_or(Decimal::ZERO));
-        let average = ticker.average.map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO));
-        let base_volume = ticker.base_volume.map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
-        let bid = ticker.bid.map(|b| Decimal::from_f64_retain(b).unwrap_or(Decimal::ZERO));
-        let ask = ticker.ask.map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO));
+        let last = ticker
+            .last
+            .map(|l| Decimal::from_f64_retain(l).unwrap_or(Decimal::ZERO));
+        let average = ticker
+            .average
+            .map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO));
+        let base_volume = ticker
+            .base_volume
+            .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
+        let bid = ticker
+            .bid
+            .map(|b| Decimal::from_f64_retain(b).unwrap_or(Decimal::ZERO));
+        let ask = ticker
+            .ask
+            .map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO));
 
         Ok(Ticker {
             symbol: symbol.to_string(),
@@ -745,7 +824,10 @@ impl Exchange for Bit2c {
         })
     }
 
-    async fn fetch_tickers(&self, _symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
+    async fn fetch_tickers(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<HashMap<String, Ticker>> {
         Err(CcxtError::NotSupported {
             feature: "fetchTickers".to_string(),
         })
@@ -756,8 +838,8 @@ impl Exchange for Bit2c {
         let path = format!("Exchanges/{market_id}/orderbook");
 
         let response = self.public_request(&path).await?;
-        let order_book: Bit2cOrderBook = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let order_book: Bit2cOrderBook =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "Bit2cOrderBook".to_string(),
                 message: e.to_string(),
             })?;
@@ -796,6 +878,7 @@ impl Exchange for Bit2c {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: None,
             datetime: None,
             nonce: None,
@@ -825,8 +908,8 @@ impl Exchange for Bit2c {
 
         // Remove .json for the call since public_request adds it
         let response = self.public_request(&path).await?;
-        let trades_arr: Vec<Bit2cTrade> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let trades_arr: Vec<Bit2cTrade> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "Vec<Bit2cTrade>".to_string(),
                 message: e.to_string(),
             })?;
@@ -834,9 +917,13 @@ impl Exchange for Bit2c {
         let mut trades = Vec::new();
         for t in trades_arr {
             let timestamp = t.date.map(|d| d * 1000);
-            let price = t.price.map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO))
+            let price = t
+                .price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO))
                 .unwrap_or(Decimal::ZERO);
-            let amount = t.amount.map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO))
+            let amount = t
+                .amount
+                .map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO))
                 .unwrap_or(Decimal::ZERO);
 
             let side = match t.is_bid {
@@ -883,7 +970,9 @@ impl Exchange for Bit2c {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response = self.private_get("Account/Balance/v2", &HashMap::new()).await?;
+        let response = self
+            .private_get("Account/Balance/v2", &HashMap::new())
+            .await?;
 
         let mut balances = HashMap::new();
 
@@ -894,21 +983,26 @@ impl Exchange for Bit2c {
                 let available_key = format!("AVAILABLE_{curr}");
                 let total_key = curr.to_string();
 
-                let free = obj.get(&available_key)
+                let free = obj
+                    .get(&available_key)
                     .and_then(|v| v.as_f64())
                     .map(|f| Decimal::from_f64_retain(f).unwrap_or(Decimal::ZERO));
-                let total = obj.get(&total_key)
+                let total = obj
+                    .get(&total_key)
                     .and_then(|v| v.as_f64())
                     .map(|f| Decimal::from_f64_retain(f).unwrap_or(Decimal::ZERO));
                 let used = free.zip(total).map(|(f, t)| t - f);
 
                 if total.is_some() || free.is_some() {
-                    balances.insert(curr.to_string(), Balance {
-                        free,
-                        used,
-                        total,
-                        debt: None,
-                    });
+                    balances.insert(
+                        curr.to_string(),
+                        Balance {
+                            free,
+                            used,
+                            total,
+                            debt: None,
+                        },
+                    );
                 }
             }
         }
@@ -936,12 +1030,10 @@ impl Exchange for Bit2c {
         params.insert("Pair".to_string(), market_id);
 
         let endpoint = match order_type {
-            OrderType::Market => {
-                match side {
-                    OrderSide::Buy => "Order/AddOrderMarketPriceBuy",
-                    OrderSide::Sell => "Order/AddOrderMarketPriceSell",
-                }
-            }
+            OrderType::Market => match side {
+                OrderSide::Buy => "Order/AddOrderMarketPriceBuy",
+                OrderSide::Sell => "Order/AddOrderMarketPriceSell",
+            },
             OrderType::Limit => {
                 let p = price.ok_or_else(|| CcxtError::BadRequest {
                     message: "Price required for limit order".to_string(),
@@ -951,19 +1043,19 @@ impl Exchange for Bit2c {
                 params.insert("Total".to_string(), total.to_string());
                 params.insert("IsBid".to_string(), (side == OrderSide::Buy).to_string());
                 "Order/AddOrder"
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type {order_type:?}"),
                 });
-            }
+            },
         };
 
         let response = self.private_post(endpoint, &params).await?;
 
         // Parse new order response
-        let order_response: Bit2cOrderResponse = serde_json::from_value(response.clone())
-            .map_err(|e| CcxtError::ParseError {
+        let order_response: Bit2cOrderResponse =
+            serde_json::from_value(response.clone()).map_err(|e| CcxtError::ParseError {
                 data_type: "Bit2cOrderResponse".to_string(),
                 message: e.to_string(),
             })?;
@@ -1047,8 +1139,8 @@ impl Exchange for Bit2c {
 
         let response = self.private_get("Order/GetById", &params).await?;
 
-        let order: Bit2cFetchOrder = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let order: Bit2cFetchOrder =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "Bit2cFetchOrder".to_string(),
                 message: e.to_string(),
             })?;
@@ -1140,26 +1232,23 @@ impl Exchange for Bit2c {
 
         let response = self.private_get("Order/OrderHistory", &params).await?;
 
-        let trades_arr: Vec<serde_json::Value> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let trades_arr: Vec<serde_json::Value> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "Vec<Trade>".to_string(),
                 message: e.to_string(),
             })?;
 
         let mut trades = Vec::new();
         for item in trades_arr {
-            let timestamp = item.get("ticks")
-                .and_then(|t| t.as_i64())
-                .map(|t| t * 1000);
+            let timestamp = item.get("ticks").and_then(|t| t.as_i64()).map(|t| t * 1000);
 
-            let price_str = item.get("price")
-                .and_then(|p| p.as_str())
-                .unwrap_or("0");
+            let price_str = item.get("price").and_then(|p| p.as_str()).unwrap_or("0");
             // Remove commas from price
             let price_clean = price_str.replace(",", "");
             let price = Decimal::from_str(&price_clean).unwrap_or(Decimal::ZERO);
 
-            let amount_str = item.get("firstAmount")
+            let amount_str = item
+                .get("firstAmount")
                 .and_then(|a| a.as_str())
                 .unwrap_or("0");
             let amount = Decimal::from_str(amount_str).unwrap_or(Decimal::ZERO).abs();
@@ -1171,9 +1260,7 @@ impl Exchange for Bit2c {
                 _ => "buy",
             };
 
-            let reference = item.get("reference")
-                .and_then(|r| r.as_str())
-                .unwrap_or("");
+            let reference = item.get("reference").and_then(|r| r.as_str()).unwrap_or("");
 
             let is_maker = item.get("isMaker").and_then(|m| m.as_bool());
             let taker_or_maker = match is_maker {
@@ -1194,7 +1281,8 @@ impl Exchange for Bit2c {
                 None
             };
 
-            let fee_cost = item.get("feeAmount")
+            let fee_cost = item
+                .get("feeAmount")
                 .and_then(|f| f.as_str())
                 .and_then(|s| Decimal::from_str(s).ok());
 

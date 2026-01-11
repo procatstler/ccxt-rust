@@ -168,7 +168,9 @@ impl AlpacaWs {
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|_| chrono::Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.b.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .b
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     Some(OrderBookEntry {
@@ -181,7 +183,9 @@ impl AlpacaWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.a.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .a
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     Some(OrderBookEntry {
@@ -201,6 +205,7 @@ impl AlpacaWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -217,12 +222,10 @@ impl AlpacaWs {
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|_| chrono::Utc::now().timestamp_millis());
 
-        let side = data.tks.as_ref().and_then(|tks| {
-            match tks.as_str() {
-                "B" => Some("buy".to_string()),
-                "S" => Some("sell".to_string()),
-                _ => None,
-            }
+        let side = data.tks.as_ref().and_then(|tks| match tks.as_str() {
+            "B" => Some("buy".to_string()),
+            "S" => Some("sell".to_string()),
+            _ => None,
         });
 
         let price = Decimal::from_f64_retain(data.p).unwrap_or_default();
@@ -286,7 +289,7 @@ impl AlpacaWs {
                 } else {
                     return None;
                 }
-            }
+            },
         };
 
         for message in messages {
@@ -300,43 +303,51 @@ impl AlpacaWs {
                             return Some(WsMessage::Connected);
                         }
                     }
-                }
+                },
                 // Error
                 "error" => {
                     let error_msg = message.msg.unwrap_or_else(|| "Unknown error".to_string());
                     return Some(WsMessage::Error(error_msg));
-                }
+                },
                 // Quote (ticker)
                 "q" => {
-                    if let Ok(data) = serde_json::from_value::<AlpacaQuoteMsg>(serde_json::to_value(&message).unwrap_or_default()) {
+                    if let Ok(data) = serde_json::from_value::<AlpacaQuoteMsg>(
+                        serde_json::to_value(&message).unwrap_or_default(),
+                    ) {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&data)));
                     }
-                }
+                },
                 // Trade
                 "t" => {
-                    if let Ok(data) = serde_json::from_value::<AlpacaTradeMsg>(serde_json::to_value(&message).unwrap_or_default()) {
+                    if let Ok(data) = serde_json::from_value::<AlpacaTradeMsg>(
+                        serde_json::to_value(&message).unwrap_or_default(),
+                    ) {
                         return Some(WsMessage::Trade(Self::parse_trade(&data)));
                     }
-                }
+                },
                 // Order book
                 "o" => {
-                    if let Ok(data) = serde_json::from_value::<AlpacaOrderBookMsg>(serde_json::to_value(&message).unwrap_or_default()) {
+                    if let Ok(data) = serde_json::from_value::<AlpacaOrderBookMsg>(
+                        serde_json::to_value(&message).unwrap_or_default(),
+                    ) {
                         let symbol = Self::market_id_to_symbol(&data.symbol);
                         return Some(WsMessage::OrderBook(Self::parse_order_book(&data, &symbol)));
                     }
-                }
+                },
                 // Bar (OHLCV)
                 "b" => {
-                    if let Ok(data) = serde_json::from_value::<AlpacaBarMsg>(serde_json::to_value(&message).unwrap_or_default()) {
+                    if let Ok(data) = serde_json::from_value::<AlpacaBarMsg>(
+                        serde_json::to_value(&message).unwrap_or_default(),
+                    ) {
                         let tf = timeframe.unwrap_or(Timeframe::Minute1);
                         return Some(WsMessage::Ohlcv(Self::parse_ohlcv(&data, tf)));
                     }
-                }
+                },
                 // Subscription confirmation
                 "subscription" => {
                     // Subscription acknowledged, continue
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -361,6 +372,7 @@ impl AlpacaWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -378,8 +390,8 @@ impl AlpacaWs {
             });
 
             if let Some(client) = &self.ws_client {
-                let msg_str = serde_json::to_string(&auth_msg)
-                    .map_err(|e| CcxtError::ParseError {
+                let msg_str =
+                    serde_json::to_string(&auth_msg).map_err(|e| CcxtError::ParseError {
                         data_type: "AuthMessage".to_string(),
                         message: e.to_string(),
                     })?;
@@ -400,8 +412,8 @@ impl AlpacaWs {
         }
 
         if let Some(client) = &self.ws_client {
-            let msg_str = serde_json::to_string(&subscribe_msg)
-                .map_err(|e| CcxtError::ParseError {
+            let msg_str =
+                serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                     data_type: "SubscribeMessage".to_string(),
                     message: e.to_string(),
                 })?;
@@ -412,7 +424,10 @@ impl AlpacaWs {
         for (channel, symbols) in channels {
             for symbol in symbols {
                 let key = format!("{channel}:{symbol}");
-                self.subscriptions.write().await.insert(key.clone(), symbol.clone());
+                self.subscriptions
+                    .write()
+                    .await
+                    .insert(key.clone(), symbol.clone());
             }
         }
 
@@ -423,19 +438,19 @@ impl AlpacaWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg, timeframe) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -462,7 +477,10 @@ impl WsExchange for AlpacaWs {
         client.subscribe_channels(channels, None).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         let market_ids: Vec<String> = symbols
             .iter()
@@ -475,7 +493,11 @@ impl WsExchange for AlpacaWs {
         client.subscribe_channels(channels, None).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         let market_id = Self::symbol_to_market_id(symbol);
 
@@ -495,7 +517,11 @@ impl WsExchange for AlpacaWs {
         client.subscribe_channels(channels, None).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         let market_id = Self::symbol_to_market_id(symbol);
 

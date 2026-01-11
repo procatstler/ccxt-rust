@@ -18,9 +18,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -315,7 +315,10 @@ impl Apex {
     /// Convert market ID to symbol
     fn to_symbol(&self, market_id: &str) -> String {
         let markets_by_id = self.markets_by_id.read().unwrap();
-        markets_by_id.get(market_id).cloned().unwrap_or_else(|| market_id.to_string())
+        markets_by_id
+            .get(market_id)
+            .cloned()
+            .unwrap_or_else(|| market_id.to_string())
     }
 
     /// Public API call
@@ -337,15 +340,24 @@ impl Apex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -355,17 +367,24 @@ impl Apex {
         } else {
             let mut sorted: Vec<_> = params.iter().collect();
             sorted.sort_by(|a, b| a.0.cmp(b.0));
-            sorted.iter()
+            sorted
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&")
         };
 
         // Signature payload: timestamp + method + path + dataString
-        let sign_payload = format!("{}{}{}{}", timestamp, method.to_uppercase(), path, data_string);
+        let sign_payload = format!(
+            "{}{}{}{}",
+            timestamp,
+            method.to_uppercase(),
+            path,
+            data_string
+        );
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(sign_payload.as_bytes());
         let signature = base64::Engine::encode(
             &base64::engine::general_purpose::STANDARD,
@@ -482,16 +501,34 @@ impl Exchange for Apex {
                     let step_size = Decimal::from_str(&contract.step_size).unwrap_or(Decimal::ZERO);
 
                     let price_precision = if tick_size > Decimal::ZERO {
-                        tick_size.to_string().split('.').nth(1).map(|s| s.trim_end_matches('0').len() as i32).unwrap_or(0)
-                    } else { 8 };
+                        tick_size
+                            .to_string()
+                            .split('.')
+                            .nth(1)
+                            .map(|s| s.trim_end_matches('0').len() as i32)
+                            .unwrap_or(0)
+                    } else {
+                        8
+                    };
 
                     let amount_precision = if step_size > Decimal::ZERO {
-                        step_size.to_string().split('.').nth(1).map(|s| s.trim_end_matches('0').len() as i32).unwrap_or(0)
-                    } else { 8 };
+                        step_size
+                            .to_string()
+                            .split('.')
+                            .nth(1)
+                            .map(|s| s.trim_end_matches('0').len() as i32)
+                            .unwrap_or(0)
+                    } else {
+                        8
+                    };
 
-                    let taker_fee = contract.taker_fee_rate.as_ref()
+                    let taker_fee = contract
+                        .taker_fee_rate
+                        .as_ref()
                         .and_then(|f| Decimal::from_str(f).ok());
-                    let maker_fee = contract.maker_fee_rate.as_ref()
+                    let maker_fee = contract
+                        .maker_fee_rate
+                        .as_ref()
                         .and_then(|f| Decimal::from_str(f).ok());
 
                     let market = Market {
@@ -537,9 +574,18 @@ impl Exchange for Apex {
                                 min: Decimal::from_str(&contract.min_order_size).ok(),
                                 max: Decimal::from_str(&contract.max_order_size).ok(),
                             },
-                            price: crate::types::MinMax { min: None, max: None },
-                            cost: crate::types::MinMax { min: None, max: None },
-                            leverage: crate::types::MinMax { min: None, max: None },
+                            price: crate::types::MinMax {
+                                min: None,
+                                max: None,
+                            },
+                            cost: crate::types::MinMax {
+                                min: None,
+                                max: None,
+                            },
+                            leverage: crate::types::MinMax {
+                                min: None,
+                                max: None,
+                            },
                         },
                         margin_modes: None,
                         created: None,
@@ -573,12 +619,26 @@ impl Exchange for Apex {
                     let step_size = Decimal::from_str(&spot.step_size).unwrap_or(Decimal::ZERO);
 
                     let price_precision = if tick_size > Decimal::ZERO {
-                        tick_size.to_string().split('.').nth(1).map(|s| s.trim_end_matches('0').len() as i32).unwrap_or(0)
-                    } else { 8 };
+                        tick_size
+                            .to_string()
+                            .split('.')
+                            .nth(1)
+                            .map(|s| s.trim_end_matches('0').len() as i32)
+                            .unwrap_or(0)
+                    } else {
+                        8
+                    };
 
                     let amount_precision = if step_size > Decimal::ZERO {
-                        step_size.to_string().split('.').nth(1).map(|s| s.trim_end_matches('0').len() as i32).unwrap_or(0)
-                    } else { 8 };
+                        step_size
+                            .to_string()
+                            .split('.')
+                            .nth(1)
+                            .map(|s| s.trim_end_matches('0').len() as i32)
+                            .unwrap_or(0)
+                    } else {
+                        8
+                    };
 
                     let market = Market {
                         id: market_id.clone(),
@@ -623,9 +683,18 @@ impl Exchange for Apex {
                                 min: Decimal::from_str(&spot.min_order_size).ok(),
                                 max: None,
                             },
-                            price: crate::types::MinMax { min: None, max: None },
-                            cost: crate::types::MinMax { min: None, max: None },
-                            leverage: crate::types::MinMax { min: None, max: None },
+                            price: crate::types::MinMax {
+                                min: None,
+                                max: None,
+                            },
+                            cost: crate::types::MinMax {
+                                min: None,
+                                max: None,
+                            },
+                            leverage: crate::types::MinMax {
+                                min: None,
+                                max: None,
+                            },
                         },
                         margin_modes: None,
                         created: None,
@@ -654,7 +723,8 @@ impl Exchange for Apex {
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
 
-        let response: ApexResponse<ApexTicker> = self.public_get("/v3/ticker", Some(params)).await?;
+        let response: ApexResponse<ApexTicker> =
+            self.public_get("/v3/ticker", Some(params)).await?;
 
         let ticker_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Ticker data not found".into(),
@@ -670,29 +740,62 @@ impl Exchange for Apex {
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default(),
             ),
-            high: ticker_data.high_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            low: ticker_data.low_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            high: ticker_data
+                .high_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            low: ticker_data
+                .low_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             bid: None,
             bid_volume: None,
             ask: None,
             ask_volume: None,
             vwap: None,
-            open: ticker_data.open_price_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            close: ticker_data.last_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            last: ticker_data.last_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            open: ticker_data
+                .open_price_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            close: ticker_data
+                .last_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            last: ticker_data
+                .last_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             previous_close: None,
-            change: ticker_data.price_change_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            change: ticker_data
+                .price_change_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             percentage: None,
             average: None,
-            base_volume: ticker_data.volume_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            quote_volume: ticker_data.turnover_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            index_price: ticker_data.index_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            mark_price: ticker_data.mark_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            base_volume: ticker_data
+                .volume_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            quote_volume: ticker_data
+                .turnover_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            index_price: ticker_data
+                .index_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            mark_price: ticker_data
+                .mark_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             info: serde_json::to_value(&ticker_data).unwrap_or_default(),
         })
     }
 
-    async fn fetch_tickers(&self, _symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
+    async fn fetch_tickers(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<HashMap<String, Ticker>> {
         let response: ApexResponse<Vec<ApexTicker>> = self.public_get("/v3/tickers", None).await?;
 
         let tickers_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
@@ -713,24 +816,54 @@ impl Exchange for Apex {
                         .map(|dt| dt.to_rfc3339())
                         .unwrap_or_default(),
                 ),
-                high: ticker_data.high_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                low: ticker_data.low_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                high: ticker_data
+                    .high_24h
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
+                low: ticker_data
+                    .low_24h
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
                 bid: None,
                 bid_volume: None,
                 ask: None,
                 ask_volume: None,
                 vwap: None,
-                open: ticker_data.open_price_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                close: ticker_data.last_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                last: ticker_data.last_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                open: ticker_data
+                    .open_price_24h
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
+                close: ticker_data
+                    .last_price
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
+                last: ticker_data
+                    .last_price
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
                 previous_close: None,
-                change: ticker_data.price_change_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                change: ticker_data
+                    .price_change_24h
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
                 percentage: None,
                 average: None,
-                base_volume: ticker_data.volume_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                quote_volume: ticker_data.turnover_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                index_price: ticker_data.index_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                mark_price: ticker_data.mark_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                base_volume: ticker_data
+                    .volume_24h
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
+                quote_volume: ticker_data
+                    .turnover_24h
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
+                index_price: ticker_data
+                    .index_price
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
+                mark_price: ticker_data
+                    .mark_price
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
                 info: serde_json::to_value(&ticker_data).unwrap_or_default(),
             };
 
@@ -748,7 +881,8 @@ impl Exchange for Apex {
             params.insert("limit".to_string(), lim.to_string());
         }
 
-        let response: ApexResponse<ApexOrderBook> = self.public_get("/v3/depth", Some(params)).await?;
+        let response: ApexResponse<ApexOrderBook> =
+            self.public_get("/v3/depth", Some(params)).await?;
 
         let ob_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Order book data not found".into(),
@@ -756,23 +890,35 @@ impl Exchange for Apex {
 
         let timestamp = Utc::now().timestamp_millis();
 
-        let bids: Vec<OrderBookEntry> = ob_data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&b[0]).unwrap_or(Decimal::ZERO),
-                    amount: Decimal::from_str(&b[1]).unwrap_or(Decimal::ZERO),
-                })
-            } else { None }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = ob_data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&b[0]).unwrap_or(Decimal::ZERO),
+                        amount: Decimal::from_str(&b[1]).unwrap_or(Decimal::ZERO),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = ob_data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&a[0]).unwrap_or(Decimal::ZERO),
-                    amount: Decimal::from_str(&a[1]).unwrap_or(Decimal::ZERO),
-                })
-            } else { None }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = ob_data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&a[0]).unwrap_or(Decimal::ZERO),
+                        amount: Decimal::from_str(&a[1]).unwrap_or(Decimal::ZERO),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
@@ -785,10 +931,16 @@ impl Exchange for Apex {
             nonce: ob_data.update_id,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
@@ -796,7 +948,8 @@ impl Exchange for Apex {
             params.insert("limit".to_string(), lim.to_string());
         }
 
-        let response: ApexResponse<Vec<ApexTrade>> = self.public_get("/v3/trades", Some(params)).await?;
+        let response: ApexResponse<Vec<ApexTrade>> =
+            self.public_get("/v3/trades", Some(params)).await?;
 
         let trades_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Trades data not found".into(),
@@ -841,9 +994,12 @@ impl Exchange for Apex {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
@@ -852,32 +1008,32 @@ impl Exchange for Apex {
             params.insert("limit".to_string(), lim.to_string());
         }
 
-        let response: ApexResponse<Vec<ApexKline>> = self.public_get("/v3/klines", Some(params)).await?;
+        let response: ApexResponse<Vec<ApexKline>> =
+            self.public_get("/v3/klines", Some(params)).await?;
 
         let klines = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Kline data not found".into(),
         })?;
 
-        let ohlcv_list: Vec<OHLCV> = klines.iter().map(|k| {
-            OHLCV {
+        let ohlcv_list: Vec<OHLCV> = klines
+            .iter()
+            .map(|k| OHLCV {
                 timestamp: k.timestamp,
                 open: Decimal::from_str(&k.open).unwrap_or(Decimal::ZERO),
                 high: Decimal::from_str(&k.high).unwrap_or(Decimal::ZERO),
                 low: Decimal::from_str(&k.low).unwrap_or(Decimal::ZERO),
                 close: Decimal::from_str(&k.close).unwrap_or(Decimal::ZERO),
                 volume: Decimal::from_str(&k.volume).unwrap_or(Decimal::ZERO),
-            }
-        }).collect();
+            })
+            .collect();
 
         Ok(ohlcv_list)
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: ApexResponse<ApexBalance> = self.private_request(
-            "GET",
-            "/v3/account-balance",
-            HashMap::new(),
-        ).await?;
+        let response: ApexResponse<ApexBalance> = self
+            .private_request("GET", "/v3/account-balance", HashMap::new())
+            .await?;
 
         let balance_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Balance data not found".into(),
@@ -888,16 +1044,21 @@ impl Exchange for Apex {
         // Add USDT balance from total equity
         if let Some(equity) = &balance_data.total_equity {
             if let Ok(total) = Decimal::from_str(equity) {
-                let available = balance_data.available_balance.as_ref()
+                let available = balance_data
+                    .available_balance
+                    .as_ref()
                     .and_then(|v| Decimal::from_str(v).ok())
                     .unwrap_or(Decimal::ZERO);
                 let used = total - available;
-                currencies.insert("USDT".to_string(), Balance {
-                    free: Some(available),
-                    used: Some(used),
-                    total: Some(total),
-                    debt: None,
-                });
+                currencies.insert(
+                    "USDT".to_string(),
+                    Balance {
+                        free: Some(available),
+                        used: Some(used),
+                        total: Some(total),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -909,12 +1070,15 @@ impl Exchange for Apex {
                 let used = Decimal::from_str(&spot.frozen_balance).unwrap_or(Decimal::ZERO);
                 let total = free + used;
                 if total > Decimal::ZERO {
-                    currencies.insert(currency, Balance {
-                        free: Some(free),
-                        used: Some(used),
-                        total: Some(total),
-                        debt: None,
-                    });
+                    currencies.insert(
+                        currency,
+                        Balance {
+                            free: Some(free),
+                            used: Some(used),
+                            total: Some(total),
+                            debt: None,
+                        },
+                    );
                 }
             }
         }
@@ -946,9 +1110,11 @@ impl Exchange for Apex {
         let type_str = match order_type {
             OrderType::Limit => "LIMIT",
             OrderType::Market => "MARKET",
-            _ => return Err(CcxtError::BadRequest {
-                message: "Unsupported order type".into(),
-            }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: "Unsupported order type".into(),
+                })
+            },
         };
 
         let side_str = match side {
@@ -969,11 +1135,8 @@ impl Exchange for Apex {
             params.insert("price".to_string(), p.to_string());
         }
 
-        let response: ApexResponse<ApexOrder> = self.private_request(
-            "POST",
-            "/v3/order",
-            params,
-        ).await?;
+        let response: ApexResponse<ApexOrder> =
+            self.private_request("POST", "/v3/order", params).await?;
 
         let order_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Order creation failed".into(),
@@ -1020,11 +1183,9 @@ impl Exchange for Apex {
         let mut params = HashMap::new();
         params.insert("id".to_string(), id.to_string());
 
-        let response: ApexResponse<ApexOrder> = self.private_request(
-            "POST",
-            "/v3/delete-order",
-            params,
-        ).await?;
+        let response: ApexResponse<ApexOrder> = self
+            .private_request("POST", "/v3/delete-order", params)
+            .await?;
 
         let timestamp = Utc::now().timestamp_millis();
 
@@ -1067,11 +1228,8 @@ impl Exchange for Apex {
         let mut params = HashMap::new();
         params.insert("id".to_string(), id.to_string());
 
-        let response: ApexResponse<ApexOrder> = self.private_request(
-            "GET",
-            "/v3/order",
-            params,
-        ).await?;
+        let response: ApexResponse<ApexOrder> =
+            self.private_request("GET", "/v3/order", params).await?;
 
         let order_data = response.data.ok_or_else(|| CcxtError::OrderNotFound {
             order_id: id.to_string(),
@@ -1081,10 +1239,24 @@ impl Exchange for Apex {
         let status = self.parse_order_status(&order_data.status);
 
         let amount = Decimal::from_str(&order_data.size).unwrap_or(Decimal::ZERO);
-        let price = order_data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let filled = order_data.filled_size.as_ref().and_then(|f| Decimal::from_str(f).ok()).unwrap_or(Decimal::ZERO);
-        let cost = order_data.filled_value.as_ref().and_then(|c| Decimal::from_str(c).ok());
-        let remaining = if amount > filled { Some(amount - filled) } else { None };
+        let price = order_data
+            .price
+            .as_ref()
+            .and_then(|p| Decimal::from_str(p).ok());
+        let filled = order_data
+            .filled_size
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok())
+            .unwrap_or(Decimal::ZERO);
+        let cost = order_data
+            .filled_value
+            .as_ref()
+            .and_then(|c| Decimal::from_str(c).ok());
+        let remaining = if amount > filled {
+            Some(amount - filled)
+        } else {
+            None
+        };
 
         let side = match order_data.side.to_uppercase().as_str() {
             "BUY" => OrderSide::Buy,
@@ -1131,7 +1303,12 @@ impl Exchange for Apex {
         })
     }
 
-    async fn fetch_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
 
         if let Some(sym) = symbol {
@@ -1141,17 +1318,19 @@ impl Exchange for Apex {
             params.insert("limit".to_string(), lim.to_string());
         }
 
-        let response: ApexResponse<Vec<ApexOrder>> = self.private_request(
-            "GET",
-            "/v3/orders",
-            params,
-        ).await?;
+        let response: ApexResponse<Vec<ApexOrder>> =
+            self.private_request("GET", "/v3/orders", params).await?;
 
         let orders_data = response.data.unwrap_or_default();
         self.parse_orders(orders_data)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("status".to_string(), "OPEN".to_string());
 
@@ -1162,17 +1341,20 @@ impl Exchange for Apex {
             params.insert("limit".to_string(), lim.to_string());
         }
 
-        let response: ApexResponse<Vec<ApexOrder>> = self.private_request(
-            "GET",
-            "/v3/open-orders",
-            params,
-        ).await?;
+        let response: ApexResponse<Vec<ApexOrder>> = self
+            .private_request("GET", "/v3/open-orders", params)
+            .await?;
 
         let orders_data = response.data.unwrap_or_default();
         self.parse_orders(orders_data)
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut params = HashMap::new();
 
         if let Some(sym) = symbol {
@@ -1182,11 +1364,8 @@ impl Exchange for Apex {
             params.insert("limit".to_string(), lim.to_string());
         }
 
-        let response: ApexResponse<Vec<ApexMyTrade>> = self.private_request(
-            "GET",
-            "/v3/fills",
-            params,
-        ).await?;
+        let response: ApexResponse<Vec<ApexMyTrade>> =
+            self.private_request("GET", "/v3/fills", params).await?;
 
         let trades_data = response.data.unwrap_or_default();
         let mut trades = Vec::new();
@@ -1235,10 +1414,24 @@ impl Apex {
             let status = self.parse_order_status(&order_data.status);
 
             let amount = Decimal::from_str(&order_data.size).unwrap_or(Decimal::ZERO);
-            let price = order_data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-            let filled = order_data.filled_size.as_ref().and_then(|f| Decimal::from_str(f).ok()).unwrap_or(Decimal::ZERO);
-            let cost = order_data.filled_value.as_ref().and_then(|c| Decimal::from_str(c).ok());
-            let remaining = if amount > filled { Some(amount - filled) } else { None };
+            let price = order_data
+                .price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok());
+            let filled = order_data
+                .filled_size
+                .as_ref()
+                .and_then(|f| Decimal::from_str(f).ok())
+                .unwrap_or(Decimal::ZERO);
+            let cost = order_data
+                .filled_value
+                .as_ref()
+                .and_then(|c| Decimal::from_str(c).ok());
+            let remaining = if amount > filled {
+                Some(amount - filled)
+            } else {
+                None
+            };
 
             let side = match order_data.side.to_uppercase().as_str() {
                 "BUY" => OrderSide::Buy,
@@ -1356,7 +1549,10 @@ mod tests {
         let exchange = Apex::new(config).unwrap();
         assert_eq!(exchange.parse_order_status("NEW"), OrderStatus::Open);
         assert_eq!(exchange.parse_order_status("FILLED"), OrderStatus::Closed);
-        assert_eq!(exchange.parse_order_status("CANCELED"), OrderStatus::Canceled);
+        assert_eq!(
+            exchange.parse_order_status("CANCELED"),
+            OrderStatus::Canceled
+        );
         assert_eq!(exchange.parse_order_status("EXPIRED"), OrderStatus::Expired);
     }
 

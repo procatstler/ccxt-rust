@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -94,9 +94,7 @@ impl Bingx {
             logo: Some("https://github.com/user-attachments/assets/bingx-logo.png".into()),
             api: api_urls,
             www: Some("https://bingx.com".into()),
-            doc: vec![
-                "https://bingx-api.github.io/docs/".into(),
-            ],
+            doc: vec!["https://bingx-api.github.io/docs/".into()],
             fees: Some("https://bingx.com/en-us/fee/".into()),
         };
 
@@ -149,12 +147,18 @@ impl Bingx {
 
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -186,9 +190,14 @@ impl Bingx {
         match method {
             "GET" => self.private_client.get(&url, None, Some(headers)).await,
             "POST" => {
-                headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
-                self.private_client.post(&format!("{path}?{signed_query}"), None, Some(headers)).await
-            }
+                headers.insert(
+                    "Content-Type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
+                self.private_client
+                    .post(&format!("{path}?{signed_query}"), None, Some(headers))
+                    .await
+            },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -247,7 +256,9 @@ impl Bingx {
 
     /// 티커 파싱
     fn parse_ticker(&self, data: &BingxTicker, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -269,7 +280,10 @@ impl Bingx {
             last: data.last_price.as_ref().and_then(|s| s.parse().ok()),
             previous_close: None,
             change: data.price_change.as_ref().and_then(|s| s.parse().ok()),
-            percentage: data.price_change_percent.as_ref().and_then(|s| s.parse().ok()),
+            percentage: data
+                .price_change_percent
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             average: None,
             base_volume: data.volume.as_ref().and_then(|s| s.parse().ok()),
             quote_volume: data.quote_volume.as_ref().and_then(|s| s.parse().ok()),
@@ -306,8 +320,16 @@ impl Bingx {
         };
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|s| s.parse().ok());
-        let amount: Decimal = data.orig_qty.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-        let filled: Decimal = data.executed_qty.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .orig_qty
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let filled: Decimal = data
+            .executed_qty
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
         let remaining = amount - filled;
         let cost: Option<Decimal> = data.cum_quote.as_ref().and_then(|s| s.parse().ok());
 
@@ -356,8 +378,16 @@ impl Bingx {
     /// 거래 파싱
     fn parse_trade(&self, data: &BingxTrade, symbol: &str) -> Trade {
         let timestamp = data.time.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price: Decimal = data.price.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-        let amount: Decimal = data.qty.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+        let price: Decimal = data
+            .price
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let amount: Decimal = data
+            .qty
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
 
         let side = if data.is_buyer_maker.unwrap_or(false) {
             "sell"
@@ -626,7 +656,9 @@ impl Exchange for Bingx {
 
         let timestamp = Utc::now().timestamp_millis();
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|b| {
                 if b.len() >= 2 {
                     let price = b[0].parse::<Decimal>().ok()?;
@@ -638,7 +670,9 @@ impl Exchange for Bingx {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|a| {
                 if a.len() >= 2 {
                     let price = a[0].parse::<Decimal>().ok()?;
@@ -661,10 +695,16 @@ impl Exchange for Bingx {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -700,7 +740,11 @@ impl Exchange for Bingx {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).cloned().unwrap_or("1h".into());
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or("1h".into());
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -759,8 +803,16 @@ impl Exchange for Bingx {
         );
 
         for balance in data.balances {
-            let free: Decimal = balance.free.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-            let locked: Decimal = balance.locked.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+            let free: Decimal = balance
+                .free
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
+            let locked: Decimal = balance
+                .locked
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
             let total = free + locked;
 
             balances.currencies.insert(
@@ -789,15 +841,21 @@ impl Exchange for Bingx {
 
         let mut request = HashMap::new();
         request.insert("symbol".into(), market_id);
-        request.insert("side".into(), match side {
-            OrderSide::Buy => "BUY".into(),
-            OrderSide::Sell => "SELL".into(),
-        });
-        request.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT".into(),
-            OrderType::Market => "MARKET".into(),
-            _ => "LIMIT".into(),
-        });
+        request.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY".into(),
+                OrderSide::Sell => "SELL".into(),
+            },
+        );
+        request.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT".into(),
+                OrderType::Market => "MARKET".into(),
+                _ => "LIMIT".into(),
+            },
+        );
         request.insert("quantity".into(), amount.to_string());
 
         if let Some(p) = price {
@@ -907,7 +965,15 @@ impl Exchange for Bingx {
         }
 
         let response: BingxOrdersResponse = self
-            .private_request("GET", "/openApi/spot/v1/trade/openOrders", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/openApi/spot/v1/trade/openOrders",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -944,7 +1010,15 @@ impl Exchange for Bingx {
         }
 
         let response: BingxMyTradesResponse = self
-            .private_request("GET", "/openApi/spot/v1/trade/myTrades", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/openApi/spot/v1/trade/myTrades",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -959,7 +1033,11 @@ impl Exchange for Bingx {
         })?;
 
         let sym = symbol.unwrap_or("");
-        let trades: Vec<Trade> = data.fills.iter().map(|t| self.parse_trade(t, sym)).collect();
+        let trades: Vec<Trade> = data
+            .fills
+            .iter()
+            .map(|t| self.parse_trade(t, sym))
+            .collect();
 
         Ok(trades)
     }
@@ -992,7 +1070,15 @@ impl Exchange for Bingx {
         }
 
         let _response: BingxResponse<serde_json::Value> = self
-            .private_request("POST", "/openApi/spot/v1/trade/cancelOpenOrders", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "POST",
+                "/openApi/spot/v1/trade/cancelOpenOrders",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         // BingX doesn't return detailed order info on cancel all
@@ -1017,7 +1103,15 @@ impl Exchange for Bingx {
         }
 
         let response: BingxOrdersResponse = self
-            .private_request("GET", "/openApi/spot/v1/trade/historyOrders", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/openApi/spot/v1/trade/historyOrders",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1102,7 +1196,11 @@ impl Exchange for Bingx {
         }
 
         let response: BingxDepositAddressResponse = self
-            .private_request("GET", "/openApi/wallets/v1/capital/deposit/address", Some(params))
+            .private_request(
+                "GET",
+                "/openApi/wallets/v1/capital/deposit/address",
+                Some(params),
+            )
             .await?;
 
         if response.code != 0 {
@@ -1143,7 +1241,15 @@ impl Exchange for Bingx {
         }
 
         let response: BingxTransactionsResponse = self
-            .private_request("GET", "/openApi/wallets/v1/capital/deposit/hisrec", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/openApi/wallets/v1/capital/deposit/hisrec",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1179,7 +1285,15 @@ impl Exchange for Bingx {
         }
 
         let response: BingxTransactionsResponse = self
-            .private_request("GET", "/openApi/wallets/v1/capital/withdraw/history", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/openApi/wallets/v1/capital/withdraw/history",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1218,7 +1332,11 @@ impl Exchange for Bingx {
         }
 
         let response: BingxWithdrawResponse = self
-            .private_request("POST", "/openApi/wallets/v1/capital/withdraw/apply", Some(params))
+            .private_request(
+                "POST",
+                "/openApi/wallets/v1/capital/withdraw/apply",
+                Some(params),
+            )
             .await?;
 
         if response.code != 0 {
@@ -1254,8 +1372,13 @@ impl Exchange for Bingx {
 }
 
 impl Bingx {
-    fn parse_transaction(&self, data: &BingxTransaction, transaction_type: &str) -> crate::types::Transaction {
-        let amount = data.amount
+    fn parse_transaction(
+        &self,
+        data: &BingxTransaction,
+        transaction_type: &str,
+    ) -> crate::types::Transaction {
+        let amount = data
+            .amount
             .as_ref()
             .and_then(|a| a.parse::<Decimal>().ok())
             .unwrap_or_default();
@@ -1273,9 +1396,9 @@ impl Bingx {
             id: data.id.clone().unwrap_or_default(),
             txid: data.txid.clone(),
             timestamp: data.insert_time,
-            datetime: data.insert_time.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .insert_time
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             address: data.address.clone(),
             tag: data.address_tag.clone(),
             tx_type: if transaction_type == "deposit" {

@@ -17,13 +17,12 @@ use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent,
-    WsExchange, WsMessage, WsMyTradeEvent, WsOrderBookEvent,
-    WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent,
+    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256, Sha512};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 const WS_PUBLIC_URL: &str = "wss://ws.kraken.com";
 const WS_PRIVATE_URL: &str = "wss://ws-auth.kraken.com";
@@ -120,17 +119,19 @@ impl KrakenWs {
         message.extend_from_slice(&sha256_digest);
 
         // Decode secret from base64
-        let decoded_secret = BASE64.decode(secret)
+        let decoded_secret = BASE64
+            .decode(secret)
             .map_err(|e| CcxtError::AuthenticationError {
                 message: format!("Failed to decode secret: {e}"),
             })?;
 
         // HMAC-SHA512
         type HmacSha512 = Hmac<Sha512>;
-        let mut mac = HmacSha512::new_from_slice(&decoded_secret)
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha512::new_from_slice(&decoded_secret).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(&message);
         let signature = mac.finalize().into_bytes();
 
@@ -139,12 +140,18 @@ impl KrakenWs {
 
     /// WebSocket 토큰 획득 (REST API GetWebSocketsToken)
     async fn get_websocket_token(&self) -> CcxtResult<String> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".into(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channels".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".into(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for private channels".into(),
+                })?;
 
         let nonce = Utc::now().timestamp_millis() as u64 * 1000;
         let body = format!("nonce={nonce}");
@@ -162,15 +169,13 @@ impl KrakenWs {
             .await
             .map_err(|e| CcxtError::NetworkError {
                 url: format!("{REST_API_URL}{path}"),
-                message: e.to_string()
+                message: e.to_string(),
             })?;
 
-        let result: KrakenWsTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| CcxtError::ParseError {
+        let result: KrakenWsTokenResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
                 data_type: "KrakenWsTokenResponse".to_string(),
-                message: e.to_string()
+                message: e.to_string(),
             })?;
 
         if let Some(errors) = &result.error {
@@ -181,7 +186,8 @@ impl KrakenWs {
             }
         }
 
-        result.result
+        result
+            .result
             .and_then(|r| r.token)
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "No token in response".into(),
@@ -222,53 +228,113 @@ impl KrakenWs {
             symbol: unified_symbol.clone(),
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
-            high: data.h.as_ref().and_then(|h| h.get(1)).and_then(|v| Decimal::from_str(v).ok()),
-            low: data.l.as_ref().and_then(|l| l.get(1)).and_then(|v| Decimal::from_str(v).ok()),
-            bid: data.b.as_ref().and_then(|b| b.first()).and_then(|v| Decimal::from_str(v).ok()),
-            bid_volume: data.b.as_ref().and_then(|b| b.get(2)).and_then(|v| Decimal::from_str(v).ok()),
-            ask: data.a.as_ref().and_then(|a| a.first()).and_then(|v| Decimal::from_str(v).ok()),
-            ask_volume: data.a.as_ref().and_then(|a| a.get(2)).and_then(|v| Decimal::from_str(v).ok()),
-            vwap: data.p.as_ref().and_then(|p| p.get(1)).and_then(|v| Decimal::from_str(v).ok()),
-            open: data.o.as_ref().and_then(|o| o.first()).and_then(|v| Decimal::from_str(v).ok()),
-            close: data.c.as_ref().and_then(|c| c.first()).and_then(|v| Decimal::from_str(v).ok()),
-            last: data.c.as_ref().and_then(|c| c.first()).and_then(|v| Decimal::from_str(v).ok()),
+            high: data
+                .h
+                .as_ref()
+                .and_then(|h| h.get(1))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            low: data
+                .l
+                .as_ref()
+                .and_then(|l| l.get(1))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            bid: data
+                .b
+                .as_ref()
+                .and_then(|b| b.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            bid_volume: data
+                .b
+                .as_ref()
+                .and_then(|b| b.get(2))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            ask: data
+                .a
+                .as_ref()
+                .and_then(|a| a.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            ask_volume: data
+                .a
+                .as_ref()
+                .and_then(|a| a.get(2))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            vwap: data
+                .p
+                .as_ref()
+                .and_then(|p| p.get(1))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            open: data
+                .o
+                .as_ref()
+                .and_then(|o| o.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            close: data
+                .c
+                .as_ref()
+                .and_then(|c| c.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            last: data
+                .c
+                .as_ref()
+                .and_then(|c| c.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
             previous_close: None,
             change: None,
             percentage: None,
             average: None,
-            base_volume: data.v.as_ref().and_then(|v| v.get(1)).and_then(|val| Decimal::from_str(val).ok()),
+            base_volume: data
+                .v
+                .as_ref()
+                .and_then(|v| v.get(1))
+                .and_then(|val| Decimal::from_str(val).ok()),
             quote_volume: None,
             index_price: None,
             mark_price: None,
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsTickerEvent { symbol: unified_symbol, ticker }
+        WsTickerEvent {
+            symbol: unified_symbol,
+            ticker,
+        }
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &KrakenOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
+    fn parse_order_book(
+        data: &KrakenOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
         let timestamp = Utc::now().timestamp_millis();
 
         let parse_entries = |entries: &Vec<Vec<String>>| -> Vec<OrderBookEntry> {
-            entries.iter().filter_map(|e| {
-                if e.len() >= 2 {
-                    Some(OrderBookEntry {
-                        price: Decimal::from_str(&e[0]).ok()?,
-                        amount: Decimal::from_str(&e[1]).ok()?,
-                    })
-                } else {
-                    None
-                }
-            }).collect()
+            entries
+                .iter()
+                .filter_map(|e| {
+                    if e.len() >= 2 {
+                        Some(OrderBookEntry {
+                            price: Decimal::from_str(&e[0]).ok()?,
+                            amount: Decimal::from_str(&e[1]).ok()?,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         };
 
-        let bids = data.bs.as_ref().map(parse_entries)
+        let bids = data
+            .bs
+            .as_ref()
+            .map(parse_entries)
             .or_else(|| data.b.as_ref().map(parse_entries))
             .unwrap_or_default();
 
-        let asks = data.as_.as_ref().map(parse_entries)
+        let asks = data
+            .as_
+            .as_ref()
+            .map(parse_entries)
             .or_else(|| data.a.as_ref().map(parse_entries))
             .unwrap_or_default();
 
@@ -279,6 +345,7 @@ impl KrakenWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -292,48 +359,60 @@ impl KrakenWs {
     fn parse_trades(data: &[Vec<String>], symbol: &str) -> WsTradeEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
 
-        let trades: Vec<Trade> = data.iter().filter_map(|t| {
-            if t.len() < 6 {
-                return None;
-            }
+        let trades: Vec<Trade> = data
+            .iter()
+            .filter_map(|t| {
+                if t.len() < 6 {
+                    return None;
+                }
 
-            let price = Decimal::from_str(&t[0]).ok()?;
-            let amount = Decimal::from_str(&t[1]).ok()?;
-            let timestamp = t[2].parse::<f64>().ok().map(|ts| (ts * 1000.0) as i64)?;
-            let side = match t[3].as_str() {
-                "b" => Some("buy".to_string()),
-                "s" => Some("sell".to_string()),
-                _ => None,
-            };
+                let price = Decimal::from_str(&t[0]).ok()?;
+                let amount = Decimal::from_str(&t[1]).ok()?;
+                let timestamp = t[2].parse::<f64>().ok().map(|ts| (ts * 1000.0) as i64)?;
+                let side = match t[3].as_str() {
+                    "b" => Some("buy".to_string()),
+                    "s" => Some("sell".to_string()),
+                    _ => None,
+                };
 
-            Some(Trade {
-                id: t[2].clone(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                symbol: unified_symbol.clone(),
-                trade_type: None,
-                side,
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: Vec::new(),
-                info: serde_json::Value::Array(t.iter().map(|s| serde_json::Value::String(s.clone())).collect()),
+                Some(Trade {
+                    id: t[2].clone(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: unified_symbol.clone(),
+                    trade_type: None,
+                    side,
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: Vec::new(),
+                    info: serde_json::Value::Array(
+                        t.iter()
+                            .map(|s| serde_json::Value::String(s.clone()))
+                            .collect(),
+                    ),
+                })
             })
-        }).collect();
+            .collect();
 
-        WsTradeEvent { symbol: unified_symbol, trades }
+        WsTradeEvent {
+            symbol: unified_symbol,
+            trades,
+        }
     }
 
     /// 주문 업데이트 파싱
     fn parse_order_update(data: &KrakenOrderData, order_id: &str) -> WsOrderEvent {
-        let timestamp = data.opentm.as_ref()
+        let timestamp = data
+            .opentm
+            .as_ref()
             .and_then(|t| t.parse::<f64>().ok())
             .map(|t| (t * 1000.0) as i64)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -363,33 +442,41 @@ impl KrakenWs {
             _ => OrderStatus::Open,
         };
 
-        let symbol = data.descr.as_ref()
+        let symbol = data
+            .descr
+            .as_ref()
             .and_then(|d| d.pair.clone())
             .map(|p| Self::to_unified_symbol(&p))
             .unwrap_or_default();
 
-        let price = data.descr.as_ref()
+        let price = data
+            .descr
+            .as_ref()
             .and_then(|d| d.price.as_ref())
             .and_then(|p| Decimal::from_str(p).ok());
 
-        let amount = data.vol.as_ref()
+        let amount = data
+            .vol
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
-        let filled = data.vol_exec.as_ref()
+        let filled = data
+            .vol_exec
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
         let remaining = amount - filled;
 
-        let cost = data.cost.as_ref()
-            .and_then(|c| Decimal::from_str(c).ok());
+        let cost = data.cost.as_ref().and_then(|c| Decimal::from_str(c).ok());
 
-        let average = data.avg_price.as_ref()
+        let average = data
+            .avg_price
+            .as_ref()
             .and_then(|a| Decimal::from_str(a).ok());
 
-        let fee_cost = data.fee.as_ref()
-            .and_then(|f| Decimal::from_str(f).ok());
+        let fee_cost = data.fee.as_ref().and_then(|f| Decimal::from_str(f).ok());
 
         let fee = fee_cost.map(|c| Fee {
             currency: None,
@@ -397,7 +484,9 @@ impl KrakenWs {
             rate: None,
         });
 
-        let last_trade_ts = data.closetm.as_ref()
+        let last_trade_ts = data
+            .closetm
+            .as_ref()
             .and_then(|t| t.parse::<f64>().ok())
             .map(|t| (t * 1000.0) as i64);
 
@@ -405,8 +494,7 @@ impl KrakenWs {
             id: order_id.to_string(),
             client_order_id: data.userref.map(|r| r.to_string()),
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             last_trade_timestamp: last_trade_ts,
             last_update_timestamp: Some(timestamp),
             status,
@@ -437,12 +525,16 @@ impl KrakenWs {
 
     /// 내 체결 파싱
     fn parse_my_trade(data: &KrakenTradeData, trade_id: &str) -> (String, Trade) {
-        let timestamp = data.time.as_ref()
+        let timestamp = data
+            .time
+            .as_ref()
             .and_then(|t| t.parse::<f64>().ok())
             .map(|t| (t * 1000.0) as i64)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let symbol = data.pair.as_ref()
+        let symbol = data
+            .pair
+            .as_ref()
             .map(|p| Self::to_unified_symbol(p))
             .unwrap_or_default();
 
@@ -458,20 +550,25 @@ impl KrakenWs {
             _ => None,
         };
 
-        let price = data.price.as_ref()
+        let price = data
+            .price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok())
             .unwrap_or_default();
 
-        let amount = data.vol.as_ref()
+        let amount = data
+            .vol
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
-        let cost = data.cost.as_ref()
+        let cost = data
+            .cost
+            .as_ref()
             .and_then(|c| Decimal::from_str(c).ok())
             .or_else(|| Some(price * amount));
 
-        let fee_cost = data.fee.as_ref()
-            .and_then(|f| Decimal::from_str(f).ok());
+        let fee_cost = data.fee.as_ref().and_then(|f| Decimal::from_str(f).ok());
 
         let fee = fee_cost.map(|c| Fee {
             currency: None,
@@ -483,8 +580,7 @@ impl KrakenWs {
             id: trade_id.to_string(),
             order: data.ordertxid.clone(),
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             symbol: symbol.clone(),
             trade_type: None,
             side,
@@ -507,10 +603,14 @@ impl KrakenWs {
 
         for item in data {
             if let Some(ref currency) = item.asset {
-                let free = item.balance.as_ref()
+                let free = item
+                    .balance
+                    .as_ref()
                     .and_then(|b| Decimal::from_str(b).ok())
                     .unwrap_or_default();
-                let used = item.hold_trade.as_ref()
+                let used = item
+                    .hold_trade
+                    .as_ref()
                     .and_then(|h| Decimal::from_str(h).ok())
                     .unwrap_or_default();
 
@@ -520,8 +620,8 @@ impl KrakenWs {
         }
 
         balances.timestamp = Some(timestamp);
-        balances.datetime = chrono::DateTime::from_timestamp_millis(timestamp)
-            .map(|dt| dt.to_rfc3339());
+        balances.datetime =
+            chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339());
 
         WsBalanceEvent { balances }
     }
@@ -538,7 +638,9 @@ impl KrakenWs {
             if let Ok(status) = serde_json::from_str::<KrakenWsStatus>(msg) {
                 if status.status.as_deref() == Some("subscribed") {
                     return Some(WsMessage::Subscribed {
-                        channel: status.subscription.as_ref()
+                        channel: status
+                            .subscription
+                            .as_ref()
                             .and_then(|s| s.name.clone())
                             .unwrap_or_default(),
                         symbol: status.pair.clone(),
@@ -561,48 +663,70 @@ impl KrakenWs {
                                 for item in data_arr {
                                     if let Some(obj) = item.as_object() {
                                         for (order_id, order_data) in obj {
-                                            if let Ok(order) = serde_json::from_value::<KrakenOrderData>(order_data.clone()) {
-                                                return Some(WsMessage::Order(Self::parse_order_update(&order, order_id)));
+                                            if let Ok(order) =
+                                                serde_json::from_value::<KrakenOrderData>(
+                                                    order_data.clone(),
+                                                )
+                                            {
+                                                return Some(WsMessage::Order(
+                                                    Self::parse_order_update(&order, order_id),
+                                                ));
                                             }
                                         }
                                     }
                                 }
                             }
                             return None;
-                        }
+                        },
                         "ownTrades" => {
                             if let Some(data_arr) = arr.first().and_then(|v| v.as_array()) {
-                                let mut trades_by_symbol: HashMap<String, Vec<Trade>> = HashMap::new();
+                                let mut trades_by_symbol: HashMap<String, Vec<Trade>> =
+                                    HashMap::new();
                                 for item in data_arr {
                                     if let Some(obj) = item.as_object() {
                                         for (trade_id, trade_data) in obj {
-                                            if let Ok(trade) = serde_json::from_value::<KrakenTradeData>(trade_data.clone()) {
-                                                let (symbol, parsed_trade) = Self::parse_my_trade(&trade, trade_id);
-                                                trades_by_symbol.entry(symbol).or_default().push(parsed_trade);
+                                            if let Ok(trade) =
+                                                serde_json::from_value::<KrakenTradeData>(
+                                                    trade_data.clone(),
+                                                )
+                                            {
+                                                let (symbol, parsed_trade) =
+                                                    Self::parse_my_trade(&trade, trade_id);
+                                                trades_by_symbol
+                                                    .entry(symbol)
+                                                    .or_default()
+                                                    .push(parsed_trade);
                                             }
                                         }
                                     }
                                 }
                                 // Return first symbol's trades
-                                if let Some((symbol, trades)) = trades_by_symbol.into_iter().next() {
-                                    return Some(WsMessage::MyTrade(WsMyTradeEvent { symbol, trades }));
+                                if let Some((symbol, trades)) = trades_by_symbol.into_iter().next()
+                                {
+                                    return Some(WsMessage::MyTrade(WsMyTradeEvent {
+                                        symbol,
+                                        trades,
+                                    }));
                                 }
                             }
                             return None;
-                        }
+                        },
                         "balances" => {
                             // Kraken WebSocket v2 balances format
                             if let Some(data_arr) = arr.first().and_then(|v| v.as_array()) {
-                                let balance_items: Vec<KrakenBalanceData> = data_arr.iter()
+                                let balance_items: Vec<KrakenBalanceData> = data_arr
+                                    .iter()
                                     .filter_map(|v| serde_json::from_value(v.clone()).ok())
                                     .collect();
                                 if !balance_items.is_empty() {
-                                    return Some(WsMessage::Balance(Self::parse_balance_update(&balance_items)));
+                                    return Some(WsMessage::Balance(Self::parse_balance_update(
+                                        &balance_items,
+                                    )));
                                 }
                             }
                             return None;
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
             }
@@ -615,27 +739,43 @@ impl KrakenWs {
                 match channel_name {
                     Some("ticker") => {
                         if let Some(data) = arr.get(1) {
-                            if let Ok(ticker_data) = serde_json::from_value::<KrakenTickerData>(data.clone()) {
-                                return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data, pair)));
+                            if let Ok(ticker_data) =
+                                serde_json::from_value::<KrakenTickerData>(data.clone())
+                            {
+                                return Some(WsMessage::Ticker(Self::parse_ticker(
+                                    &ticker_data,
+                                    pair,
+                                )));
                             }
                         }
-                    }
+                    },
                     Some(name) if name.starts_with("book") => {
                         if let Some(data) = arr.get(1) {
-                            if let Ok(ob_data) = serde_json::from_value::<KrakenOrderBookData>(data.clone()) {
+                            if let Ok(ob_data) =
+                                serde_json::from_value::<KrakenOrderBookData>(data.clone())
+                            {
                                 let is_snapshot = ob_data.bs.is_some() || ob_data.as_.is_some();
-                                return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, pair, is_snapshot)));
+                                return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                    &ob_data,
+                                    pair,
+                                    is_snapshot,
+                                )));
                             }
                         }
-                    }
+                    },
                     Some("trade") => {
                         if let Some(data) = arr.get(1) {
-                            if let Ok(trade_data) = serde_json::from_value::<Vec<Vec<String>>>(data.clone()) {
-                                return Some(WsMessage::Trade(Self::parse_trades(&trade_data, pair)));
+                            if let Ok(trade_data) =
+                                serde_json::from_value::<Vec<Vec<String>>>(data.clone())
+                            {
+                                return Some(WsMessage::Trade(Self::parse_trades(
+                                    &trade_data,
+                                    pair,
+                                )));
                             }
                         }
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -660,6 +800,7 @@ impl KrakenWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -686,7 +827,10 @@ impl KrakenWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, pairs.join(","));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -696,19 +840,19 @@ impl KrakenWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -735,6 +879,7 @@ impl KrakenWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -755,7 +900,10 @@ impl KrakenWs {
         // 구독 저장
         {
             let key = format!("private:{channel}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -765,19 +913,19 @@ impl KrakenWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -797,18 +945,27 @@ impl WsExchange for KrakenWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let kraken_symbol = Self::format_symbol(symbol);
-        client.subscribe_stream(vec![kraken_symbol], "ticker", None).await
+        client
+            .subscribe_stream(vec![kraken_symbol], "ticker", None)
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let kraken_symbols: Vec<String> = symbols.iter()
-            .map(|s| Self::format_symbol(s))
-            .collect();
-        client.subscribe_stream(kraken_symbols, "ticker", None).await
+        let kraken_symbols: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
+        client
+            .subscribe_stream(kraken_symbols, "ticker", None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let kraken_symbol = Self::format_symbol(symbol);
         let depth = match limit.unwrap_or(10) {
@@ -818,20 +975,30 @@ impl WsExchange for KrakenWs {
             101..=500 => 500,
             _ => 1000,
         };
-        client.subscribe_stream(vec![kraken_symbol], &format!("book-{depth}"), Some(depth)).await
+        client
+            .subscribe_stream(vec![kraken_symbol], &format!("book-{depth}"), Some(depth))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let kraken_symbol = Self::format_symbol(symbol);
-        client.subscribe_stream(vec![kraken_symbol], "trade", None).await
+        client
+            .subscribe_stream(vec![kraken_symbol], "trade", None)
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let kraken_symbol = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
-        client.subscribe_stream(vec![kraken_symbol], &format!("ohlc-{interval}"), None).await
+        client
+            .subscribe_stream(vec![kraken_symbol], &format!("ohlc-{interval}"), None)
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -871,7 +1038,10 @@ impl WsExchange for KrakenWs {
     }
 
     /// 주문 변경 구독 (인증 필요)
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
             self.api_key.as_deref().unwrap_or(""),
             self.api_secret.as_deref().unwrap_or(""),
@@ -880,7 +1050,10 @@ impl WsExchange for KrakenWs {
     }
 
     /// 내 체결 내역 구독 (인증 필요)
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
             self.api_key.as_deref().unwrap_or(""),
             self.api_secret.as_deref().unwrap_or(""),
@@ -972,11 +1145,11 @@ struct KrakenOrderData {
     #[serde(default)]
     userref: Option<i64>,
     #[serde(default)]
-    opentm: Option<String>,  // open timestamp (as string)
+    opentm: Option<String>, // open timestamp (as string)
     #[serde(default)]
     closetm: Option<String>, // close timestamp (as string)
     #[serde(default)]
-    vol: Option<String>,      // volume (amount)
+    vol: Option<String>, // volume (amount)
     #[serde(default)]
     vol_exec: Option<String>, // executed volume (filled)
     #[serde(default)]
@@ -996,11 +1169,11 @@ struct KrakenOrderDescr {
     #[serde(default, rename = "type")]
     order_type: Option<String>, // buy/sell
     #[serde(default)]
-    ordertype: Option<String>,  // limit/market
+    ordertype: Option<String>, // limit/market
     #[serde(default)]
     price: Option<String>,
     #[serde(default)]
-    price2: Option<String>,     // secondary price (stop, limit)
+    price2: Option<String>, // secondary price (stop, limit)
     #[serde(default)]
     leverage: Option<String>,
 }
@@ -1009,15 +1182,15 @@ struct KrakenOrderDescr {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct KrakenTradeData {
     #[serde(default)]
-    ordertxid: Option<String>,  // order ID
+    ordertxid: Option<String>, // order ID
     #[serde(default)]
     pair: Option<String>,
     #[serde(default)]
-    time: Option<String>,       // timestamp as string
+    time: Option<String>, // timestamp as string
     #[serde(default, rename = "type")]
     trade_type: Option<String>, // buy/sell
     #[serde(default)]
-    ordertype: Option<String>,  // maker/taker
+    ordertype: Option<String>, // maker/taker
     #[serde(default)]
     price: Option<String>,
     #[serde(default)]
@@ -1034,9 +1207,9 @@ struct KrakenTradeData {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct KrakenBalanceData {
     #[serde(default)]
-    asset: Option<String>,      // currency code
+    asset: Option<String>, // currency code
     #[serde(default)]
-    balance: Option<String>,    // total balance
+    balance: Option<String>, // total balance
     #[serde(default)]
     hold_trade: Option<String>, // held for trading
     #[serde(default)]
@@ -1278,7 +1451,10 @@ mod tests {
                 ..Default::default()
             };
             let event = KrakenWs::parse_order_update(&data, "test");
-            assert_eq!(event.order.status, expected, "Failed for status: {status_str}");
+            assert_eq!(
+                event.order.status, expected,
+                "Failed for status: {status_str}"
+            );
         }
     }
 
@@ -1302,7 +1478,10 @@ mod tests {
                 ..Default::default()
             };
             let event = KrakenWs::parse_order_update(&data, "test");
-            assert_eq!(event.order.order_type, expected, "Failed for type: {type_str}");
+            assert_eq!(
+                event.order.order_type, expected,
+                "Failed for type: {type_str}"
+            );
         }
     }
 
@@ -1353,7 +1532,8 @@ mod tests {
 
     #[test]
     fn test_process_message_balance() {
-        let msg = r#"[[{"asset":"XBT","balance":"1.5","hold_trade":"0.5"}],"balances",{"sequence":1}]"#;
+        let msg =
+            r#"[[{"asset":"XBT","balance":"1.5","hold_trade":"0.5"}],"balances",{"sequence":1}]"#;
 
         let result = KrakenWs::process_message(msg);
         assert!(result.is_some());

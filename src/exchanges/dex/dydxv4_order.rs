@@ -18,8 +18,13 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use crate::errors::CcxtResult;
+use crate::crypto::cosmos::protobuf::*;
+use crate::crypto::cosmos::transaction::{
+    CosmosAny, CosmosAuthInfo, CosmosFee, CosmosSignDoc, CosmosSignerInfo, CosmosTxBody,
+    CosmosTxRaw,
+};
 use crate::crypto::cosmos::CosmosWallet;
+use crate::errors::CcxtResult;
 
 // ============================================================================
 // Constants
@@ -201,8 +206,87 @@ pub enum GoodTilOneof {
     GoodTilBlockTime(u32),
 }
 
+// ============================================================================
+// Builder Pattern - DydxOrderParams
+// ============================================================================
+
+/// Short-term 주문 생성 파라미터 (Builder 패턴)
+///
+/// 10개 이상의 파라미터를 구조화하여 Clippy too_many_arguments 경고 해결
+#[derive(Clone, Debug)]
+pub struct ShortTermOrderParams<'a> {
+    /// 지갑 소유자 주소
+    pub owner: &'a str,
+    /// 서브어카운트 번호
+    pub subaccount_number: u32,
+    /// 클라이언트 ID
+    pub client_id: u32,
+    /// CLOB 페어 ID
+    pub clob_pair_id: u32,
+    /// 주문 방향
+    pub side: DydxOrderSide,
+    /// 수량 (quantums)
+    pub quantums: u64,
+    /// 가격 (subticks)
+    pub subticks: u64,
+    /// 만료 블록
+    pub good_til_block: u32,
+    /// TimeInForce
+    pub time_in_force: DydxTimeInForce,
+    /// 포지션 축소 전용 여부
+    pub reduce_only: bool,
+}
+
+/// Long-term 주문 생성 파라미터 (Builder 패턴)
+#[derive(Clone, Debug)]
+pub struct LongTermOrderParams<'a> {
+    /// 지갑 소유자 주소
+    pub owner: &'a str,
+    /// 서브어카운트 번호
+    pub subaccount_number: u32,
+    /// 클라이언트 ID
+    pub client_id: u32,
+    /// CLOB 페어 ID
+    pub clob_pair_id: u32,
+    /// 주문 방향
+    pub side: DydxOrderSide,
+    /// 수량 (quantums)
+    pub quantums: u64,
+    /// 가격 (subticks)
+    pub subticks: u64,
+    /// 만료 시간 (Unix timestamp)
+    pub good_til_block_time: u32,
+    /// TimeInForce
+    pub time_in_force: DydxTimeInForce,
+    /// 포지션 축소 전용 여부
+    pub reduce_only: bool,
+}
+
 impl DydxOrder {
-    /// 새 short-term 주문 생성
+    /// 새 short-term 주문 생성 (Builder 패턴)
+    pub fn from_short_term_params(params: ShortTermOrderParams<'_>) -> Self {
+        Self {
+            order_id: OrderId::new(
+                SubaccountId::new(params.owner, params.subaccount_number),
+                params.client_id,
+                order_flags::SHORT_TERM,
+                params.clob_pair_id,
+            ),
+            side: params.side,
+            quantums: params.quantums,
+            subticks: params.subticks,
+            good_til_oneof: GoodTilOneof::GoodTilBlock(params.good_til_block),
+            time_in_force: params.time_in_force,
+            reduce_only: params.reduce_only,
+            client_metadata: 0,
+            condition_type: ConditionType::Unspecified,
+            conditional_order_trigger_subticks: 0,
+        }
+    }
+
+    /// 새 short-term 주문 생성 (기존 API 호환, deprecated)
+    #[allow(clippy::too_many_arguments)]
+    #[deprecated(since = "0.1.0", note = "Use from_short_term_params instead")]
     pub fn new_short_term(
         owner: &str,
         subaccount_number: u32,
@@ -215,26 +299,44 @@ impl DydxOrder {
         time_in_force: DydxTimeInForce,
         reduce_only: bool,
     ) -> Self {
-        Self {
-            order_id: OrderId::new(
-                SubaccountId::new(owner, subaccount_number),
-                client_id,
-                order_flags::SHORT_TERM,
-                clob_pair_id,
-            ),
+        Self::from_short_term_params(ShortTermOrderParams {
+            owner,
+            subaccount_number,
+            client_id,
+            clob_pair_id,
             side,
             quantums,
             subticks,
-            good_til_oneof: GoodTilOneof::GoodTilBlock(good_til_block),
+            good_til_block,
             time_in_force,
             reduce_only,
+        })
+    }
+
+    /// 새 long-term 주문 생성 (Builder 패턴)
+    pub fn from_long_term_params(params: LongTermOrderParams<'_>) -> Self {
+        Self {
+            order_id: OrderId::new(
+                SubaccountId::new(params.owner, params.subaccount_number),
+                params.client_id,
+                order_flags::LONG_TERM,
+                params.clob_pair_id,
+            ),
+            side: params.side,
+            quantums: params.quantums,
+            subticks: params.subticks,
+            good_til_oneof: GoodTilOneof::GoodTilBlockTime(params.good_til_block_time),
+            time_in_force: params.time_in_force,
+            reduce_only: params.reduce_only,
             client_metadata: 0,
             condition_type: ConditionType::Unspecified,
             conditional_order_trigger_subticks: 0,
         }
     }
 
-    /// 새 long-term 주문 생성
+    /// 새 long-term 주문 생성 (기존 API 호환, deprecated)
+    #[allow(clippy::too_many_arguments)]
+    #[deprecated(since = "0.1.0", note = "Use from_long_term_params instead")]
     pub fn new_long_term(
         owner: &str,
         subaccount_number: u32,
@@ -247,23 +349,18 @@ impl DydxOrder {
         time_in_force: DydxTimeInForce,
         reduce_only: bool,
     ) -> Self {
-        Self {
-            order_id: OrderId::new(
-                SubaccountId::new(owner, subaccount_number),
-                client_id,
-                order_flags::LONG_TERM,
-                clob_pair_id,
-            ),
+        Self::from_long_term_params(LongTermOrderParams {
+            owner,
+            subaccount_number,
+            client_id,
+            clob_pair_id,
             side,
             quantums,
             subticks,
-            good_til_oneof: GoodTilOneof::GoodTilBlockTime(good_til_block_time),
+            good_til_block_time,
             time_in_force,
             reduce_only,
-            client_metadata: 0,
-            condition_type: ConditionType::Unspecified,
-            conditional_order_trigger_subticks: 0,
-        }
+        })
     }
 
     /// Protobuf 인코딩
@@ -287,10 +384,10 @@ impl DydxOrder {
         match &self.good_til_oneof {
             GoodTilOneof::GoodTilBlock(block) => {
                 encode_uint32(&mut buf, 5, *block);
-            }
+            },
             GoodTilOneof::GoodTilBlockTime(time) => {
                 encode_fixed32(&mut buf, 6, *time);
-            }
+            },
         }
 
         // Field 7: time_in_force (enum as uint32)
@@ -379,10 +476,10 @@ impl MsgCancelOrder {
         match &self.good_til_oneof {
             GoodTilOneof::GoodTilBlock(block) => {
                 encode_uint32(&mut buf, 2, *block);
-            }
+            },
             GoodTilOneof::GoodTilBlockTime(time) => {
                 encode_fixed32(&mut buf, 3, *time);
-            }
+            },
         }
 
         buf
@@ -394,287 +491,6 @@ impl MsgCancelOrder {
             type_url: Self::TYPE_URL.to_string(),
             value: self.encode(),
         }
-    }
-}
-
-// ============================================================================
-// Cosmos SDK Transaction Types
-// ============================================================================
-
-/// google.protobuf.Any
-#[derive(Clone, Debug, PartialEq)]
-pub struct CosmosAny {
-    pub type_url: String,
-    pub value: Vec<u8>,
-}
-
-impl CosmosAny {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Field 1: type_url (string)
-        encode_string(&mut buf, 1, &self.type_url);
-        // Field 2: value (bytes)
-        encode_bytes(&mut buf, 2, &self.value);
-        buf
-    }
-}
-
-/// Cosmos SDK 공개키
-#[derive(Clone, Debug)]
-pub struct CosmosPubKey {
-    pub key: Vec<u8>,
-}
-
-impl CosmosPubKey {
-    pub const TYPE_URL: &'static str = "/cosmos.crypto.secp256k1.PubKey";
-
-    pub fn new(key: &[u8]) -> Self {
-        Self { key: key.to_vec() }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Field 1: key (bytes)
-        encode_bytes(&mut buf, 1, &self.key);
-        buf
-    }
-
-    pub fn to_any(&self) -> CosmosAny {
-        CosmosAny {
-            type_url: Self::TYPE_URL.to_string(),
-            value: self.encode(),
-        }
-    }
-}
-
-/// 수수료
-#[derive(Clone, Debug)]
-pub struct CosmosFee {
-    pub amount: Vec<CosmosCoin>,
-    pub gas_limit: u64,
-    pub payer: String,
-    pub granter: String,
-}
-
-impl CosmosFee {
-    pub fn zero() -> Self {
-        Self {
-            amount: vec![],
-            gas_limit: 0,
-            payer: String::new(),
-            granter: String::new(),
-        }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Field 1: amount (repeated Coin) - skip if empty
-        for coin in &self.amount {
-            let coin_bytes = coin.encode();
-            encode_length_delimited(&mut buf, 1, &coin_bytes);
-        }
-        // Field 2: gas_limit (uint64)
-        if self.gas_limit > 0 {
-            encode_uint64(&mut buf, 2, self.gas_limit);
-        }
-        // Field 3: payer (string)
-        if !self.payer.is_empty() {
-            encode_string(&mut buf, 3, &self.payer);
-        }
-        // Field 4: granter (string)
-        if !self.granter.is_empty() {
-            encode_string(&mut buf, 4, &self.granter);
-        }
-        buf
-    }
-}
-
-/// 코인
-#[derive(Clone, Debug)]
-pub struct CosmosCoin {
-    pub denom: String,
-    pub amount: String,
-}
-
-impl CosmosCoin {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        encode_string(&mut buf, 1, &self.denom);
-        encode_string(&mut buf, 2, &self.amount);
-        buf
-    }
-}
-
-/// TxBody
-#[derive(Clone, Debug)]
-pub struct CosmosTxBody {
-    pub messages: Vec<CosmosAny>,
-    pub memo: String,
-    pub timeout_height: u64,
-    pub extension_options: Vec<CosmosAny>,
-    pub non_critical_extension_options: Vec<CosmosAny>,
-}
-
-impl CosmosTxBody {
-    pub fn new(messages: Vec<CosmosAny>, memo: &str) -> Self {
-        Self {
-            messages,
-            memo: memo.to_string(),
-            timeout_height: 0,
-            extension_options: vec![],
-            non_critical_extension_options: vec![],
-        }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Field 1: messages (repeated Any)
-        for msg in &self.messages {
-            let msg_bytes = msg.encode();
-            encode_length_delimited(&mut buf, 1, &msg_bytes);
-        }
-        // Field 2: memo (string)
-        if !self.memo.is_empty() {
-            encode_string(&mut buf, 2, &self.memo);
-        }
-        // Field 3: timeout_height (uint64)
-        if self.timeout_height > 0 {
-            encode_uint64(&mut buf, 3, self.timeout_height);
-        }
-        buf
-    }
-}
-
-/// ModeInfo (DIRECT signing mode)
-#[derive(Clone, Debug)]
-pub struct CosmosModeInfo {
-    pub mode: SignMode,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum SignMode {
-    Direct = 1,
-}
-
-impl CosmosModeInfo {
-    pub fn direct() -> Self {
-        Self { mode: SignMode::Direct }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // single.mode (nested message)
-        let mut single_buf = Vec::new();
-        encode_uint32(&mut single_buf, 1, self.mode as u32);
-        encode_length_delimited(&mut buf, 1, &single_buf);
-        buf
-    }
-}
-
-/// SignerInfo
-#[derive(Clone, Debug)]
-pub struct CosmosSignerInfo {
-    pub public_key: Option<CosmosAny>,
-    pub mode_info: CosmosModeInfo,
-    pub sequence: u64,
-}
-
-impl CosmosSignerInfo {
-    pub fn new(public_key: &[u8], sequence: u64) -> Self {
-        let pubkey = CosmosPubKey::new(public_key);
-        Self {
-            public_key: Some(pubkey.to_any()),
-            mode_info: CosmosModeInfo::direct(),
-            sequence,
-        }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Field 1: public_key (Any)
-        if let Some(pk) = &self.public_key {
-            let pk_bytes = pk.encode();
-            encode_length_delimited(&mut buf, 1, &pk_bytes);
-        }
-        // Field 2: mode_info (ModeInfo)
-        let mode_bytes = self.mode_info.encode();
-        encode_length_delimited(&mut buf, 2, &mode_bytes);
-        // Field 3: sequence (uint64)
-        encode_uint64(&mut buf, 3, self.sequence);
-        buf
-    }
-}
-
-/// AuthInfo
-#[derive(Clone, Debug)]
-pub struct CosmosAuthInfo {
-    pub signer_infos: Vec<CosmosSignerInfo>,
-    pub fee: CosmosFee,
-}
-
-impl CosmosAuthInfo {
-    pub fn new(signer_infos: Vec<CosmosSignerInfo>, fee: CosmosFee) -> Self {
-        Self { signer_infos, fee }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Field 1: signer_infos (repeated SignerInfo)
-        for signer in &self.signer_infos {
-            let signer_bytes = signer.encode();
-            encode_length_delimited(&mut buf, 1, &signer_bytes);
-        }
-        // Field 2: fee (Fee)
-        let fee_bytes = self.fee.encode();
-        encode_length_delimited(&mut buf, 2, &fee_bytes);
-        buf
-    }
-}
-
-/// SignDoc (for signing)
-#[derive(Clone, Debug)]
-pub struct CosmosSignDoc {
-    pub body_bytes: Vec<u8>,
-    pub auth_info_bytes: Vec<u8>,
-    pub chain_id: String,
-    pub account_number: u64,
-}
-
-impl CosmosSignDoc {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Field 1: body_bytes (bytes)
-        encode_bytes(&mut buf, 1, &self.body_bytes);
-        // Field 2: auth_info_bytes (bytes)
-        encode_bytes(&mut buf, 2, &self.auth_info_bytes);
-        // Field 3: chain_id (string)
-        encode_string(&mut buf, 3, &self.chain_id);
-        // Field 4: account_number (uint64)
-        encode_uint64(&mut buf, 4, self.account_number);
-        buf
-    }
-}
-
-/// TxRaw (final signed transaction)
-#[derive(Clone, Debug)]
-pub struct CosmosTxRaw {
-    pub body_bytes: Vec<u8>,
-    pub auth_info_bytes: Vec<u8>,
-    pub signatures: Vec<Vec<u8>>,
-}
-
-impl CosmosTxRaw {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Field 1: body_bytes (bytes)
-        encode_bytes(&mut buf, 1, &self.body_bytes);
-        // Field 2: auth_info_bytes (bytes)
-        encode_bytes(&mut buf, 2, &self.auth_info_bytes);
-        // Field 3: signatures (repeated bytes)
-        for sig in &self.signatures {
-            encode_bytes(&mut buf, 3, sig);
-        }
-        buf
     }
 }
 
@@ -811,7 +627,7 @@ impl DydxMarketInfo {
         let raw_quantums = size * multiplier;
         let quantums = raw_quantums / Decimal::from(self.step_base_quantums);
         // Round to nearest step
-        
+
         (quantums.round() * Decimal::from(self.step_base_quantums))
             .to_string()
             .parse::<u64>()
@@ -832,82 +648,12 @@ impl DydxMarketInfo {
         let raw_subticks = price * multiplier * Decimal::from(self.subticks_per_tick);
         // Round to nearest subticks_per_tick
         let ticks = (raw_subticks / Decimal::from(self.subticks_per_tick)).round();
-        
+
         (ticks * Decimal::from(self.subticks_per_tick))
             .to_string()
             .parse::<u64>()
             .unwrap_or(0)
     }
-}
-
-// ============================================================================
-// Protobuf Encoding Helpers
-// ============================================================================
-
-fn encode_varint(buf: &mut Vec<u8>, value: u64) {
-    let mut v = value;
-    while v >= 0x80 {
-        buf.push((v as u8) | 0x80);
-        v >>= 7;
-    }
-    buf.push(v as u8);
-}
-
-fn encode_tag(buf: &mut Vec<u8>, field_number: u32, wire_type: u8) {
-    encode_varint(buf, ((field_number as u64) << 3) | (wire_type as u64));
-}
-
-fn encode_uint32(buf: &mut Vec<u8>, field_number: u32, value: u32) {
-    if value == 0 {
-        return;
-    }
-    encode_tag(buf, field_number, 0); // wire type 0 = varint
-    encode_varint(buf, value as u64);
-}
-
-fn encode_uint64(buf: &mut Vec<u8>, field_number: u32, value: u64) {
-    if value == 0 {
-        return;
-    }
-    encode_tag(buf, field_number, 0); // wire type 0 = varint
-    encode_varint(buf, value);
-}
-
-fn encode_fixed32(buf: &mut Vec<u8>, field_number: u32, value: u32) {
-    encode_tag(buf, field_number, 5); // wire type 5 = fixed32
-    buf.extend_from_slice(&value.to_le_bytes());
-}
-
-fn encode_bool(buf: &mut Vec<u8>, field_number: u32, value: bool) {
-    if !value {
-        return;
-    }
-    encode_tag(buf, field_number, 0); // wire type 0 = varint
-    buf.push(1);
-}
-
-fn encode_string(buf: &mut Vec<u8>, field_number: u32, value: &str) {
-    if value.is_empty() {
-        return;
-    }
-    encode_tag(buf, field_number, 2); // wire type 2 = length-delimited
-    encode_varint(buf, value.len() as u64);
-    buf.extend_from_slice(value.as_bytes());
-}
-
-fn encode_bytes(buf: &mut Vec<u8>, field_number: u32, value: &[u8]) {
-    if value.is_empty() {
-        return;
-    }
-    encode_tag(buf, field_number, 2); // wire type 2 = length-delimited
-    encode_varint(buf, value.len() as u64);
-    buf.extend_from_slice(value);
-}
-
-fn encode_length_delimited(buf: &mut Vec<u8>, field_number: u32, value: &[u8]) {
-    encode_tag(buf, field_number, 2); // wire type 2 = length-delimited
-    encode_varint(buf, value.len() as u64);
-    buf.extend_from_slice(value);
 }
 
 // ============================================================================
@@ -1048,18 +794,24 @@ impl DydxNodeClient {
 
     /// 현재 블록 높이 조회
     pub async fn get_latest_block_height(&self) -> CcxtResult<u32> {
-        let url = format!("{}/cosmos/base/tendermint/v1beta1/blocks/latest", self.rest_url);
+        let url = format!(
+            "{}/cosmos/base/tendermint/v1beta1/blocks/latest",
+            self.rest_url
+        );
         let resp: BlockHeight = self.http_get(&url).await?;
-        resp.block.header.height.parse().map_err(|_| {
-            crate::errors::CcxtError::ExchangeError {
+        resp.block
+            .header
+            .height
+            .parse()
+            .map_err(|_| crate::errors::CcxtError::ExchangeError {
                 message: "Failed to parse block height".to_string(),
-            }
-        })
+            })
     }
 
     /// 트랜잭션 비동기 브로드캐스트 (빠름, 결과 확인 안함)
     pub async fn broadcast_tx_async(&self, tx_bytes: &[u8]) -> CcxtResult<String> {
-        let tx_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, tx_bytes);
+        let tx_base64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, tx_bytes);
 
         let body = serde_json::json!({
             "jsonrpc": "2.0",
@@ -1070,7 +822,8 @@ impl DydxNodeClient {
             }
         });
 
-        let resp: serde_json::Value = self.http
+        let resp: serde_json::Value = self
+            .http
             .post(&self.rpc_url)
             .json(&body)
             .send()
@@ -1093,17 +846,15 @@ impl DydxNodeClient {
         }
 
         // Extract hash
-        let hash = resp["result"]["hash"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let hash = resp["result"]["hash"].as_str().unwrap_or("").to_string();
 
         Ok(hash)
     }
 
     /// 트랜잭션 동기 브로드캐스트 (CheckTx 대기)
     pub async fn broadcast_tx_sync(&self, tx_bytes: &[u8]) -> CcxtResult<BroadcastTxSyncResult> {
-        let tx_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, tx_bytes);
+        let tx_base64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, tx_bytes);
 
         let body = serde_json::json!({
             "jsonrpc": "2.0",
@@ -1114,7 +865,8 @@ impl DydxNodeClient {
             }
         });
 
-        let resp: serde_json::Value = self.http
+        let resp: serde_json::Value = self
+            .http
             .post(&self.rpc_url)
             .json(&body)
             .send()
@@ -1212,36 +964,36 @@ mod tests {
 
     #[test]
     fn test_short_term_order_encode() {
-        let order = DydxOrder::new_short_term(
-            "dydx1abc123",
-            0,
-            12345,
-            0, // BTC-USD
-            DydxOrderSide::Buy,
-            1000000000, // quantums
-            5000000000, // subticks
-            100,        // good_til_block
-            DydxTimeInForce::Unspecified,
-            false,
-        );
+        let order = DydxOrder::from_short_term_params(ShortTermOrderParams {
+            owner: "dydx1abc123",
+            subaccount_number: 0,
+            client_id: 12345,
+            clob_pair_id: 0, // BTC-USD
+            side: DydxOrderSide::Buy,
+            quantums: 1000000000,
+            subticks: 5000000000,
+            good_til_block: 100,
+            time_in_force: DydxTimeInForce::Unspecified,
+            reduce_only: false,
+        });
         let encoded = order.encode();
         assert!(!encoded.is_empty());
     }
 
     #[test]
     fn test_msg_place_order_encode() {
-        let order = DydxOrder::new_short_term(
-            "dydx1abc123",
-            0,
-            12345,
-            0,
-            DydxOrderSide::Buy,
-            1000000000,
-            5000000000,
-            100,
-            DydxTimeInForce::Unspecified,
-            false,
-        );
+        let order = DydxOrder::from_short_term_params(ShortTermOrderParams {
+            owner: "dydx1abc123",
+            subaccount_number: 0,
+            client_id: 12345,
+            clob_pair_id: 0,
+            side: DydxOrderSide::Buy,
+            quantums: 1000000000,
+            subticks: 5000000000,
+            good_til_block: 100,
+            time_in_force: DydxTimeInForce::Unspecified,
+            reduce_only: false,
+        });
         let msg = MsgPlaceOrder::new(order);
         let encoded = msg.encode();
         assert!(!encoded.is_empty());
@@ -1286,18 +1038,18 @@ mod tests {
 
     #[test]
     fn test_cosmos_tx_body_encode() {
-        let order = DydxOrder::new_short_term(
-            "dydx1abc123",
-            0,
-            1,
-            0,
-            DydxOrderSide::Buy,
-            1000000000,
-            5000000000,
-            100,
-            DydxTimeInForce::Unspecified,
-            false,
-        );
+        let order = DydxOrder::from_short_term_params(ShortTermOrderParams {
+            owner: "dydx1abc123",
+            subaccount_number: 0,
+            client_id: 1,
+            clob_pair_id: 0,
+            side: DydxOrderSide::Buy,
+            quantums: 1000000000,
+            subticks: 5000000000,
+            good_til_block: 100,
+            time_in_force: DydxTimeInForce::Unspecified,
+            reduce_only: false,
+        });
         let msg = MsgPlaceOrder::new(order);
         let tx_body = CosmosTxBody::new(vec![msg.to_any()], "");
         let encoded = tx_body.encode();

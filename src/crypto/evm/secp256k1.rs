@@ -4,9 +4,9 @@
 
 #![allow(dead_code)]
 
-use crate::errors::{CcxtError, CcxtResult};
-use crate::crypto::common::Signature;
 use super::keccak::keccak256;
+use crate::crypto::common::Signature;
+use crate::errors::{CcxtError, CcxtResult};
 
 use k256::{
     ecdsa::{RecoveryId, Signature as K256Signature, SigningKey, VerifyingKey},
@@ -15,8 +15,8 @@ use k256::{
 
 /// 개인키에서 서명 키 생성
 pub fn signing_key_from_bytes(private_key: &[u8]) -> CcxtResult<SigningKey> {
-    let secret_key = SecretKey::from_slice(private_key)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let secret_key =
+        SecretKey::from_slice(private_key).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Invalid private key: {e}"),
         })?;
     Ok(SigningKey::from(secret_key))
@@ -33,11 +33,12 @@ pub fn signing_key_from_bytes(private_key: &[u8]) -> CcxtResult<SigningKey> {
 ///
 /// ECDSA 서명 (r, s, v)
 pub fn sign_hash(signing_key: &SigningKey, hash: &[u8; 32]) -> CcxtResult<Signature> {
-    let (sig, recovery_id) = signing_key
-        .sign_prehash_recoverable(hash)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Signing failed: {e}"),
-        })?;
+    let (sig, recovery_id) =
+        signing_key
+            .sign_prehash_recoverable(hash)
+            .map_err(|e| CcxtError::InvalidSignature {
+                message: format!("Signing failed: {e}"),
+            })?;
 
     let sig_bytes = sig.to_bytes();
     let mut r = [0u8; 32];
@@ -73,10 +74,12 @@ pub fn recover_address(hash: &[u8; 32], signature: &Signature) -> CcxtResult<Str
             // EIP-155: v = chain_id * 2 + 35 + recovery_id
             let is_y_odd = ((v - 35) % 2) == 1;
             RecoveryId::new(is_y_odd, false)
-        }
-        _ => return Err(CcxtError::InvalidSignature {
-            message: format!("Invalid v value: {}", signature.v),
-        }),
+        },
+        _ => {
+            return Err(CcxtError::InvalidSignature {
+                message: format!("Invalid v value: {}", signature.v),
+            })
+        },
     };
 
     // 서명 복원
@@ -84,15 +87,16 @@ pub fn recover_address(hash: &[u8; 32], signature: &Signature) -> CcxtResult<Str
     sig_bytes[..32].copy_from_slice(&signature.r);
     sig_bytes[32..].copy_from_slice(&signature.s);
 
-    let sig = K256Signature::from_slice(&sig_bytes)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid signature: {e}"),
-        })?;
+    let sig = K256Signature::from_slice(&sig_bytes).map_err(|e| CcxtError::InvalidSignature {
+        message: format!("Invalid signature: {e}"),
+    })?;
 
     // 공개키 복구
-    let verifying_key = VerifyingKey::recover_from_prehash(hash, &sig, recovery_id)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Recovery failed: {e}"),
+    let verifying_key =
+        VerifyingKey::recover_from_prehash(hash, &sig, recovery_id).map_err(|e| {
+            CcxtError::InvalidSignature {
+                message: format!("Recovery failed: {e}"),
+            }
         })?;
 
     // 공개키에서 주소 계산
@@ -175,10 +179,16 @@ pub fn is_valid_address(address: &str) -> bool {
     }
 
     // 모두 소문자 또는 대문자인 경우 체크섬 검사 불필요
-    if address.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
+    if address
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
         return true;
     }
-    if address.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
+    if address
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    {
         return true;
     }
 
@@ -210,7 +220,8 @@ pub fn parse_private_key(hex_str: &str) -> CcxtResult<[u8; 32]> {
 mod tests {
     use super::*;
 
-    const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    const TEST_PRIVATE_KEY: &str =
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     const TEST_ADDRESS: &str = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     #[test]
@@ -244,10 +255,18 @@ mod tests {
 
     #[test]
     fn test_valid_address() {
-        assert!(is_valid_address("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"));
-        assert!(is_valid_address("0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"));
-        assert!(!is_valid_address("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb9226")); // 짧음
-        assert!(!is_valid_address("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266")); // 0x 없음
+        assert!(is_valid_address(
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        ));
+        assert!(is_valid_address(
+            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+        ));
+        assert!(!is_valid_address(
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb9226"
+        )); // 짧음
+        assert!(!is_valid_address(
+            "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        )); // 0x 없음
     }
 
     #[test]

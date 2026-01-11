@@ -167,20 +167,26 @@ impl BitmexWs {
 
     /// Generate authentication signature
     fn generate_auth_signature(&self, expires: i64) -> CcxtResult<String> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key and secret required for authentication".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key and secret required for authentication".into(),
+            })?;
 
-        let secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         let message = format!("GET/realtime{expires}");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("Invalid secret key: {e}"),
-            })?;
+            }
+        })?;
 
         mac.update(message.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
@@ -190,13 +196,18 @@ impl BitmexWs {
 
     /// Authenticate WebSocket connection
     async fn authenticate(&self) -> CcxtResult<()> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for authentication".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for authentication".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let expires = Utc::now().timestamp() + 60; // 60 seconds from now
         let signature = self.generate_auth_signature(expires)?;
@@ -207,11 +218,10 @@ impl BitmexWs {
         });
 
         if let Some(client) = &self.ws_client {
-            let msg_str = serde_json::to_string(&auth_msg)
-                .map_err(|e| CcxtError::ParseError {
-                    data_type: "AuthMessage".to_string(),
-                    message: e.to_string(),
-                })?;
+            let msg_str = serde_json::to_string(&auth_msg).map_err(|e| CcxtError::ParseError {
+                data_type: "AuthMessage".to_string(),
+                message: e.to_string(),
+            })?;
             client.send(&msg_str)?;
         }
 
@@ -222,7 +232,9 @@ impl BitmexWs {
     /// Parse ticker message
     fn parse_ticker(data: &BitmexInstrumentData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.clone()
+        let timestamp = data
+            .timestamp
+            .clone()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -260,8 +272,14 @@ impl BitmexWs {
     }
 
     /// Parse order book message
-    fn parse_order_book(data: &BitmexOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+    fn parse_order_book(
+        data: &BitmexOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|b| {
                 Some(OrderBookEntry {
                     price: Decimal::from_f64_retain(b.price)?,
@@ -270,7 +288,9 @@ impl BitmexWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|a| {
                 Some(OrderBookEntry {
                     price: Decimal::from_f64_retain(a.price)?,
@@ -279,7 +299,9 @@ impl BitmexWs {
             })
             .collect();
 
-        let timestamp = data.timestamp.clone()
+        let timestamp = data
+            .timestamp
+            .clone()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -295,6 +317,7 @@ impl BitmexWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -313,9 +336,12 @@ impl BitmexWs {
         let first_trade = &trades[0];
         let symbol = Self::to_unified_symbol(&first_trade.symbol);
 
-        let parsed_trades: Vec<Trade> = trades.iter()
+        let parsed_trades: Vec<Trade> = trades
+            .iter()
             .map(|t| {
-                let timestamp = t.timestamp.clone()
+                let timestamp = t
+                    .timestamp
+                    .clone()
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -357,7 +383,9 @@ impl BitmexWs {
     fn parse_ohlcv(data: &BitmexTradeBinData, timeframe: Timeframe) -> Option<WsOhlcvEvent> {
         let symbol = Self::to_unified_symbol(&data.symbol);
 
-        let timestamp = data.timestamp.clone()
+        let timestamp = data
+            .timestamp
+            .clone()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -382,22 +410,28 @@ impl BitmexWs {
     fn parse_order_update(data: &BitmexWsOrderData) -> WsOrderEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
 
-        let timestamp = data.timestamp.clone()
+        let timestamp = data
+            .timestamp
+            .clone()
             .or_else(|| data.transact_time.clone())
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let side = data.side.as_ref().map(|s| {
-            match s.to_lowercase().as_str() {
+        let side = data
+            .side
+            .as_ref()
+            .map(|s| match s.to_lowercase().as_str() {
                 "buy" => OrderSide::Buy,
                 "sell" => OrderSide::Sell,
                 _ => OrderSide::Buy,
-            }
-        }).unwrap_or(OrderSide::Buy);
+            })
+            .unwrap_or(OrderSide::Buy);
 
-        let order_type = data.ord_type.as_ref().map(|t| {
-            match t.as_str() {
+        let order_type = data
+            .ord_type
+            .as_ref()
+            .map(|t| match t.as_str() {
                 "Market" => OrderType::Market,
                 "Limit" => OrderType::Limit,
                 "Stop" => OrderType::StopLoss,
@@ -405,11 +439,13 @@ impl BitmexWs {
                 "MarketIfTouched" => OrderType::TakeProfit,
                 "LimitIfTouched" => OrderType::TakeProfitLimit,
                 _ => OrderType::Limit,
-            }
-        }).unwrap_or(OrderType::Limit);
+            })
+            .unwrap_or(OrderType::Limit);
 
-        let status = data.ord_status.as_ref().map(|s| {
-            match s.as_str() {
+        let status = data
+            .ord_status
+            .as_ref()
+            .map(|s| match s.as_str() {
                 "New" => OrderStatus::Open,
                 "PartiallyFilled" => OrderStatus::Open,
                 "Filled" => OrderStatus::Closed,
@@ -417,11 +453,14 @@ impl BitmexWs {
                 "Rejected" => OrderStatus::Rejected,
                 "Expired" => OrderStatus::Expired,
                 _ => OrderStatus::Open,
-            }
-        }).unwrap_or(OrderStatus::Open);
+            })
+            .unwrap_or(OrderStatus::Open);
 
         let price = data.price.and_then(Decimal::from_f64_retain);
-        let amount = data.order_qty.map(|q| Decimal::new(q, 0)).unwrap_or_default();
+        let amount = data
+            .order_qty
+            .map(|q| Decimal::new(q, 0))
+            .unwrap_or_default();
         let filled = data.cum_qty.map(|q| Decimal::new(q, 0)).unwrap_or_default();
         let remaining = data.leaves_qty.map(|q| Decimal::new(q, 0));
         let average = data.avg_px.and_then(Decimal::from_f64_retain);
@@ -468,7 +507,9 @@ impl BitmexWs {
     fn parse_my_trade(data: &BitmexWsExecutionData) -> WsMyTradeEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
 
-        let timestamp = data.timestamp.clone()
+        let timestamp = data
+            .timestamp
+            .clone()
             .or_else(|| data.transact_time.clone())
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
             .map(|dt| dt.timestamp_millis())
@@ -476,8 +517,14 @@ impl BitmexWs {
 
         let side = data.side.as_ref().map(|s| s.to_lowercase());
 
-        let price = data.last_px.and_then(Decimal::from_f64_retain).unwrap_or_default();
-        let amount = data.last_qty.map(|q| Decimal::new(q, 0)).unwrap_or_default();
+        let price = data
+            .last_px
+            .and_then(Decimal::from_f64_retain)
+            .unwrap_or_default();
+        let amount = data
+            .last_qty
+            .map(|q| Decimal::new(q, 0))
+            .unwrap_or_default();
 
         // BitMEX commission is in satoshis (1e-8 BTC)
         let fee_cost = data.exec_comm.map(|c| {
@@ -491,11 +538,9 @@ impl BitmexWs {
         });
 
         // Determine taker_or_maker based on exec_type
-        let taker_or_maker = data.exec_type.as_ref().and_then(|t| {
-            match t.as_str() {
-                "Trade" => Some(TakerOrMaker::Taker),
-                _ => None,
-            }
+        let taker_or_maker = data.exec_type.as_ref().and_then(|t| match t.as_str() {
+            "Trade" => Some(TakerOrMaker::Taker),
+            _ => None,
         });
 
         let cost = if price != Decimal::ZERO && amount != Decimal::ZERO {
@@ -533,12 +578,15 @@ impl BitmexWs {
 
     /// Parse position update from private WebSocket
     fn parse_position_update(positions: &[BitmexWsPositionData]) -> WsPositionEvent {
-        let parsed: Vec<Position> = positions.iter()
+        let parsed: Vec<Position> = positions
+            .iter()
             .filter(|p| p.current_qty.map(|q| q != 0).unwrap_or(false))
             .map(|p| {
                 let symbol = Self::to_unified_symbol(&p.symbol);
 
-                let timestamp = p.timestamp.clone()
+                let timestamp = p
+                    .timestamp
+                    .clone()
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -554,8 +602,11 @@ impl BitmexWs {
                 let realized_pnl = p.realised_pnl.map(|pnl| Decimal::new(pnl, 8));
 
                 let side = p.current_qty.map(|q| {
-                    if q > 0 { PositionSide::Long }
-                    else { PositionSide::Short }
+                    if q > 0 {
+                        PositionSide::Long
+                    } else {
+                        PositionSide::Short
+                    }
                 });
 
                 Position {
@@ -678,32 +729,43 @@ impl BitmexWs {
 
                 match table.as_str() {
                     "instrument" => {
-                        if let Ok(instruments) = serde_json::from_value::<Vec<BitmexInstrumentData>>(data) {
+                        if let Ok(instruments) =
+                            serde_json::from_value::<Vec<BitmexInstrumentData>>(data)
+                        {
                             if let Some(instrument) = instruments.first() {
                                 return Some(WsMessage::Ticker(Self::parse_ticker(instrument)));
                             }
                         }
-                    }
+                    },
                     "orderBook10" | "orderBookL2" | "orderBookL2_25" => {
                         // For orderBook updates, we need to handle partial, insert, update, delete actions
                         let is_snapshot = action == Some("partial");
 
-                        if let Ok(book_data) = serde_json::from_value::<BitmexOrderBookData>(data.clone()) {
-                            if let Some(symbol) = book_data.bids.first().or(book_data.asks.first()).map(|e| &e.symbol) {
+                        if let Ok(book_data) =
+                            serde_json::from_value::<BitmexOrderBookData>(data.clone())
+                        {
+                            if let Some(symbol) = book_data
+                                .bids
+                                .first()
+                                .or(book_data.asks.first())
+                                .map(|e| &e.symbol)
+                            {
                                 let unified_symbol = Self::to_unified_symbol(symbol);
-                                return Some(WsMessage::OrderBook(
-                                    Self::parse_order_book(&book_data, &unified_symbol, is_snapshot)
-                                ));
+                                return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                    &book_data,
+                                    &unified_symbol,
+                                    is_snapshot,
+                                )));
                             }
                         }
-                    }
+                    },
                     "trade" => {
                         if let Ok(trades) = serde_json::from_value::<Vec<BitmexTradeData>>(data) {
                             if let Some(event) = Self::parse_trades(&trades) {
                                 return Some(WsMessage::Trade(event));
                             }
                         }
-                    }
+                    },
                     "tradeBin1m" | "tradeBin5m" | "tradeBin1h" | "tradeBin1d" => {
                         let timeframe = match table.as_str() {
                             "tradeBin1m" => Timeframe::Minute1,
@@ -720,7 +782,7 @@ impl BitmexWs {
                                 }
                             }
                         }
-                    }
+                    },
                     // === Private channels ===
                     "order" => {
                         if let Ok(orders) = serde_json::from_value::<Vec<BitmexWsOrderData>>(data) {
@@ -728,32 +790,41 @@ impl BitmexWs {
                                 return Some(WsMessage::Order(Self::parse_order_update(order)));
                             }
                         }
-                    }
+                    },
                     "execution" => {
                         // Filter to only Trade executions (not funding, settlement, etc.)
-                        if let Ok(executions) = serde_json::from_value::<Vec<BitmexWsExecutionData>>(data) {
+                        if let Ok(executions) =
+                            serde_json::from_value::<Vec<BitmexWsExecutionData>>(data)
+                        {
                             for exec in executions {
                                 if exec.exec_type.as_deref() == Some("Trade") {
                                     return Some(WsMessage::MyTrade(Self::parse_my_trade(&exec)));
                                 }
                             }
                         }
-                    }
+                    },
                     "position" => {
-                        if let Ok(positions) = serde_json::from_value::<Vec<BitmexWsPositionData>>(data) {
+                        if let Ok(positions) =
+                            serde_json::from_value::<Vec<BitmexWsPositionData>>(data)
+                        {
                             if !positions.is_empty() {
-                                return Some(WsMessage::Position(Self::parse_position_update(&positions)));
+                                return Some(WsMessage::Position(Self::parse_position_update(
+                                    &positions,
+                                )));
                             }
                         }
-                    }
+                    },
                     "wallet" => {
-                        if let Ok(wallets) = serde_json::from_value::<Vec<BitmexWsWalletData>>(data) {
+                        if let Ok(wallets) = serde_json::from_value::<Vec<BitmexWsWalletData>>(data)
+                        {
                             if !wallets.is_empty() {
-                                return Some(WsMessage::Balance(Self::parse_wallet_update(&wallets)));
+                                return Some(WsMessage::Balance(Self::parse_wallet_update(
+                                    &wallets,
+                                )));
                             }
                         }
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -762,7 +833,10 @@ impl BitmexWs {
     }
 
     /// Subscribe to channel and return event receiver
-    async fn subscribe_channel(&mut self, topics: Vec<String>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_channel(
+        &mut self,
+        topics: Vec<String>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -775,6 +849,7 @@ impl BitmexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -792,8 +867,8 @@ impl BitmexWs {
         });
 
         if let Some(client) = &self.ws_client {
-            let msg_str = serde_json::to_string(&subscribe_msg)
-                .map_err(|e| CcxtError::ParseError {
+            let msg_str =
+                serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                     data_type: "SubscribeMessage".to_string(),
                     message: e.to_string(),
                 })?;
@@ -802,7 +877,10 @@ impl BitmexWs {
 
         // Store subscriptions
         for topic in topics {
-            self.subscriptions.write().await.insert(topic.clone(), topic);
+            self.subscriptions
+                .write()
+                .await
+                .insert(topic.clone(), topic);
         }
 
         // Event processing task
@@ -812,19 +890,19 @@ impl BitmexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -833,7 +911,10 @@ impl BitmexWs {
     }
 
     /// Subscribe to private channel (requires authentication)
-    async fn subscribe_private_channel(&mut self, topics: Vec<String>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_private_channel(
+        &mut self,
+        topics: Vec<String>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Ensure we have credentials
         if self.config.is_none() {
             return Err(CcxtError::AuthenticationError {
@@ -853,6 +934,7 @@ impl BitmexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -868,8 +950,8 @@ impl BitmexWs {
         });
 
         if let Some(client) = &self.ws_client {
-            let msg_str = serde_json::to_string(&subscribe_msg)
-                .map_err(|e| CcxtError::ParseError {
+            let msg_str =
+                serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                     data_type: "SubscribeMessage".to_string(),
                     message: e.to_string(),
                 })?;
@@ -878,7 +960,10 @@ impl BitmexWs {
 
         // Store subscriptions
         for topic in topics {
-            self.subscriptions.write().await.insert(topic.clone(), topic);
+            self.subscriptions
+                .write()
+                .await
+                .insert(topic.clone(), topic);
         }
 
         // Event processing task
@@ -888,19 +973,19 @@ impl BitmexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -924,7 +1009,10 @@ impl WsExchange for BitmexWs {
         client.subscribe_channel(vec![topic]).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let topics: Vec<String> = symbols
             .iter()
@@ -936,7 +1024,11 @@ impl WsExchange for BitmexWs {
         client.subscribe_channel(topics).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let bitmex_symbol = Self::from_unified_symbol(symbol);
 
@@ -944,7 +1036,7 @@ impl WsExchange for BitmexWs {
         let channel = match limit {
             Some(10) | None => "orderBook10", // Top 10 levels (default)
             Some(25) => "orderBookL2_25",     // Top 25 levels
-            _ => "orderBookL2",                // Full order book
+            _ => "orderBookL2",               // Full order book
         };
 
         let topic = format!("{channel}:{bitmex_symbol}");
@@ -958,7 +1050,11 @@ impl WsExchange for BitmexWs {
         client.subscribe_channel(vec![topic]).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let bitmex_symbol = Self::from_unified_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -992,7 +1088,10 @@ impl WsExchange for BitmexWs {
         self.authenticate().await
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = if let Some(config) = &self.config {
             Self::with_config(config.clone())
         } else {
@@ -1012,7 +1111,10 @@ impl WsExchange for BitmexWs {
         client.subscribe_private_channel(vec![topic]).await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = if let Some(config) = &self.config {
             Self::with_config(config.clone())
         } else {
@@ -1042,10 +1144,15 @@ impl WsExchange for BitmexWs {
         };
         client.testnet = self.testnet;
 
-        client.subscribe_private_channel(vec!["wallet".to_string()]).await
+        client
+            .subscribe_private_channel(vec!["wallet".to_string()])
+            .await
     }
 
-    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = if let Some(config) = &self.config {
             Self::with_config(config.clone())
         } else {
@@ -1362,22 +1469,20 @@ mod tests {
 
     #[test]
     fn test_parse_position_update() {
-        let positions = vec![
-            BitmexWsPositionData {
-                account: Some(12345),
-                symbol: "XBTUSD".to_string(),
-                currency: Some("XBt".to_string()),
-                current_qty: Some(1000),
-                avg_entry_price: Some(50000.0),
-                mark_price: Some(50500.0),
-                liquidation_price: Some(40000.0),
-                leverage: Some(10.0),
-                unrealised_pnl: Some(10000000), // 0.1 BTC in satoshis
-                realised_pnl: Some(5000000),
-                cross_margin: Some(false),
-                timestamp: Some("2024-01-15T10:30:00.000Z".to_string()),
-            },
-        ];
+        let positions = vec![BitmexWsPositionData {
+            account: Some(12345),
+            symbol: "XBTUSD".to_string(),
+            currency: Some("XBt".to_string()),
+            current_qty: Some(1000),
+            avg_entry_price: Some(50000.0),
+            mark_price: Some(50500.0),
+            liquidation_price: Some(40000.0),
+            leverage: Some(10.0),
+            unrealised_pnl: Some(10000000), // 0.1 BTC in satoshis
+            realised_pnl: Some(5000000),
+            cross_margin: Some(false),
+            timestamp: Some("2024-01-15T10:30:00.000Z".to_string()),
+        }];
 
         let event = BitmexWs::parse_position_update(&positions);
         assert_eq!(event.positions.len(), 1);
@@ -1392,22 +1497,20 @@ mod tests {
 
     #[test]
     fn test_parse_position_update_short() {
-        let positions = vec![
-            BitmexWsPositionData {
-                account: Some(12345),
-                symbol: "ETHUSD".to_string(),
-                currency: Some("XBt".to_string()),
-                current_qty: Some(-500),
-                avg_entry_price: Some(3000.0),
-                mark_price: Some(2950.0),
-                liquidation_price: Some(3500.0),
-                leverage: Some(5.0),
-                unrealised_pnl: Some(2500000),
-                realised_pnl: None,
-                cross_margin: Some(true),
-                timestamp: None,
-            },
-        ];
+        let positions = vec![BitmexWsPositionData {
+            account: Some(12345),
+            symbol: "ETHUSD".to_string(),
+            currency: Some("XBt".to_string()),
+            current_qty: Some(-500),
+            avg_entry_price: Some(3000.0),
+            mark_price: Some(2950.0),
+            liquidation_price: Some(3500.0),
+            leverage: Some(5.0),
+            unrealised_pnl: Some(2500000),
+            realised_pnl: None,
+            cross_margin: Some(true),
+            timestamp: None,
+        }];
 
         let event = BitmexWs::parse_position_update(&positions);
         assert_eq!(event.positions.len(), 1);
@@ -1421,16 +1524,14 @@ mod tests {
 
     #[test]
     fn test_parse_wallet_update() {
-        let wallets = vec![
-            BitmexWsWalletData {
-                account: Some(12345),
-                currency: "XBt".to_string(),
-                amount: Some(100000000), // 1 BTC in satoshis
-                pending_credit: Some(0),
-                pending_debit: Some(0),
-                timestamp: Some("2024-01-15T10:30:00.000Z".to_string()),
-            },
-        ];
+        let wallets = vec![BitmexWsWalletData {
+            account: Some(12345),
+            currency: "XBt".to_string(),
+            amount: Some(100000000), // 1 BTC in satoshis
+            pending_credit: Some(0),
+            pending_debit: Some(0),
+            timestamp: Some("2024-01-15T10:30:00.000Z".to_string()),
+        }];
 
         let event = BitmexWs::parse_wallet_update(&wallets);
         let btc_balance = event.balances.currencies.get("BTC");
@@ -1538,7 +1639,10 @@ mod tests {
             };
 
             let event = BitmexWs::parse_order_update(&data);
-            assert_eq!(event.order.status, expected, "Status {status_str} should map to {expected:?}");
+            assert_eq!(
+                event.order.status, expected,
+                "Status {status_str} should map to {expected:?}"
+            );
         }
     }
 
@@ -1573,7 +1677,10 @@ mod tests {
             };
 
             let event = BitmexWs::parse_order_update(&data);
-            assert_eq!(event.order.order_type, expected, "Type {type_str} should map to {expected:?}");
+            assert_eq!(
+                event.order.order_type, expected,
+                "Type {type_str} should map to {expected:?}"
+            );
         }
     }
 

@@ -16,7 +16,6 @@ pub enum MarketType {
     Option,
 }
 
-
 /// 마켓 정보
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

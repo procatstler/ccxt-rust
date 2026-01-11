@@ -18,9 +18,10 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Position, PositionSide, Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage,
-    WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, Position, PositionSide, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange,
+    WsMessage, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsTickerEvent,
+    WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -114,7 +115,9 @@ impl BingxWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &BingxTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.event_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .event_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
@@ -136,7 +139,10 @@ impl BingxWs {
             last: data.close.as_ref().and_then(|v| v.parse().ok()),
             previous_close: None,
             change: data.price_change.as_ref().and_then(|v| v.parse().ok()),
-            percentage: data.price_change_percent.as_ref().and_then(|v| v.parse().ok()),
+            percentage: data
+                .price_change_percent
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             average: None,
             base_volume: data.volume.as_ref().and_then(|v| v.parse().ok()),
             quote_volume: data.quote_volume.as_ref().and_then(|v| v.parse().ok()),
@@ -150,27 +156,35 @@ impl BingxWs {
 
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &BingxOrderBookData, symbol: &str) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let timestamp = Utc::now().timestamp_millis();
 
@@ -185,6 +199,7 @@ impl BingxWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -197,8 +212,16 @@ impl BingxWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &BingxTradeData, symbol: &str) -> WsTradeEvent {
         let timestamp = data.time.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price = data.price.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
-        let amount = data.qty.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+        let price = data
+            .price
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
+        let amount = data
+            .qty
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
 
         let trades = vec![Trade {
             id: data.trade_id.clone().unwrap_or_default(),
@@ -212,7 +235,11 @@ impl BingxWs {
             symbol: symbol.to_string(),
             order: None,
             trade_type: None,
-            side: if data.buyer_maker.unwrap_or(false) { Some("sell".to_string()) } else { Some("buy".to_string()) },
+            side: if data.buyer_maker.unwrap_or(false) {
+                Some("sell".to_string())
+            } else {
+                Some("buy".to_string())
+            },
             taker_or_maker: None,
             price,
             amount,
@@ -231,11 +258,31 @@ impl BingxWs {
     fn parse_candle(data: &BingxKlineData, symbol: &str, timeframe: Timeframe) -> WsOhlcvEvent {
         let ohlcv = OHLCV {
             timestamp: data.start_time.unwrap_or(0),
-            open: data.open.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            high: data.high.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            low: data.low.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            close: data.close.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            volume: data.volume.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
+            open: data
+                .open
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            high: data
+                .high
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            low: data
+                .low
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            close: data
+                .close
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            volume: data
+                .volume
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
         };
 
         WsOhlcvEvent {
@@ -249,16 +296,23 @@ impl BingxWs {
 
     /// listenKey 생성
     async fn create_listen_key(&self) -> CcxtResult<String> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private WebSocket".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private WebSocket".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let query = format!("timestamp={timestamp}");
@@ -271,7 +325,9 @@ impl BingxWs {
             hex::encode(mac.finalize().into_bytes())
         };
 
-        let url = format!("{REST_BASE_URL}/openApi/user/auth/userDataStream?{query}&signature={signature}");
+        let url = format!(
+            "{REST_BASE_URL}/openApi/user/auth/userDataStream?{query}&signature={signature}"
+        );
         let client = reqwest::Client::new();
         let response = client
             .post(&url)
@@ -290,14 +346,18 @@ impl BingxWs {
             });
         }
 
-        let data: BingxListenKeyResponse = response.json().await.map_err(|e| CcxtError::ParseError {
-            data_type: "ListenKeyResponse".to_string(),
-            message: e.to_string(),
-        })?;
+        let data: BingxListenKeyResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
+                data_type: "ListenKeyResponse".to_string(),
+                message: e.to_string(),
+            })?;
 
-        let listen_key = data.data.ok_or_else(|| CcxtError::ExchangeError {
-            message: "No listen key in response".into(),
-        })?.listen_key;
+        let listen_key = data
+            .data
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No listen key in response".into(),
+            })?
+            .listen_key;
 
         // listenKey 저장
         *self.listen_key.write().await = Some(listen_key.clone());
@@ -309,22 +369,32 @@ impl BingxWs {
     /// listenKey 갱신
     #[allow(dead_code)]
     async fn keep_alive_listen_key(&self) -> CcxtResult<()> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
-        let listen_key = self.listen_key.read().await.clone().ok_or_else(|| {
-            CcxtError::AuthenticationError {
-                message: "No listen key available".into(),
-            }
-        })?;
+        let listen_key =
+            self.listen_key
+                .read()
+                .await
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "No listen key available".into(),
+                })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let query = format!("listenKey={listen_key}&timestamp={timestamp}");
@@ -337,7 +407,9 @@ impl BingxWs {
             hex::encode(mac.finalize().into_bytes())
         };
 
-        let url = format!("{REST_BASE_URL}/openApi/user/auth/userDataStream?{query}&signature={signature}");
+        let url = format!(
+            "{REST_BASE_URL}/openApi/user/auth/userDataStream?{query}&signature={signature}"
+        );
         let client = reqwest::Client::new();
         let response = client
             .put(&url)
@@ -370,7 +442,10 @@ impl BingxWs {
     }
 
     /// Private 스트림에 연결하고 이벤트 수신
-    async fn subscribe_private_stream(&mut self, channel: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_private_stream(
+        &mut self,
+        channel: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // listenKey 확인 또는 생성
         let listen_key = {
             let current_key = self.listen_key.read().await.clone();
@@ -395,6 +470,7 @@ impl BingxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -403,7 +479,10 @@ impl BingxWs {
         // 구독 저장
         {
             let key = format!("private:{channel}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // listenKey 갱신 스케줄링
@@ -433,7 +512,8 @@ impl BingxWs {
                                 .header("X-BX-APIKEY", api_key)
                                 .send()
                                 .await;
-                            *listen_key_timestamp_clone.write().await = Utc::now().timestamp_millis();
+                            *listen_key_timestamp_clone.write().await =
+                                Utc::now().timestamp_millis();
                         }
                     }
                 }
@@ -448,21 +528,21 @@ impl BingxWs {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
                         let _ = tx.send(WsMessage::Authenticated);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         // GZIP 압축 해제 시도 (BingX는 바이너리 데이터를 GZIP으로 전송할 수 있음)
                         let decompressed = Self::decompress_message(&msg);
                         if let Some(ws_msg) = Self::process_private_message(&decompressed) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -486,7 +566,8 @@ impl BingxWs {
         let json: serde_json::Value = serde_json::from_str(msg).ok()?;
 
         // BingX 이벤트 타입 확인 (dataType 또는 e 필드)
-        let event_type = json.get("dataType")
+        let event_type = json
+            .get("dataType")
             .and_then(|v| v.as_str())
             .or_else(|| json.get("e").and_then(|v| v.as_str()))?;
 
@@ -496,20 +577,20 @@ impl BingxWs {
                 if let Ok(data) = serde_json::from_str::<BingxOrderUpdate>(msg) {
                     return Some(WsMessage::Order(Self::parse_order_update(&data)));
                 }
-            }
+            },
             // 잔고 업데이트
             s if s.contains("ACCOUNT") || s.contains("account") || s.contains("balance") => {
                 if let Ok(data) = serde_json::from_str::<BingxAccountUpdate>(msg) {
                     return Some(WsMessage::Balance(Self::parse_balance_update(&data)));
                 }
-            }
+            },
             // 포지션 업데이트
             s if s.contains("POSITION") || s.contains("position") => {
                 if let Ok(data) = serde_json::from_str::<BingxPositionUpdate>(msg) {
                     return Some(WsMessage::Position(Self::parse_position_update(&data)));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -517,12 +598,16 @@ impl BingxWs {
 
     /// 주문 업데이트 파싱
     fn parse_order_update(data: &BingxOrderUpdate) -> WsOrderEvent {
-        let symbol = data.data.as_ref()
+        let symbol = data
+            .data
+            .as_ref()
             .and_then(|d| d.symbol.as_ref())
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
-        let timestamp = data.data.as_ref()
+        let timestamp = data
+            .data
+            .as_ref()
             .and_then(|d| d.event_time)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -586,7 +671,10 @@ impl BingxWs {
             .unwrap_or_default();
 
         let order = Order {
-            id: order_data.and_then(|d| d.order_id.as_ref()).cloned().unwrap_or_default(),
+            id: order_data
+                .and_then(|d| d.order_id.as_ref())
+                .cloned()
+                .unwrap_or_default(),
             client_order_id: order_data.and_then(|d| d.client_order_id.clone()),
             timestamp: Some(timestamp),
             datetime: Some(
@@ -615,7 +703,9 @@ impl BingxWs {
             fee: None,
             fees: Vec::new(),
             info: serde_json::to_value(data).unwrap_or_default(),
-            stop_price: order_data.and_then(|d| d.stop_price.as_ref()).and_then(|v| v.parse().ok()),
+            stop_price: order_data
+                .and_then(|d| d.stop_price.as_ref())
+                .and_then(|v| v.parse().ok()),
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
@@ -636,8 +726,16 @@ impl BingxWs {
             if let Some(ref balance_list) = account_data.balances {
                 for b in balance_list {
                     let currency = b.asset.clone().unwrap_or_default();
-                    let free: Decimal = b.free.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
-                    let locked: Decimal = b.locked.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+                    let free: Decimal = b
+                        .free
+                        .as_ref()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or_default();
+                    let locked: Decimal = b
+                        .locked
+                        .as_ref()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or_default();
                     let total = free + locked;
 
                     balances.currencies.insert(
@@ -667,12 +765,22 @@ impl BingxWs {
 
         let timestamp = Utc::now().timestamp_millis();
 
-        let side = position_data.and_then(|d| d.position_side.as_ref()).map(|s| {
-            if s.to_uppercase() == "LONG" { PositionSide::Long } else { PositionSide::Short }
-        });
+        let side = position_data
+            .and_then(|d| d.position_side.as_ref())
+            .map(|s| {
+                if s.to_uppercase() == "LONG" {
+                    PositionSide::Long
+                } else {
+                    PositionSide::Short
+                }
+            });
 
         let margin_mode = position_data.and_then(|d| d.margin_type.as_ref()).map(|m| {
-            if m.to_uppercase() == "ISOLATED" { MarginMode::Isolated } else { MarginMode::Cross }
+            if m.to_uppercase() == "ISOLATED" {
+                MarginMode::Isolated
+            } else {
+                MarginMode::Cross
+            }
         });
 
         let position = Position {
@@ -682,20 +790,32 @@ impl BingxWs {
             datetime: Some(Utc::now().to_rfc3339()),
             hedged: None,
             side,
-            contracts: position_data.and_then(|d| d.position_amt.as_ref()).and_then(|v| v.parse().ok()),
+            contracts: position_data
+                .and_then(|d| d.position_amt.as_ref())
+                .and_then(|v| v.parse().ok()),
             contract_size: None,
-            entry_price: position_data.and_then(|d| d.entry_price.as_ref()).and_then(|v| v.parse().ok()),
-            mark_price: position_data.and_then(|d| d.mark_price.as_ref()).and_then(|v| v.parse().ok()),
+            entry_price: position_data
+                .and_then(|d| d.entry_price.as_ref())
+                .and_then(|v| v.parse().ok()),
+            mark_price: position_data
+                .and_then(|d| d.mark_price.as_ref())
+                .and_then(|v| v.parse().ok()),
             notional: None,
-            leverage: position_data.and_then(|d| d.leverage.as_ref()).and_then(|v| v.parse().ok()),
+            leverage: position_data
+                .and_then(|d| d.leverage.as_ref())
+                .and_then(|v| v.parse().ok()),
             collateral: None,
             initial_margin: None,
             maintenance_margin: None,
             initial_margin_percentage: None,
             maintenance_margin_percentage: None,
-            unrealized_pnl: position_data.and_then(|d| d.unrealized_profit.as_ref()).and_then(|v| v.parse().ok()),
+            unrealized_pnl: position_data
+                .and_then(|d| d.unrealized_profit.as_ref())
+                .and_then(|v| v.parse().ok()),
             realized_pnl: None,
-            liquidation_price: position_data.and_then(|d| d.liquidation_price.as_ref()).and_then(|v| v.parse().ok()),
+            liquidation_price: position_data
+                .and_then(|d| d.liquidation_price.as_ref())
+                .and_then(|v| v.parse().ok()),
             margin_mode,
             margin_ratio: None,
             percentage: None,
@@ -706,11 +826,17 @@ impl BingxWs {
             last_price: None,
         };
 
-        WsPositionEvent { positions: vec![position] }
+        WsPositionEvent {
+            positions: vec![position],
+        }
     }
 
     /// 메시지 처리
-    fn process_message(msg: &str, subscribed_symbol: Option<&str>, subscribed_timeframe: Option<Timeframe>) -> Option<WsMessage> {
+    fn process_message(
+        msg: &str,
+        subscribed_symbol: Option<&str>,
+        subscribed_timeframe: Option<Timeframe>,
+    ) -> Option<WsMessage> {
         // Pong 처리
         if msg == "Pong" {
             return None;
@@ -719,7 +845,9 @@ impl BingxWs {
         let response: BingxWsResponse = serde_json::from_str(msg).ok()?;
 
         let data_type = response.data_type.as_deref()?;
-        let symbol = subscribed_symbol.map(Self::to_unified_symbol).unwrap_or_default();
+        let symbol = subscribed_symbol
+            .map(Self::to_unified_symbol)
+            .unwrap_or_default();
 
         match data_type {
             s if s.contains("ticker") => {
@@ -728,30 +856,36 @@ impl BingxWs {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                     }
                 }
-            }
+            },
             s if s.contains("depth") => {
                 if let Some(data) = response.data {
                     if let Ok(book_data) = serde_json::from_value::<BingxOrderBookData>(data) {
-                        return Some(WsMessage::OrderBook(Self::parse_order_book(&book_data, &symbol)));
+                        return Some(WsMessage::OrderBook(Self::parse_order_book(
+                            &book_data, &symbol,
+                        )));
                     }
                 }
-            }
+            },
             s if s.contains("trade") => {
                 if let Some(data) = response.data {
                     if let Ok(trade_data) = serde_json::from_value::<BingxTradeData>(data) {
                         return Some(WsMessage::Trade(Self::parse_trade(&trade_data, &symbol)));
                     }
                 }
-            }
+            },
             s if s.contains("kline") => {
                 if let Some(data) = response.data {
                     if let Ok(kline_data) = serde_json::from_value::<BingxKlineData>(data) {
                         let timeframe = subscribed_timeframe.unwrap_or(Timeframe::Minute1);
-                        return Some(WsMessage::Ohlcv(Self::parse_candle(&kline_data, &symbol, timeframe)));
+                        return Some(WsMessage::Ohlcv(Self::parse_candle(
+                            &kline_data,
+                            &symbol,
+                            timeframe,
+                        )));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -763,7 +897,7 @@ impl BingxWs {
         subscribe_msg: serde_json::Value,
         channel: &str,
         symbol: Option<&str>,
-        timeframe: Option<Timeframe>
+        timeframe: Option<Timeframe>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -775,6 +909,7 @@ impl BingxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -787,7 +922,10 @@ impl BingxWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -798,19 +936,21 @@ impl BingxWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
-                        if let Some(ws_msg) = Self::process_message(&msg, subscribed_symbol.as_deref(), timeframe) {
+                        if let Some(ws_msg) =
+                            Self::process_message(&msg, subscribed_symbol.as_deref(), timeframe)
+                        {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -849,12 +989,18 @@ impl WsExchange for BingxWs {
             "reqType": "sub",
             "dataType": format!("{}@ticker", formatted)
         });
-        client.subscribe_stream(subscribe_msg, "ticker", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "ticker", Some(&formatted), None)
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let data_types: Vec<String> = symbols.iter()
+        let data_types: Vec<String> = symbols
+            .iter()
             .map(|s| format!("{}@ticker", Self::format_symbol(s)))
             .collect();
         let subscribe_msg = serde_json::json!({
@@ -862,10 +1008,16 @@ impl WsExchange for BingxWs {
             "reqType": "sub",
             "dataType": data_types.join(",")
         });
-        client.subscribe_stream(subscribe_msg, "tickers", None, None).await
+        client
+            .subscribe_stream(subscribe_msg, "tickers", None, None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let depth = limit.unwrap_or(20);
@@ -874,7 +1026,9 @@ impl WsExchange for BingxWs {
             "reqType": "sub",
             "dataType": format!("{}@depth{}@100ms", formatted, depth)
         });
-        client.subscribe_stream(subscribe_msg, "orderBook", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "orderBook", Some(&formatted), None)
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -885,10 +1039,16 @@ impl WsExchange for BingxWs {
             "reqType": "sub",
             "dataType": format!("{}@trade", formatted)
         });
-        client.subscribe_stream(subscribe_msg, "trade", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "trade", Some(&formatted), None)
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -897,7 +1057,9 @@ impl WsExchange for BingxWs {
             "reqType": "sub",
             "dataType": format!("{}@kline_{}", formatted, interval)
         });
-        client.subscribe_stream(subscribe_msg, "kline", Some(&formatted), Some(timeframe)).await
+        client
+            .subscribe_stream(subscribe_msg, "kline", Some(&formatted), Some(timeframe))
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -927,17 +1089,26 @@ impl WsExchange for BingxWs {
         client.subscribe_private_stream("balance").await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("orders").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("myTrades").await
     }
 
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("positions").await
     }
@@ -1177,7 +1348,9 @@ mod tests {
 
     #[test]
     fn test_with_config() {
-        let config = ExchangeConfig::new().with_api_key("test_key").with_api_secret("test_secret");
+        let config = ExchangeConfig::new()
+            .with_api_key("test_key")
+            .with_api_secret("test_secret");
         let client = BingxWs::with_config(config);
         assert!(client.config.is_some());
     }
@@ -1331,7 +1504,9 @@ mod tests {
 
     #[test]
     fn test_clone() {
-        let config = ExchangeConfig::new().with_api_key("key").with_api_secret("secret");
+        let config = ExchangeConfig::new()
+            .with_api_key("key")
+            .with_api_secret("secret");
         let original = BingxWs::with_config(config);
         let cloned = original.clone();
 

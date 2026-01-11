@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -112,20 +112,29 @@ impl Bitflyer {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let body_str = body.unwrap_or_default();
 
         let sign_str = format!("{timestamp}{method}{path}{body_str}");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(sign_str.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -153,7 +162,7 @@ impl Bitflyer {
                 self.client.post(path, json_body, Some(headers)).await
             },
             _ => Err(CcxtError::NotSupported {
-                feature: format!("HTTP method: {method}")
+                feature: format!("HTTP method: {method}"),
             }),
         }
     }
@@ -252,8 +261,20 @@ impl Exchange for Bitflyer {
                 (base, quote, MarketType::Swap, false, false)
             } else if id.contains("_MAT") {
                 // Futures markets
-                let _base = id.split('_').next().unwrap_or("BTC").chars().take(3).collect::<String>();
-                ("BTC".to_string(), "JPY".to_string(), MarketType::Future, false, true)
+                let _base = id
+                    .split('_')
+                    .next()
+                    .unwrap_or("BTC")
+                    .chars()
+                    .take(3)
+                    .collect::<String>();
+                (
+                    "BTC".to_string(),
+                    "JPY".to_string(),
+                    MarketType::Future,
+                    false,
+                    true,
+                )
             } else {
                 // Spot markets
                 let parts: Vec<&str> = id.split('_').collect();
@@ -322,14 +343,18 @@ impl Exchange for Bitflyer {
     }
 
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
-        let market_id = self.market_id(symbol).unwrap_or_else(|| self.convert_to_market_id(symbol));
+        let market_id = self
+            .market_id(symbol)
+            .unwrap_or_else(|| self.convert_to_market_id(symbol));
 
         let mut params = HashMap::new();
         params.insert("product_code".into(), market_id);
 
         let response: BitflyerTicker = self.public_get("/ticker", Some(params)).await?;
 
-        let timestamp = response.timestamp.as_ref()
+        let timestamp = response
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -361,7 +386,9 @@ impl Exchange for Bitflyer {
     }
 
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
-        let market_id = self.market_id(symbol).unwrap_or_else(|| self.convert_to_market_id(symbol));
+        let market_id = self
+            .market_id(symbol)
+            .unwrap_or_else(|| self.convert_to_market_id(symbol));
 
         let mut params = HashMap::new();
         params.insert("product_code".into(), market_id);
@@ -389,13 +416,21 @@ impl Exchange for Bitflyer {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
-        let market_id = self.market_id(symbol).unwrap_or_else(|| self.convert_to_market_id(symbol));
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
+        let market_id = self
+            .market_id(symbol)
+            .unwrap_or_else(|| self.convert_to_market_id(symbol));
 
         let mut params = HashMap::new();
         params.insert("product_code".into(), market_id);
@@ -405,9 +440,12 @@ impl Exchange for Bitflyer {
 
         let response: Vec<BitflyerTrade> = self.public_get("/executions", Some(params)).await?;
 
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .map(|t| {
-                let timestamp = t.exec_date.as_ref()
+                let timestamp = t
+                    .exec_date
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -447,7 +485,8 @@ impl Exchange for Bitflyer {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: Vec<BitflyerBalance> = self.private_request("GET", "/me/getbalance", None).await?;
+        let response: Vec<BitflyerBalance> =
+            self.private_request("GET", "/me/getbalance", None).await?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -482,35 +521,50 @@ impl Exchange for Bitflyer {
         amount: Decimal,
         price: Option<Decimal>,
     ) -> CcxtResult<Order> {
-        let market_id = self.market_id(symbol).unwrap_or_else(|| self.convert_to_market_id(symbol));
+        let market_id = self
+            .market_id(symbol)
+            .unwrap_or_else(|| self.convert_to_market_id(symbol));
 
         let mut request = serde_json::Map::new();
         request.insert("product_code".to_string(), serde_json::json!(market_id));
-        request.insert("child_order_type".to_string(), serde_json::json!(
-            match order_type {
+        request.insert(
+            "child_order_type".to_string(),
+            serde_json::json!(match order_type {
                 OrderType::Limit => "LIMIT",
                 OrderType::Market => "MARKET",
                 _ => "LIMIT",
-            }
-        ));
-        request.insert("side".to_string(), serde_json::json!(
-            match side {
+            }),
+        );
+        request.insert(
+            "side".to_string(),
+            serde_json::json!(match side {
                 OrderSide::Buy => "BUY",
                 OrderSide::Sell => "SELL",
-            }
-        ));
-        request.insert("size".to_string(), serde_json::json!(amount.to_string().parse::<f64>().unwrap_or(0.0)));
+            }),
+        );
+        request.insert(
+            "size".to_string(),
+            serde_json::json!(amount.to_string().parse::<f64>().unwrap_or(0.0)),
+        );
 
         if let Some(p) = price {
-            request.insert("price".to_string(), serde_json::json!(p.to_string().parse::<f64>().unwrap_or(0.0)));
+            request.insert(
+                "price".to_string(),
+                serde_json::json!(p.to_string().parse::<f64>().unwrap_or(0.0)),
+            );
         }
 
         let body = serde_json::to_string(&request).unwrap_or_default();
-        let response: BitflyerOrderResponse = self.private_request("POST", "/me/sendchildorder", Some(body)).await?;
+        let response: BitflyerOrderResponse = self
+            .private_request("POST", "/me/sendchildorder", Some(body))
+            .await?;
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
-            id: response.child_order_acceptance_id.clone().unwrap_or_default(),
+            id: response
+                .child_order_acceptance_id
+                .clone()
+                .unwrap_or_default(),
             client_order_id: response.child_order_acceptance_id.clone(),
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
@@ -541,14 +595,21 @@ impl Exchange for Bitflyer {
     }
 
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
-        let market_id = self.market_id(symbol).unwrap_or_else(|| self.convert_to_market_id(symbol));
+        let market_id = self
+            .market_id(symbol)
+            .unwrap_or_else(|| self.convert_to_market_id(symbol));
 
         let mut request = serde_json::Map::new();
         request.insert("product_code".to_string(), serde_json::json!(market_id));
-        request.insert("child_order_acceptance_id".to_string(), serde_json::json!(id));
+        request.insert(
+            "child_order_acceptance_id".to_string(),
+            serde_json::json!(id),
+        );
 
         let body = serde_json::to_string(&request).unwrap_or_default();
-        let _response: serde_json::Value = self.private_request("POST", "/me/cancelchildorder", Some(body)).await?;
+        let _response: serde_json::Value = self
+            .private_request("POST", "/me/cancelchildorder", Some(body))
+            .await?;
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
@@ -587,8 +648,15 @@ impl Exchange for Bitflyer {
         // We need to check open orders
         let orders = self.fetch_open_orders(Some(symbol), None, None).await?;
 
-        orders.into_iter()
-            .find(|o| o.id == id || o.client_order_id.as_ref().map(|cid| cid == id).unwrap_or(false))
+        orders
+            .into_iter()
+            .find(|o| {
+                o.id == id
+                    || o.client_order_id
+                        .as_ref()
+                        .map(|cid| cid == id)
+                        .unwrap_or(false)
+            })
             .ok_or_else(|| CcxtError::OrderNotFound {
                 order_id: id.to_string(),
             })
@@ -603,7 +671,9 @@ impl Exchange for Bitflyer {
         let mut query_params = Vec::new();
 
         if let Some(s) = symbol {
-            let market_id = self.market_id(s).unwrap_or_else(|| self.convert_to_market_id(s));
+            let market_id = self
+                .market_id(s)
+                .unwrap_or_else(|| self.convert_to_market_id(s));
             query_params.push(format!("product_code={market_id}"));
         }
 
@@ -614,15 +684,16 @@ impl Exchange for Bitflyer {
         }
 
         let query_string = query_params.join("&");
-        let response: Vec<BitflyerOrder> = self.private_request(
-            "GET",
-            &format!("/me/getchildorders?{query_string}"),
-            None
-        ).await?;
+        let response: Vec<BitflyerOrder> = self
+            .private_request("GET", &format!("/me/getchildorders?{query_string}"), None)
+            .await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|o| {
-                let timestamp = o.child_order_date.as_ref()
+                let timestamp = o
+                    .child_order_date
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -646,7 +717,9 @@ impl Exchange for Bitflyer {
                     _ => OrderType::Limit,
                 };
 
-                let sym = o.product_code.as_ref()
+                let sym = o
+                    .product_code
+                    .as_ref()
                     .map(|pc| pc.replace("_", "/"))
                     .unwrap_or_else(|| symbol.unwrap_or("").to_string());
 

@@ -16,10 +16,10 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade,
-    Transaction, Fee, OHLCV,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, Transaction,
+    OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -133,14 +133,23 @@ impl Coinbase {
     }
 
     /// HMAC 서명 생성
-    fn create_signature(&self, timestamp: &str, method: &str, path: &str, body: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+    fn create_signature(
+        &self,
+        timestamp: &str,
+        method: &str,
+        path: &str,
+        body: &str,
+    ) -> CcxtResult<String> {
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let message = format!("{timestamp}{method}{path}{body}");
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(message.as_bytes());
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
@@ -163,9 +172,12 @@ impl Coinbase {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp().to_string();
         let full_path = if params.is_empty() {
@@ -198,9 +210,12 @@ impl Coinbase {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp().to_string();
         let body_str = body.to_string();
@@ -253,7 +268,9 @@ impl Coinbase {
             percentage: true,
             tier_based: true,
             precision: MarketPrecision {
-                amount: data.base_increment.as_ref()
+                amount: data
+                    .base_increment
+                    .as_ref()
                     .and_then(|v| v.parse::<Decimal>().ok())
                     .map(|d| {
                         let s = d.to_string();
@@ -263,7 +280,9 @@ impl Coinbase {
                             0
                         }
                     }),
-                price: data.quote_increment.as_ref()
+                price: data
+                    .quote_increment
+                    .as_ref()
                     .and_then(|v| v.parse::<Decimal>().ok())
                     .map(|d| {
                         let s = d.to_string();
@@ -300,7 +319,9 @@ impl Coinbase {
 
     /// 티커 파싱
     fn parse_ticker(&self, data: &CoinbaseTicker, symbol: &str) -> Ticker {
-        let timestamp = data.time.as_ref()
+        let timestamp = data
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -324,8 +345,14 @@ impl Coinbase {
             close: data.price.as_ref().and_then(|v| v.parse().ok()),
             last: data.price.as_ref().and_then(|v| v.parse().ok()),
             previous_close: None,
-            change: data.price_percentage_change_24h.as_ref().and_then(|v| v.parse().ok()),
-            percentage: data.price_percentage_change_24h.as_ref().and_then(|v| v.parse().ok()),
+            change: data
+                .price_percentage_change_24h
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
+            percentage: data
+                .price_percentage_change_24h
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             average: None,
             base_volume: data.volume_24h.as_ref().and_then(|v| v.parse().ok()),
             quote_volume: None,
@@ -337,7 +364,9 @@ impl Coinbase {
 
     /// 주문 파싱
     fn parse_order(&self, data: &CoinbaseOrder, symbol: &str) -> CcxtResult<Order> {
-        let timestamp = data.created_time.as_ref()
+        let timestamp = data
+            .created_time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis());
 
@@ -366,10 +395,21 @@ impl Coinbase {
             if let Some(limit) = &config.limit_limit_gtc {
                 (
                     limit.limit_price.as_ref().and_then(|v| v.parse().ok()),
-                    limit.base_size.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
+                    limit
+                        .base_size
+                        .as_ref()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or_default(),
                 )
             } else if let Some(market) = &config.market_market_ioc {
-                (None, market.base_size.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default())
+                (
+                    None,
+                    market
+                        .base_size
+                        .as_ref()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or_default(),
+                )
             } else {
                 (None, Decimal::ZERO)
             }
@@ -377,7 +417,9 @@ impl Coinbase {
             (None, Decimal::ZERO)
         };
 
-        let filled: Decimal = data.filled_size.as_ref()
+        let filled: Decimal = data
+            .filled_size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
 
@@ -399,22 +441,32 @@ impl Coinbase {
             side,
             price,
             trigger_price: None,
-            average: data.average_filled_price.as_ref().and_then(|v| v.parse().ok()),
+            average: data
+                .average_filled_price
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             amount,
             filled,
             remaining: Some(amount - filled),
-            cost: data.total_value_after_fees.as_ref().and_then(|v| v.parse().ok()),
+            cost: data
+                .total_value_after_fees
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             trades: Vec::new(),
             reduce_only: None,
             post_only: None,
             stop_price: None,
             take_profit_price: None,
             stop_loss_price: None,
-            fee: data.total_fees.as_ref().and_then(|v| v.parse().ok()).map(|cost| Fee {
-                cost: Some(cost),
-                currency: None,
-                rate: None,
-            }),
+            fee: data
+                .total_fees
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .map(|cost| Fee {
+                    cost: Some(cost),
+                    currency: None,
+                    rate: None,
+                }),
             fees: Vec::new(),
             info: serde_json::to_value(data).unwrap_or_default(),
         })
@@ -422,7 +474,9 @@ impl Coinbase {
 
     /// 체결 파싱
     fn parse_trade_data(&self, data: &CoinbaseFill, symbol: &str) -> Trade {
-        let timestamp = data.trade_time.as_ref()
+        let timestamp = data
+            .trade_time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -433,10 +487,14 @@ impl Coinbase {
             _ => None,
         };
 
-        let price: Decimal = data.price.as_ref()
+        let price: Decimal = data
+            .price
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.size.as_ref()
+        let amount: Decimal = data
+            .size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
 
@@ -462,11 +520,15 @@ impl Coinbase {
             price,
             amount,
             cost: Some(price * amount),
-            fee: data.commission.as_ref().and_then(|v| v.parse().ok()).map(|cost| Fee {
-                cost: Some(cost),
-                currency: None,
-                rate: None,
-            }),
+            fee: data
+                .commission
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .map(|cost| Fee {
+                    cost: Some(cost),
+                    currency: None,
+                    rate: None,
+                }),
             fees: Vec::new(),
             info: serde_json::to_value(data).unwrap_or_default(),
         }
@@ -475,11 +537,15 @@ impl Coinbase {
     /// 잔고 파싱
     fn parse_balance_data(&self, data: &CoinbaseAccount) -> (String, Balance) {
         let currency = data.currency.clone().unwrap_or_default();
-        let available: Decimal = data.available_balance.as_ref()
+        let available: Decimal = data
+            .available_balance
+            .as_ref()
             .and_then(|b| b.value.as_ref())
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let hold: Decimal = data.hold.as_ref()
+        let hold: Decimal = data
+            .hold
+            .as_ref()
             .and_then(|b| b.value.as_ref())
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
@@ -523,7 +589,11 @@ impl Exchange for Coinbase {
     }
 
     fn symbol(&self, market_id: &str) -> Option<String> {
-        self.markets.read().ok()?.get(market_id).map(|m| m.symbol.clone())
+        self.markets
+            .read()
+            .ok()?
+            .get(market_id)
+            .map(|m| m.symbol.clone())
     }
 
     fn sign(
@@ -608,7 +678,10 @@ impl Exchange for Coinbase {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let market_id = self.to_market_id(symbol);
         let response: CoinbaseTicker = self
-            .public_get(&format!("/api/v3/brokerage/market/products/{market_id}"), None)
+            .public_get(
+                &format!("/api/v3/brokerage/market/products/{market_id}"),
+                None,
+            )
             .await?;
 
         Ok(self.parse_ticker(&response, symbol))
@@ -642,8 +715,14 @@ impl Exchange for Coinbase {
                 close: product.price.as_ref().and_then(|v| v.parse().ok()),
                 last: product.price.as_ref().and_then(|v| v.parse().ok()),
                 previous_close: None,
-                change: product.price_percentage_change_24h.as_ref().and_then(|v| v.parse().ok()),
-                percentage: product.price_percentage_change_24h.as_ref().and_then(|v| v.parse().ok()),
+                change: product
+                    .price_percentage_change_24h
+                    .as_ref()
+                    .and_then(|v| v.parse().ok()),
+                percentage: product
+                    .price_percentage_change_24h
+                    .as_ref()
+                    .and_then(|v| v.parse().ok()),
                 average: None,
                 base_volume: product.volume_24h.as_ref().and_then(|v| v.parse().ok()),
                 quote_volume: None,
@@ -670,24 +749,46 @@ impl Exchange for Coinbase {
             .await?;
 
         let pricebook = response.pricebook;
-        let timestamp = pricebook.time.as_ref()
+        let timestamp = pricebook
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = pricebook.bids.iter().map(|b| {
-            OrderBookEntry {
-                price: b.price.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                amount: b.size.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = pricebook
+            .bids
+            .iter()
+            .map(|b| OrderBookEntry {
+                price: b
+                    .price
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                amount: b
+                    .size
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = pricebook.asks.iter().map(|a| {
-            OrderBookEntry {
-                price: a.price.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                amount: a.size.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = pricebook
+            .asks
+            .iter()
+            .map(|a| OrderBookEntry {
+                price: a
+                    .price
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                amount: a
+                    .size
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+            })
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
@@ -700,10 +801,16 @@ impl Exchange for Coinbase {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         if let Some(l) = limit {
@@ -711,43 +818,56 @@ impl Exchange for Coinbase {
         }
 
         let response: CoinbaseTradesResponse = self
-            .public_get(&format!("/api/v3/brokerage/market/products/{market_id}/ticker"), Some(params))
+            .public_get(
+                &format!("/api/v3/brokerage/market/products/{market_id}/ticker"),
+                Some(params),
+            )
             .await?;
 
-        let trades: Vec<Trade> = response.trades.iter().map(|t| {
-            let timestamp = t.time.as_ref()
-                .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-                .map(|dt| dt.timestamp_millis())
-                .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let trades: Vec<Trade> = response
+            .trades
+            .iter()
+            .map(|t| {
+                let timestamp = t
+                    .time
+                    .as_ref()
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                    .map(|dt| dt.timestamp_millis())
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let price: Decimal = t.price.as_ref()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_default();
-            let amount: Decimal = t.size.as_ref()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_default();
+                let price: Decimal = t
+                    .price
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default();
+                let amount: Decimal = t
+                    .size
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default();
 
-            Trade {
-                id: t.trade_id.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                symbol: symbol.to_string(),
-                trade_type: None,
-                side: t.side.as_ref().map(|s| s.to_lowercase()),
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: Vec::new(),
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.trade_id.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.to_string(),
+                    trade_type: None,
+                    side: t.side.as_ref().map(|s| s.to_lowercase()),
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: Vec::new(),
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         Ok(trades)
     }
@@ -760,7 +880,9 @@ impl Exchange for Coinbase {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let granularity = self.timeframes.get(&timeframe)
+        let granularity = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -776,23 +898,48 @@ impl Exchange for Coinbase {
         }
 
         let response: CoinbaseCandlesResponse = self
-            .public_get(&format!("/api/v3/brokerage/market/products/{market_id}/candles"), Some(params))
+            .public_get(
+                &format!("/api/v3/brokerage/market/products/{market_id}/candles"),
+                Some(params),
+            )
             .await?;
 
-        let ohlcv: Vec<OHLCV> = response.candles.iter()
+        let ohlcv: Vec<OHLCV> = response
+            .candles
+            .iter()
             .take(limit.unwrap_or(300) as usize)
-            .map(|c| {
-                OHLCV {
-                    timestamp: c.start.as_ref()
-                        .and_then(|s| s.parse::<i64>().ok())
-                        .map(|t| t * 1000)
-                        .unwrap_or_default(),
-                    open: c.open.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                    high: c.high.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                    low: c.low.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                    close: c.close.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                    volume: c.volume.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                }
+            .map(|c| OHLCV {
+                timestamp: c
+                    .start
+                    .as_ref()
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .map(|t| t * 1000)
+                    .unwrap_or_default(),
+                open: c
+                    .open
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                high: c
+                    .high
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                low: c
+                    .low
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                close: c
+                    .close
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                volume: c
+                    .volume
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
             })
             .collect();
 
@@ -837,7 +984,7 @@ impl Exchange for Coinbase {
                         "base_size": amount.to_string()
                     }
                 })
-            }
+            },
             OrderType::Limit => {
                 let p = price.ok_or_else(|| CcxtError::BadRequest {
                     message: "Price required for limit order".into(),
@@ -849,12 +996,12 @@ impl Exchange for Coinbase {
                         "post_only": false
                     }
                 })
-            }
+            },
             _ => {
                 return Err(CcxtError::BadRequest {
                     message: format!("Unsupported order type: {order_type:?}"),
                 });
-            }
+            },
         };
 
         let body = serde_json::json!({
@@ -867,15 +1014,15 @@ impl Exchange for Coinbase {
             "order_configuration": order_configuration
         });
 
-        let response: CoinbaseOrderResponse = self
-            .private_post("/api/v3/brokerage/orders", body)
-            .await?;
+        let response: CoinbaseOrderResponse =
+            self.private_post("/api/v3/brokerage/orders", body).await?;
 
         if let Some(success_response) = response.success_response {
             self.parse_order(&success_response, symbol)
         } else {
             Err(CcxtError::ExchangeError {
-                message: response.error_response
+                message: response
+                    .error_response
                     .and_then(|e| e.message)
                     .unwrap_or_else(|| "Order creation failed".into()),
             })
@@ -924,14 +1071,22 @@ impl Exchange for Coinbase {
 
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let response: CoinbaseOrderDetailResponse = self
-            .private_get(&format!("/api/v3/brokerage/orders/historical/{id}"), HashMap::new())
+            .private_get(
+                &format!("/api/v3/brokerage/orders/historical/{id}"),
+                HashMap::new(),
+            )
             .await?;
 
         let symbol = self.to_symbol(&response.order.product_id.clone().unwrap_or_default());
         self.parse_order(&response.order, &symbol)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("order_status".to_string(), "OPEN".to_string());
         if let Some(sym) = symbol {
@@ -947,15 +1102,21 @@ impl Exchange for Coinbase {
 
         let mut orders = Vec::new();
         for order_data in &response.orders {
-            let sym = symbol.map(|s| s.to_string())
-                .unwrap_or_else(|| self.to_symbol(&order_data.product_id.clone().unwrap_or_default()));
+            let sym = symbol.map(|s| s.to_string()).unwrap_or_else(|| {
+                self.to_symbol(&order_data.product_id.clone().unwrap_or_default())
+            });
             orders.push(self.parse_order(order_data, &sym)?);
         }
 
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("order_status".to_string(), "FILLED".to_string());
         if let Some(sym) = symbol {
@@ -971,15 +1132,21 @@ impl Exchange for Coinbase {
 
         let mut orders = Vec::new();
         for order_data in &response.orders {
-            let sym = symbol.map(|s| s.to_string())
-                .unwrap_or_else(|| self.to_symbol(&order_data.product_id.clone().unwrap_or_default()));
+            let sym = symbol.map(|s| s.to_string()).unwrap_or_else(|| {
+                self.to_symbol(&order_data.product_id.clone().unwrap_or_default())
+            });
             orders.push(self.parse_order(order_data, &sym)?);
         }
 
         Ok(orders)
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut params = HashMap::new();
         if let Some(sym) = symbol {
             params.insert("product_id".to_string(), self.to_market_id(sym));
@@ -992,20 +1159,35 @@ impl Exchange for Coinbase {
             .private_get("/api/v3/brokerage/orders/historical/fills", params)
             .await?;
 
-        let trades: Vec<Trade> = response.fills.iter().map(|f| {
-            let sym = symbol.map(|s| s.to_string())
-                .unwrap_or_else(|| self.to_symbol(&f.product_id.clone().unwrap_or_default()));
-            self.parse_trade_data(f, &sym)
-        }).collect();
+        let trades: Vec<Trade> = response
+            .fills
+            .iter()
+            .map(|f| {
+                let sym = symbol
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| self.to_symbol(&f.product_id.clone().unwrap_or_default()));
+                self.parse_trade_data(f, &sym)
+            })
+            .collect();
 
         Ok(trades)
     }
 
-    async fn fetch_deposits(&self, _code: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Transaction>> {
+    async fn fetch_deposits(
+        &self,
+        _code: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Transaction>> {
         Ok(Vec::new())
     }
 
-    async fn fetch_withdrawals(&self, _code: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Transaction>> {
+    async fn fetch_withdrawals(
+        &self,
+        _code: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Transaction>> {
         Ok(Vec::new())
     }
 }

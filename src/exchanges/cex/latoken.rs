@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -125,22 +125,32 @@ impl Latoken {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
-        let body_str = body.as_ref()
+        let body_str = body
+            .as_ref()
             .map(|b| serde_json::to_string(b).unwrap_or_default())
             .unwrap_or_default();
 
         let signature_payload = format!("{method}{path}{timestamp}{body_str}");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(signature_payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -163,7 +173,8 @@ impl Latoken {
     /// Get currency code from ID
     fn get_currency_code(&self, id: &str) -> String {
         let currencies = self.currencies.read().unwrap();
-        currencies.get(id)
+        currencies
+            .get(id)
             .and_then(|c| c.tag.clone())
             .unwrap_or_else(|| id.to_string())
     }
@@ -259,8 +270,8 @@ impl Exchange for Latoken {
         let mut markets = Vec::new();
         for data in &response {
             if let (Some(id), Some(base_id), Some(quote_id)) =
-                (&data.id, &data.base_currency, &data.quote_currency) {
-
+                (&data.id, &data.base_currency, &data.quote_currency)
+            {
                 let base = self.get_currency_code(base_id);
                 let quote = self.get_currency_code(quote_id);
                 let symbol = format!("{base}/{quote}");
@@ -303,12 +314,18 @@ impl Exchange for Latoken {
                     },
                     limits: MarketLimits {
                         amount: crate::types::MinMax {
-                            min: data.min_order_quantity.as_ref().and_then(|s| s.parse().ok()),
+                            min: data
+                                .min_order_quantity
+                                .as_ref()
+                                .and_then(|s| s.parse().ok()),
                             max: None,
                         },
                         price: crate::types::MinMax::default(),
                         cost: crate::types::MinMax {
-                            min: data.min_order_cost_usd.as_ref().and_then(|s| s.parse().ok()),
+                            min: data
+                                .min_order_cost_usd
+                                .as_ref()
+                                .and_then(|s| s.parse().ok()),
                             max: None,
                         },
                         leverage: crate::types::MinMax::default(),
@@ -405,12 +422,18 @@ impl Exchange for Latoken {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bid),
             asks: parse_entries(&response.ask),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let markets = self.load_markets(false).await?;
         let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
             symbol: symbol.to_string(),
@@ -424,12 +447,21 @@ impl Exchange for Latoken {
         let response: Vec<LatokenTrade> = self.public_get(&path, Some(params)).await?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .take(limit)
             .map(|t| {
                 let timestamp = t.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
-                let price: Decimal = t.price.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-                let amount: Decimal = t.quantity.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+                let price: Decimal = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
+                let amount: Decimal = t
+                    .quantity
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
 
                 Trade {
                     id: t.id.clone().unwrap_or_default(),
@@ -442,7 +474,9 @@ impl Exchange for Latoken {
                     ),
                     symbol: symbol.to_string(),
                     trade_type: None,
-                    side: t.maker_buyer.map(|b| if b { "sell" } else { "buy" }.to_string()),
+                    side: t
+                        .maker_buyer
+                        .map(|b| if b { "sell" } else { "buy" }.to_string()),
                     taker_or_maker: None,
                     price,
                     amount,
@@ -469,14 +503,24 @@ impl Exchange for Latoken {
             symbol: symbol.to_string(),
         })?;
 
-        let resolution = self.timeframes.get(&timeframe).cloned().unwrap_or("1h".into());
+        let resolution = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or("1h".into());
         let path = "/tradingview/history".to_string();
 
         let now = Utc::now().timestamp();
         let mut params = HashMap::new();
         params.insert("symbol".into(), format!("{}/{}", market.base, market.quote));
         params.insert("resolution".into(), resolution);
-        params.insert("from".into(), since.map(|s| s / 1000).unwrap_or(now - 86400 * 30).to_string());
+        params.insert(
+            "from".into(),
+            since
+                .map(|s| s / 1000)
+                .unwrap_or(now - 86400 * 30)
+                .to_string(),
+        );
         params.insert("to".into(), now.to_string());
 
         let response: LatokenOhlcvResponse = self.public_get(&path, Some(params)).await?;
@@ -508,7 +552,8 @@ impl Exchange for Latoken {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: Vec<LatokenBalance> = self.private_request("GET", "/auth/account", None).await?;
+        let response: Vec<LatokenBalance> =
+            self.private_request("GET", "/auth/account", None).await?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -518,10 +563,14 @@ impl Exchange for Latoken {
         for balance_data in &response {
             if let Some(currency_id) = &balance_data.currency {
                 let currency = self.get_currency_code(currency_id);
-                let free: Decimal = balance_data.available.as_ref()
+                let free: Decimal = balance_data
+                    .available
+                    .as_ref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or_default();
-                let used: Decimal = balance_data.blocked.as_ref()
+                let used: Decimal = balance_data
+                    .blocked
+                    .as_ref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or_default();
 
@@ -576,11 +625,15 @@ impl Exchange for Latoken {
             body["price"] = serde_json::json!(p.to_string());
         }
 
-        let response: LatokenOrder = self.private_request("POST", "/auth/order/place", Some(body)).await?;
+        let response: LatokenOrder = self
+            .private_request("POST", "/auth/order/place", Some(body))
+            .await?;
 
         let timestamp = Utc::now().timestamp_millis();
         let status = match response.status.as_deref() {
-            Some("ORDER_STATUS_PLACED") | Some("ORDER_STATUS_PARTIALLY_FILLED") => OrderStatus::Open,
+            Some("ORDER_STATUS_PLACED") | Some("ORDER_STATUS_PARTIALLY_FILLED") => {
+                OrderStatus::Open
+            },
             Some("ORDER_STATUS_FILLED") => OrderStatus::Closed,
             Some("ORDER_STATUS_CANCELLED") => OrderStatus::Canceled,
             _ => OrderStatus::Open,
@@ -601,7 +654,11 @@ impl Exchange for Latoken {
             price: response.price.as_ref().and_then(|s| s.parse().ok()),
             average: None,
             amount,
-            filled: response.filled.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+            filled: response
+                .filled
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
             remaining: None,
             cost: response.filled_cost.as_ref().and_then(|s| s.parse().ok()),
             trades: Vec::new(),
@@ -622,9 +679,13 @@ impl Exchange for Latoken {
             "id": id,
         });
 
-        let response: LatokenOrder = self.private_request("POST", "/auth/order/cancel", Some(body)).await?;
+        let response: LatokenOrder = self
+            .private_request("POST", "/auth/order/cancel", Some(body))
+            .await?;
 
-        let timestamp = response.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let base = self.get_currency_code(response.base_currency.as_deref().unwrap_or(""));
         let quote = self.get_currency_code(response.quote_currency.as_deref().unwrap_or(""));
         let symbol = format!("{base}/{quote}");
@@ -647,8 +708,16 @@ impl Exchange for Latoken {
             side: OrderSide::Buy,
             price: response.price.as_ref().and_then(|s| s.parse().ok()),
             average: None,
-            amount: response.quantity.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
-            filled: response.filled.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+            amount: response
+                .quantity
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            filled: response
+                .filled
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
             remaining: None,
             cost: None,
             trades: Vec::new(),
@@ -668,9 +737,13 @@ impl Exchange for Latoken {
         let path = format!("/auth/order/getOrder/{id}");
         let response: LatokenOrder = self.private_request("GET", &path, None).await?;
 
-        let timestamp = response.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let status = match response.status.as_deref() {
-            Some("ORDER_STATUS_PLACED") | Some("ORDER_STATUS_PARTIALLY_FILLED") => OrderStatus::Open,
+            Some("ORDER_STATUS_PLACED") | Some("ORDER_STATUS_PARTIALLY_FILLED") => {
+                OrderStatus::Open
+            },
             Some("ORDER_STATUS_FILLED") => OrderStatus::Closed,
             Some("ORDER_STATUS_CANCELLED") => OrderStatus::Canceled,
             _ => OrderStatus::Open,
@@ -709,14 +782,29 @@ impl Exchange for Latoken {
             time_in_force: None, // LaToken uses string condition
             side,
             price: response.price.as_ref().and_then(|s| s.parse().ok()),
-            average: response.filled_cost.as_ref().zip(response.filled.as_ref())
+            average: response
+                .filled_cost
+                .as_ref()
+                .zip(response.filled.as_ref())
                 .and_then(|(cost, qty)| {
                     let c: Decimal = cost.parse().ok()?;
                     let q: Decimal = qty.parse().ok()?;
-                    if q > Decimal::ZERO { Some(c / q) } else { None }
+                    if q > Decimal::ZERO {
+                        Some(c / q)
+                    } else {
+                        None
+                    }
                 }),
-            amount: response.quantity.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
-            filled: response.filled.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+            amount: response
+                .quantity
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            filled: response
+                .filled
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
             remaining: None,
             cost: response.filled_cost.as_ref().and_then(|s| s.parse().ok()),
             trades: Vec::new(),
@@ -741,8 +829,10 @@ impl Exchange for Latoken {
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("limit".into(), limit.unwrap_or(100).to_string());
 
-        let path = format!("/auth/order/active?{}",
-            params.iter()
+        let path = format!(
+            "/auth/order/active?{}",
+            params
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&")
@@ -750,11 +840,14 @@ impl Exchange for Latoken {
 
         let response: Vec<LatokenOrder> = self.private_request("GET", &path, None).await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|o| {
                 let timestamp = o.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
                 let status = match o.status.as_deref() {
-                    Some("ORDER_STATUS_PLACED") | Some("ORDER_STATUS_PARTIALLY_FILLED") => OrderStatus::Open,
+                    Some("ORDER_STATUS_PLACED") | Some("ORDER_STATUS_PARTIALLY_FILLED") => {
+                        OrderStatus::Open
+                    },
                     Some("ORDER_STATUS_FILLED") => OrderStatus::Closed,
                     Some("ORDER_STATUS_CANCELLED") => OrderStatus::Canceled,
                     _ => OrderStatus::Open,
@@ -793,14 +886,27 @@ impl Exchange for Latoken {
                     time_in_force: None, // LaToken uses string condition
                     side,
                     price: o.price.as_ref().and_then(|s| s.parse().ok()),
-                    average: o.filled_cost.as_ref().zip(o.filled.as_ref())
-                        .and_then(|(cost, qty)| {
+                    average: o.filled_cost.as_ref().zip(o.filled.as_ref()).and_then(
+                        |(cost, qty)| {
                             let c: Decimal = cost.parse().ok()?;
                             let q: Decimal = qty.parse().ok()?;
-                            if q > Decimal::ZERO { Some(c / q) } else { None }
-                        }),
-                    amount: o.quantity.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
-                    filled: o.filled.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+                            if q > Decimal::ZERO {
+                                Some(c / q)
+                            } else {
+                                None
+                            }
+                        },
+                    ),
+                    amount: o
+                        .quantity
+                        .as_ref()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
+                    filled: o
+                        .filled
+                        .as_ref()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
                     remaining: None,
                     cost: o.filled_cost.as_ref().and_then(|s| s.parse().ok()),
                     trades: Vec::new(),

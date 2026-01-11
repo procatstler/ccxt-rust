@@ -1,4 +1,8 @@
 //! TDD Tests for Exchange trait
+//!
+//! This test file requires the "cex" feature to be enabled.
+
+#![cfg(feature = "cex")]
 
 use ccxt_rust::{Exchange, ExchangeConfig, ExchangeId, RateLimiter};
 

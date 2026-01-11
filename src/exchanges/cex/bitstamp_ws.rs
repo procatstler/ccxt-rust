@@ -20,8 +20,8 @@ use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
-    WsMyTradeEvent, WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent,
+    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -101,9 +101,7 @@ impl BitstampWs {
         timestamp: &str,
     ) -> CcxtResult<String> {
         // Bitstamp WebSocket signature format: "BITSTAMP {api_key}" + message parts
-        let message = format!(
-            "BITSTAMP {api_key}{nonce}{timestamp}websocket_token"
-        );
+        let message = format!("BITSTAMP {api_key}{nonce}{timestamp}websocket_token");
 
         let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
             CcxtError::AuthenticationError {
@@ -119,16 +117,23 @@ impl BitstampWs {
         &mut self,
         channel: &str,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Config required for private channels".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Config required for private channels".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -140,6 +145,7 @@ impl BitstampWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 15,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -175,19 +181,19 @@ impl BitstampWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -236,7 +242,7 @@ impl BitstampWs {
                 }
 
                 None
-            }
+            },
             _ => None,
         }
     }
@@ -251,8 +257,14 @@ impl BitstampWs {
                     .available
                     .as_ref()
                     .and_then(|v| Decimal::from_str(v).ok()),
-                used: data.reserved.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                total: data.balance.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                used: data
+                    .reserved
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
+                total: data
+                    .balance
+                    .as_ref()
+                    .and_then(|v| Decimal::from_str(v).ok()),
                 debt: None,
             };
             currencies.insert(currency.to_uppercase(), balance);
@@ -440,7 +452,9 @@ impl BitstampWs {
     /// Parse ticker message
     fn parse_ticker(data: &BitstampTickerData, symbol: &str) -> WsTickerEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: unified_symbol.clone(),
@@ -471,28 +485,35 @@ impl BitstampWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsTickerEvent { symbol: unified_symbol, ticker }
+        WsTickerEvent {
+            symbol: unified_symbol,
+            ticker,
+        }
     }
 
     /// Parse order book message
     fn parse_order_book(data: &BitstampOrderBookData, symbol: &str) -> WsOrderBookEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
-        let timestamp = data.microtimestamp
+        let timestamp = data
+            .microtimestamp
             .map(|mt| mt / 1000)
             .or_else(|| Some(Utc::now().timestamp_millis()))
             .unwrap();
 
         let parse_entries = |entries: &Vec<Vec<String>>| -> Vec<OrderBookEntry> {
-            entries.iter().filter_map(|e| {
-                if e.len() >= 2 {
-                    Some(OrderBookEntry {
-                        price: Decimal::from_str(&e[0]).ok()?,
-                        amount: Decimal::from_str(&e[1]).ok()?,
-                    })
-                } else {
-                    None
-                }
-            }).collect()
+            entries
+                .iter()
+                .filter_map(|e| {
+                    if e.len() >= 2 {
+                        Some(OrderBookEntry {
+                            price: Decimal::from_str(&e[0]).ok()?,
+                            amount: Decimal::from_str(&e[1]).ok()?,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         };
 
         let bids = parse_entries(&data.bids);
@@ -509,6 +530,7 @@ impl BitstampWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -528,7 +550,8 @@ impl BitstampWs {
     /// Parse trade message
     fn parse_trade(data: &BitstampTradeData, symbol: &str) -> WsTradeEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
-        let timestamp = data.microtimestamp
+        let timestamp = data
+            .microtimestamp
             .map(|mt| mt / 1000)
             .or_else(|| Some(Utc::now().timestamp_millis()))
             .unwrap();
@@ -577,12 +600,10 @@ impl BitstampWs {
         let json: BitstampWsMessage = serde_json::from_str(msg).ok()?;
 
         match json.event.as_str() {
-            "bts:subscription_succeeded" => {
-                Some(WsMessage::Subscribed {
-                    channel: json.channel.clone(),
-                    symbol: None,
-                })
-            }
+            "bts:subscription_succeeded" => Some(WsMessage::Subscribed {
+                channel: json.channel.clone(),
+                symbol: None,
+            }),
             "data" => {
                 let channel = json.channel.as_str();
 
@@ -596,32 +617,47 @@ impl BitstampWs {
 
                 if channel.starts_with("live_ticker") {
                     if let Some(data) = &json.data {
-                        if let Ok(ticker_data) = serde_json::from_value::<BitstampTickerData>(data.clone()) {
-                            return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data, symbol)));
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<BitstampTickerData>(data.clone())
+                        {
+                            return Some(WsMessage::Ticker(Self::parse_ticker(
+                                &ticker_data,
+                                symbol,
+                            )));
                         }
                     }
                 } else if channel.starts_with("order_book") {
                     if let Some(data) = &json.data {
-                        if let Ok(ob_data) = serde_json::from_value::<BitstampOrderBookData>(data.clone()) {
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, symbol)));
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<BitstampOrderBookData>(data.clone())
+                        {
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data, symbol,
+                            )));
                         }
                     }
                 } else if channel.starts_with("diff_order_book") {
                     if let Some(data) = &json.data {
-                        if let Ok(ob_data) = serde_json::from_value::<BitstampOrderBookData>(data.clone()) {
-                            return Some(WsMessage::OrderBook(Self::parse_order_book_diff(&ob_data, symbol)));
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<BitstampOrderBookData>(data.clone())
+                        {
+                            return Some(WsMessage::OrderBook(Self::parse_order_book_diff(
+                                &ob_data, symbol,
+                            )));
                         }
                     }
                 } else if channel.starts_with("live_trades") {
                     if let Some(data) = &json.data {
-                        if let Ok(trade_data) = serde_json::from_value::<BitstampTradeData>(data.clone()) {
+                        if let Ok(trade_data) =
+                            serde_json::from_value::<BitstampTradeData>(data.clone())
+                        {
                             return Some(WsMessage::Trade(Self::parse_trade(&trade_data, symbol)));
                         }
                     }
                 }
 
                 None
-            }
+            },
             _ => None,
         }
     }
@@ -642,6 +678,7 @@ impl BitstampWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -674,19 +711,19 @@ impl BitstampWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -704,7 +741,11 @@ impl WsExchange for BitstampWs {
     }
 
     /// Subscribe to order book updates
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = BitstampWs::new();
         ws.subscribe_stream("order_book", symbol).await
     }
@@ -716,7 +757,11 @@ impl WsExchange for BitstampWs {
     }
 
     /// Subscribe to OHLCV updates (not supported by Bitstamp WebSocket API)
-    async fn watch_ohlcv(&self, _symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        _symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchOhlcv".into(),
         })
@@ -732,6 +777,7 @@ impl WsExchange for BitstampWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             ws_client.connect().await?;
@@ -768,17 +814,26 @@ impl WsExchange for BitstampWs {
         client.subscribe_private_stream("private-my_balance").await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("private-my_orders").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("private-my_trades").await
     }
 
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Bitstamp is a spot exchange, doesn't support positions
         Err(CcxtError::NotSupported {
             feature: "watchPositions".into(),
@@ -980,9 +1035,15 @@ mod tests {
         let event = BitstampWs::parse_balance_update(&data);
         assert!(event.balances.currencies.contains_key("USD"));
         let usd_balance = event.balances.currencies.get("USD").unwrap();
-        assert_eq!(usd_balance.free, Some(Decimal::from_str("10000.00").unwrap()));
+        assert_eq!(
+            usd_balance.free,
+            Some(Decimal::from_str("10000.00").unwrap())
+        );
         assert_eq!(usd_balance.used, Some(Decimal::from_str("500.00").unwrap()));
-        assert_eq!(usd_balance.total, Some(Decimal::from_str("10500.00").unwrap()));
+        assert_eq!(
+            usd_balance.total,
+            Some(Decimal::from_str("10500.00").unwrap())
+        );
     }
 
     #[test]
@@ -1006,7 +1067,10 @@ mod tests {
         assert_eq!(event.order.id, "12345");
         assert_eq!(event.order.side, OrderSide::Buy);
         assert_eq!(event.order.status, OrderStatus::Open);
-        assert_eq!(event.order.price, Some(Decimal::from_str("50000.00").unwrap()));
+        assert_eq!(
+            event.order.price,
+            Some(Decimal::from_str("50000.00").unwrap())
+        );
     }
 
     #[test]

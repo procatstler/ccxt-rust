@@ -18,9 +18,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
-    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent, WsOrderEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -81,32 +81,43 @@ impl CryptoComWs {
 
     /// 인증 서명 생성
     fn sign_auth(&self, method: &str, nonce: &str) -> CcxtResult<String> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API config required for authentication".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API config required for authentication".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         // Crypto.com signature: method + nonce + api_key + nonce
         let sig_payload = format!("{method}{nonce}{api_key}{nonce}");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(sig_payload.as_bytes());
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
     }
 
     /// Private 스트림에 연결하고 이벤트 수신
-    async fn subscribe_private_stream(&mut self, channel: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_private_stream(
+        &mut self,
+        channel: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -118,6 +129,7 @@ impl CryptoComWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -138,8 +150,8 @@ impl CryptoComWs {
         });
 
         if let Some(ws_client) = &self.private_ws_client {
-            let msg_str = serde_json::to_string(&subscribe_msg)
-                .map_err(|e| CcxtError::ParseError {
+            let msg_str =
+                serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                     data_type: "JSON".to_string(),
                     message: e.to_string(),
                 })?;
@@ -149,7 +161,10 @@ impl CryptoComWs {
         // 구독 저장
         {
             let key = format!("private:{channel}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -159,19 +174,19 @@ impl CryptoComWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -181,13 +196,18 @@ impl CryptoComWs {
 
     /// WebSocket 인증 수행
     async fn authenticate_ws(&self) -> CcxtResult<()> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API config required for authentication".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API config required for authentication".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let method = "public/auth";
         let nonce = Utc::now().timestamp_millis().to_string();
@@ -202,11 +222,10 @@ impl CryptoComWs {
         });
 
         if let Some(ws_client) = &self.private_ws_client {
-            let msg_str = serde_json::to_string(&auth_msg)
-                .map_err(|e| CcxtError::ParseError {
-                    data_type: "JSON".to_string(),
-                    message: e.to_string(),
-                })?;
+            let msg_str = serde_json::to_string(&auth_msg).map_err(|e| CcxtError::ParseError {
+                data_type: "JSON".to_string(),
+                message: e.to_string(),
+            })?;
             ws_client.send(&msg_str)?;
         }
 
@@ -236,13 +255,13 @@ impl CryptoComWs {
                 if let Ok(data) = serde_json::from_value::<CryptoComOrderUpdate>(result.clone()) {
                     return Some(WsMessage::Order(Self::parse_order_update(&data)));
                 }
-            }
+            },
             "user.balance" => {
                 if let Ok(data) = serde_json::from_value::<CryptoComBalanceUpdate>(result.clone()) {
                     return Some(WsMessage::Balance(Self::parse_balance_update(&data)));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -428,7 +447,10 @@ impl CryptoComWs {
             last: data.a.as_ref().and_then(|v| v.parse().ok()),
             previous_close: None,
             change: None,
-            percentage: data.c.as_ref().and_then(|v| v.parse::<f64>().ok())
+            percentage: data
+                .c
+                .as_ref()
+                .and_then(|v| v.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
             average: None,
             base_volume: data.v.as_ref().and_then(|v| v.parse().ok()),
@@ -443,27 +465,35 @@ impl CryptoComWs {
 
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &CryptoComOrderBookData, symbol: &str) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let order_book = OrderBook {
             symbol: symbol.to_string(),
@@ -476,6 +506,7 @@ impl CryptoComWs {
             nonce: Some(data.s),
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -535,23 +566,30 @@ impl CryptoComWs {
         match channel {
             "ticker" => {
                 let data = result.get("data")?.as_array()?.first()?;
-                if let Ok(ticker_data) = serde_json::from_value::<CryptoComTickerData>(data.clone()) {
+                if let Ok(ticker_data) = serde_json::from_value::<CryptoComTickerData>(data.clone())
+                {
                     return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                 }
-            }
+            },
             "book" | "book.update" => {
                 let data = result.get("data")?.as_array()?.first()?;
-                if let Ok(book_data) = serde_json::from_value::<CryptoComOrderBookData>(data.clone()) {
+                if let Ok(book_data) =
+                    serde_json::from_value::<CryptoComOrderBookData>(data.clone())
+                {
                     let instrument_name = result.get("instrument_name")?.as_str()?;
                     let symbol = Self::to_unified_symbol(instrument_name);
-                    return Some(WsMessage::OrderBook(Self::parse_order_book(&book_data, &symbol)));
+                    return Some(WsMessage::OrderBook(Self::parse_order_book(
+                        &book_data, &symbol,
+                    )));
                 }
-            }
+            },
             "trade" => {
                 let data_array = result.get("data")?.as_array()?;
                 let mut all_trades = Vec::new();
                 for data in data_array {
-                    if let Ok(trade_data) = serde_json::from_value::<CryptoComTradeData>(data.clone()) {
+                    if let Ok(trade_data) =
+                        serde_json::from_value::<CryptoComTradeData>(data.clone())
+                    {
                         let event = Self::parse_trade(&trade_data);
                         all_trades.extend(event.trades);
                     }
@@ -563,15 +601,19 @@ impl CryptoComWs {
                         trades: all_trades,
                     }));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
-    async fn subscribe_stream(&mut self, channel: &str, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        channel: &str,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -586,6 +628,7 @@ impl CryptoComWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -601,18 +644,20 @@ impl CryptoComWs {
             "nonce": nonce
         });
 
-        let msg_str = serde_json::to_string(&subscribe_msg)
-            .map_err(|e| CcxtError::ParseError {
-                data_type: "JSON".to_string(),
-                message: e.to_string(),
-            })?;
+        let msg_str = serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
+            data_type: "JSON".to_string(),
+            message: e.to_string(),
+        })?;
         ws_client.send(&msg_str)?;
         self.ws_client = Some(ws_client);
 
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -622,19 +667,19 @@ impl CryptoComWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -670,7 +715,10 @@ impl WsExchange for CryptoComWs {
         client.subscribe_stream(&channel, Some(symbol)).await
     }
 
-    async fn watch_tickers(&self, _symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        _symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Crypto.com doesn't support multiple ticker subscriptions in one message
         // This would require multiple subscriptions or use watch_ticker for each symbol
         Err(CcxtError::NotSupported {
@@ -678,7 +726,11 @@ impl WsExchange for CryptoComWs {
         })
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let depth = limit.unwrap_or(50);
         let channel = format!("book.{}.{}", Self::format_symbol(symbol), depth);
@@ -691,7 +743,11 @@ impl WsExchange for CryptoComWs {
         client.subscribe_stream(&channel, Some(symbol)).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let interval = Self::format_interval(timeframe);
         let channel = format!("candlestick.{}.{}", interval, Self::format_symbol(symbol));
@@ -726,7 +782,10 @@ impl WsExchange for CryptoComWs {
         client.subscribe_private_stream("user.balance").await
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         let channel = if let Some(sym) = symbol {
             format!("user.order.{}", Self::format_symbol(sym))
@@ -736,7 +795,10 @@ impl WsExchange for CryptoComWs {
         client.subscribe_private_stream(&channel).await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         let channel = if let Some(sym) = symbol {
             format!("user.trade.{}", Self::format_symbol(sym))
@@ -755,28 +817,28 @@ impl WsExchange for CryptoComWs {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CryptoComTickerData {
-    i: String,  // instrument name
+    i: String, // instrument name
     #[serde(default)]
-    h: Option<String>,  // high
+    h: Option<String>, // high
     #[serde(default)]
-    l: Option<String>,  // low
+    l: Option<String>, // low
     #[serde(default)]
-    a: Option<String>,  // last price
+    a: Option<String>, // last price
     #[serde(default)]
-    v: Option<String>,  // 24h volume
+    v: Option<String>, // 24h volume
     #[serde(default)]
-    vv: Option<String>,  // 24h volume in quote
+    vv: Option<String>, // 24h volume in quote
     #[serde(default)]
-    c: Option<String>,  // 24h price change
+    c: Option<String>, // 24h price change
     #[serde(default)]
-    b: Option<String>,  // best bid
+    b: Option<String>, // best bid
     #[serde(default)]
-    bs: Option<String>,  // best bid size
+    bs: Option<String>, // best bid size
     #[serde(default)]
-    k: Option<String>,  // best ask
+    k: Option<String>, // best ask
     #[serde(default)]
-    ks: Option<String>,  // best ask size
-    t: i64,  // timestamp
+    ks: Option<String>, // best ask size
+    t: i64,    // timestamp
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -785,18 +847,18 @@ struct CryptoComOrderBookData {
     bids: Vec<Vec<String>>,
     #[serde(default)]
     asks: Vec<Vec<String>>,
-    t: i64,  // timestamp
-    s: i64,  // sequence number
+    t: i64, // timestamp
+    s: i64, // sequence number
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CryptoComTradeData {
-    d: String,  // trade id
-    s: String,  // side
-    p: String,  // price
-    q: String,  // quantity
-    t: i64,     // timestamp
-    i: String,  // instrument name
+    d: String, // trade id
+    s: String, // side
+    p: String, // price
+    q: String, // quantity
+    t: i64,    // timestamp
+    i: String, // instrument name
 }
 
 #[derive(Debug, Deserialize, Serialize)]

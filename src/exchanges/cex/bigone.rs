@@ -14,10 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 /// BigONE 거래소
@@ -81,13 +80,17 @@ impl Bigone {
         api_urls.insert("private".into(), "https://big.one/api/v3/viewer".into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/4e5cfd53-98cc-4b90-92cd-0d7b512653d1".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/4e5cfd53-98cc-4b90-92cd-0d7b512653d1"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://big.one".into()),
-            doc: vec![
-                "https://open.big.one/docs/api.html".into(),
-            ],
-            fees: Some("https://bigone.zendesk.com/hc/en-us/articles/115001933374-BigONE-Fee-Policy".into()),
+            doc: vec!["https://open.big.one/docs/api.html".into()],
+            fees: Some(
+                "https://bigone.zendesk.com/hc/en-us/articles/115001933374-BigONE-Fee-Policy"
+                    .into(),
+            ),
         };
 
         let mut timeframes = HashMap::new();
@@ -148,12 +151,18 @@ impl Bigone {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // BigONE uses JWT authentication
         let _nonce = Utc::now().timestamp_millis().to_string();
@@ -178,7 +187,7 @@ impl Bigone {
                     format!("{path}?{query}")
                 };
                 self.private_client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
                 // Convert params HashMap to JSON body
                 let body = if params.is_empty() {
@@ -187,7 +196,7 @@ impl Bigone {
                     Some(serde_json::to_value(&params).unwrap_or_default())
                 };
                 self.private_client.post(path, body, Some(headers)).await
-            }
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -270,7 +279,9 @@ impl Bigone {
         let average = data.avg_deal_price.as_ref().and_then(|p| p.parse().ok());
         let cost = average.map(|avg| avg * filled);
 
-        let stop_price = data.stop_price.as_ref()
+        let stop_price = data
+            .stop_price
+            .as_ref()
             .and_then(|p| p.parse::<Decimal>().ok())
             .filter(|p| *p != Decimal::ZERO);
 
@@ -402,9 +413,7 @@ impl Exchange for Bigone {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BigoneMarketsResponse = self
-            .public_get("/asset_pairs", None)
-            .await?;
+        let response: BigoneMarketsResponse = self.public_get("/asset_pairs", None).await?;
 
         let mut markets = Vec::new();
 
@@ -486,9 +495,7 @@ impl Exchange for Bigone {
         let market_id = self.to_market_id(symbol);
         let path = format!("/asset_pairs/{market_id}/ticker");
 
-        let response: BigoneTickerResponse = self
-            .public_get(&path, None)
-            .await?;
+        let response: BigoneTickerResponse = self.public_get(&path, None).await?;
 
         Ok(self.parse_ticker(&response.data, symbol))
     }
@@ -533,9 +540,7 @@ impl Exchange for Bigone {
         }
 
         let path = format!("/asset_pairs/{market_id}/depth");
-        let response: BigoneOrderBookResponse = self
-            .public_get(&path, Some(params))
-            .await?;
+        let response: BigoneOrderBookResponse = self.public_get(&path, Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .data
@@ -564,6 +569,7 @@ impl Exchange for Bigone {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -580,9 +586,7 @@ impl Exchange for Bigone {
         }
 
         let path = format!("/asset_pairs/{market_id}/trades");
-        let response: BigoneTradesResponse = self
-            .public_get(&path, Some(params))
-            .await?;
+        let response: BigoneTradesResponse = self.public_get(&path, Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .data
@@ -631,9 +635,12 @@ impl Exchange for Bigone {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("period".into(), interval.clone());
@@ -650,9 +657,7 @@ impl Exchange for Bigone {
         }
 
         let path = format!("/asset_pairs/{market_id}/candles");
-        let response: BigoneOHLCVResponse = self
-            .public_get(&path, Some(params))
-            .await?;
+        let response: BigoneOHLCVResponse = self.public_get(&path, Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .data
@@ -698,17 +703,27 @@ impl Exchange for Bigone {
 
         let mut params = HashMap::new();
         params.insert("asset_pair_name".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BID",
-            OrderSide::Sell => "ASK",
-        }.into());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT",
-            OrderType::Market => "MARKET",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BID",
+                OrderSide::Sell => "ASK",
+            }
+            .into(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT",
+                OrderType::Market => "MARKET",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("amount".into(), amount.to_string());
 
         if order_type == OrderType::Limit {
@@ -729,9 +744,7 @@ impl Exchange for Bigone {
         let params = HashMap::new();
         let path = format!("/viewer/orders/{id}/cancel");
 
-        let response: BigoneOrderResponse = self
-            .private_request("POST", &path, params)
-            .await?;
+        let response: BigoneOrderResponse = self.private_request("POST", &path, params).await?;
 
         Ok(self.parse_order(&response.data, symbol))
     }
@@ -740,9 +753,7 @@ impl Exchange for Bigone {
         let params = HashMap::new();
         let path = format!("/viewer/orders/{id}");
 
-        let response: BigoneOrderResponse = self
-            .private_request("GET", &path, params)
-            .await?;
+        let response: BigoneOrderResponse = self.private_request("GET", &path, params).await?;
 
         Ok(self.parse_order(&response.data, symbol))
     }
@@ -780,9 +791,7 @@ impl Exchange for Bigone {
     }
 
     async fn fetch_time(&self) -> CcxtResult<i64> {
-        let response: BigonePingResponse = self
-            .public_get("/ping", None)
-            .await?;
+        let response: BigonePingResponse = self.public_get("/ping", None).await?;
 
         // BigONE returns timestamp in nanoseconds
         Ok(response.data.timestamp / 1_000_000)
@@ -890,7 +899,9 @@ impl Exchange for Bigone {
 
                 Trade {
                     id: t.id.to_string(),
-                    order: t.taker_order_id.map(|id| id.to_string())
+                    order: t
+                        .taker_order_id
+                        .map(|id| id.to_string())
                         .or_else(|| t.maker_order_id.map(|id| id.to_string())),
                     timestamp,
                     datetime: Some(t.inserted_at.clone()),

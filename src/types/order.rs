@@ -339,7 +339,12 @@ impl OrderRequest {
     }
 
     /// 스탑 마켓 주문 요청
-    pub fn stop_market(symbol: &str, side: OrderSide, amount: Decimal, stop_price: Decimal) -> Self {
+    pub fn stop_market(
+        symbol: &str,
+        side: OrderSide,
+        amount: Decimal,
+        stop_price: Decimal,
+    ) -> Self {
         let mut req = Self::new(symbol, OrderType::StopMarket, side, amount);
         req.stop_price = Some(stop_price);
         req
@@ -413,7 +418,6 @@ pub enum TriggerType {
     /// Index Price 기준
     Index,
 }
-
 
 /// 스탑 주문 파라미터
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -626,8 +630,7 @@ mod tests {
 
     #[test]
     fn test_stop_order_params_serialization() {
-        let params = StopOrderParams::new(dec!(50000))
-            .with_trigger_type(TriggerType::Mark);
+        let params = StopOrderParams::new(dec!(50000)).with_trigger_type(TriggerType::Mark);
 
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"triggerPrice\":\"50000\""));

@@ -20,9 +20,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
-    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Fee, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
+    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -308,16 +308,34 @@ impl Deepcoin {
         })
     }
 
-    fn create_signature(&self, timestamp: &str, method: &str, request_path: &str, body: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret not configured".into(),
-        })?;
+    fn create_signature(
+        &self,
+        timestamp: &str,
+        method: &str,
+        request_path: &str,
+        body: &str,
+    ) -> CcxtResult<String> {
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret not configured".into(),
+            })?;
 
         // prehash = timestamp + method + requestPath + body
-        let prehash = format!("{}{}{}{}", timestamp, method.to_uppercase(), request_path, body);
+        let prehash = format!(
+            "{}{}{}{}",
+            timestamp,
+            method.to_uppercase(),
+            request_path,
+            body
+        );
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError { message: e.to_string() })?;
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
+                message: e.to_string(),
+            }
+        })?;
         mac.update(prehash.as_bytes());
         let signature = mac.finalize().into_bytes();
 
@@ -408,12 +426,18 @@ impl Deepcoin {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Self::get_iso_timestamp();
         let body_str = body.unwrap_or("");
@@ -421,8 +445,8 @@ impl Deepcoin {
         // Create signature: timestamp + method + path + body
         let prehash = format!("{}{}{}{}", timestamp, method.to_uppercase(), path, body_str);
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(prehash.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
@@ -437,9 +461,7 @@ impl Deepcoin {
         }
 
         match method.to_uppercase().as_str() {
-            "GET" => {
-                self.client.get(path, None, Some(headers)).await
-            }
+            "GET" => self.client.get(path, None, Some(headers)).await,
             "POST" => {
                 let body_json: Option<serde_json::Value> = if body_str.is_empty() {
                     None
@@ -447,10 +469,8 @@ impl Deepcoin {
                     Some(serde_json::from_str(body_str).unwrap_or(serde_json::json!({})))
                 };
                 self.client.post(path, body_json, Some(headers)).await
-            }
-            "DELETE" => {
-                self.client.delete(path, None, Some(headers)).await
-            }
+            },
+            "DELETE" => self.client.delete(path, None, Some(headers)).await,
             _ => Err(CcxtError::BadRequest {
                 message: format!("Unsupported HTTP method: {method}"),
             }),
@@ -610,9 +630,18 @@ impl Exchange for Deepcoin {
                             min: Decimal::from_str(inst.min_sz.as_deref().unwrap_or("0")).ok(),
                             max: Decimal::from_str(inst.max_sz.as_deref().unwrap_or("0")).ok(),
                         },
-                        price: crate::types::MinMax { min: None, max: None },
-                        cost: crate::types::MinMax { min: None, max: None },
-                        leverage: crate::types::MinMax { min: None, max: None },
+                        price: crate::types::MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        cost: crate::types::MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        leverage: crate::types::MinMax {
+                            min: None,
+                            max: None,
+                        },
                     },
                     info: serde_json::to_value(&inst).unwrap_or_default(),
                     index: false,
@@ -685,9 +714,18 @@ impl Exchange for Deepcoin {
                             min: Decimal::from_str(inst.min_sz.as_deref().unwrap_or("0")).ok(),
                             max: Decimal::from_str(inst.max_sz.as_deref().unwrap_or("0")).ok(),
                         },
-                        price: crate::types::MinMax { min: None, max: None },
-                        cost: crate::types::MinMax { min: None, max: None },
-                        leverage: crate::types::MinMax { min: None, max: None },
+                        price: crate::types::MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        cost: crate::types::MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        leverage: crate::types::MinMax {
+                            min: None,
+                            max: None,
+                        },
                     },
                     info: serde_json::to_value(&inst).unwrap_or_default(),
                     index: false,
@@ -728,12 +766,13 @@ impl Exchange for Deepcoin {
             .get("/deepcoin/market/tickers", Some(params), None)
             .await?;
 
-        let ticker_data = response
-            .data
-            .and_then(|mut v| v.pop())
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: format!("Ticker not found for {symbol}"),
-            })?;
+        let ticker_data =
+            response
+                .data
+                .and_then(|mut v| v.pop())
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: format!("Ticker not found for {symbol}"),
+                })?;
 
         let timestamp = ticker_data
             .ts
@@ -757,9 +796,7 @@ impl Exchange for Deepcoin {
         };
 
         let percentage = match (change, open) {
-            (Some(c), Some(o)) if o > Decimal::ZERO => {
-                Some(c / o * Decimal::from(100))
-            }
+            (Some(c), Some(o)) if o > Decimal::ZERO => Some(c / o * Decimal::from(100)),
             _ => None,
         };
 
@@ -771,12 +808,30 @@ impl Exchange for Deepcoin {
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default(),
             ),
-            high: ticker_data.high24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            low: ticker_data.low24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            bid: ticker_data.bid_px.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            bid_volume: ticker_data.bid_sz.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            ask: ticker_data.ask_px.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            ask_volume: ticker_data.ask_sz.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            high: ticker_data
+                .high24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            low: ticker_data
+                .low24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            bid: ticker_data
+                .bid_px
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            bid_volume: ticker_data
+                .bid_sz
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            ask: ticker_data
+                .ask_px
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            ask_volume: ticker_data
+                .ask_sz
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             vwap: None,
             open,
             close: last,
@@ -785,8 +840,14 @@ impl Exchange for Deepcoin {
             change,
             percentage,
             average: None,
-            base_volume: ticker_data.vol24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            quote_volume: ticker_data.vol_ccy_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            base_volume: ticker_data
+                .vol24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            quote_volume: ticker_data
+                .vol_ccy_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             index_price: None,
             mark_price: None,
             info: serde_json::to_value(&ticker_data).unwrap_or_default(),
@@ -839,40 +900,65 @@ impl Exchange for Deepcoin {
                 };
 
                 let percentage = match (change, open) {
-                    (Some(c), Some(o)) if o > Decimal::ZERO => {
-                        Some(c / o * Decimal::from(100))
-                    }
+                    (Some(c), Some(o)) if o > Decimal::ZERO => Some(c / o * Decimal::from(100)),
                     _ => None,
                 };
 
-                tickers.insert(symbol.clone(), Ticker {
-                    symbol: symbol.clone(),
-                    timestamp: Some(timestamp),
-                    datetime: Some(
-                        chrono::DateTime::from_timestamp_millis(timestamp)
-                            .map(|dt| dt.to_rfc3339())
-                            .unwrap_or_default(),
-                    ),
-                    high: ticker_data.high24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    low: ticker_data.low24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    bid: ticker_data.bid_px.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    bid_volume: ticker_data.bid_sz.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    ask: ticker_data.ask_px.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    ask_volume: ticker_data.ask_sz.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    vwap: None,
-                    open,
-                    close: last,
-                    last,
-                    previous_close: None,
-                    change,
-                    percentage,
-                    average: None,
-                    base_volume: ticker_data.vol24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    quote_volume: ticker_data.vol_ccy_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    index_price: None,
-                    mark_price: None,
-                    info: serde_json::to_value(&ticker_data).unwrap_or_default(),
-                });
+                tickers.insert(
+                    symbol.clone(),
+                    Ticker {
+                        symbol: symbol.clone(),
+                        timestamp: Some(timestamp),
+                        datetime: Some(
+                            chrono::DateTime::from_timestamp_millis(timestamp)
+                                .map(|dt| dt.to_rfc3339())
+                                .unwrap_or_default(),
+                        ),
+                        high: ticker_data
+                            .high24h
+                            .as_ref()
+                            .and_then(|v| Decimal::from_str(v).ok()),
+                        low: ticker_data
+                            .low24h
+                            .as_ref()
+                            .and_then(|v| Decimal::from_str(v).ok()),
+                        bid: ticker_data
+                            .bid_px
+                            .as_ref()
+                            .and_then(|v| Decimal::from_str(v).ok()),
+                        bid_volume: ticker_data
+                            .bid_sz
+                            .as_ref()
+                            .and_then(|v| Decimal::from_str(v).ok()),
+                        ask: ticker_data
+                            .ask_px
+                            .as_ref()
+                            .and_then(|v| Decimal::from_str(v).ok()),
+                        ask_volume: ticker_data
+                            .ask_sz
+                            .as_ref()
+                            .and_then(|v| Decimal::from_str(v).ok()),
+                        vwap: None,
+                        open,
+                        close: last,
+                        last,
+                        previous_close: None,
+                        change,
+                        percentage,
+                        average: None,
+                        base_volume: ticker_data
+                            .vol24h
+                            .as_ref()
+                            .and_then(|v| Decimal::from_str(v).ok()),
+                        quote_volume: ticker_data
+                            .vol_ccy_24h
+                            .as_ref()
+                            .and_then(|v| Decimal::from_str(v).ok()),
+                        index_price: None,
+                        mark_price: None,
+                        info: serde_json::to_value(&ticker_data).unwrap_or_default(),
+                    },
+                );
             }
         }
 
@@ -893,12 +979,13 @@ impl Exchange for Deepcoin {
             .get("/deepcoin/market/books", Some(params), None)
             .await?;
 
-        let book_data = response
-            .data
-            .and_then(|mut v| v.pop())
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: format!("Order book not found for {symbol}"),
-            })?;
+        let book_data =
+            response
+                .data
+                .and_then(|mut v| v.pop())
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: format!("Order book not found for {symbol}"),
+                })?;
 
         let timestamp = book_data
             .ts
@@ -940,6 +1027,7 @@ impl Exchange for Deepcoin {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: Some(timestamp),
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
@@ -950,7 +1038,12 @@ impl Exchange for Deepcoin {
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         self.rate_limiter.throttle(1.0).await;
 
         let inst_id = self.get_market_id(symbol)?;
@@ -1154,12 +1247,13 @@ impl Exchange for Deepcoin {
             .private_request("POST", "/deepcoin/trade/order", Some(&body_str))
             .await?;
 
-        let order_resp = response
-            .data
-            .and_then(|mut v| v.pop())
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "Failed to create order".into(),
-            })?;
+        let order_resp =
+            response
+                .data
+                .and_then(|mut v| v.pop())
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "Failed to create order".into(),
+                })?;
 
         // Check for order errors
         if let Some(code) = &order_resp.s_code {
@@ -1220,12 +1314,13 @@ impl Exchange for Deepcoin {
             .private_request("POST", "/deepcoin/trade/cancel-order", Some(&body_str))
             .await?;
 
-        let order_resp = response
-            .data
-            .and_then(|mut v| v.pop())
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "Failed to cancel order".into(),
-            })?;
+        let order_resp =
+            response
+                .data
+                .and_then(|mut v| v.pop())
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "Failed to cancel order".into(),
+                })?;
 
         let timestamp = Utc::now().timestamp_millis();
 
@@ -1268,16 +1363,16 @@ impl Exchange for Deepcoin {
         let inst_id = self.get_market_id(symbol)?;
         let path = format!("/deepcoin/trade/orderByID?instId={inst_id}&ordId={id}");
 
-        let response: DeepCoinResponse<Vec<DeepCoinOrderData>> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: DeepCoinResponse<Vec<DeepCoinOrderData>> =
+            self.private_request("GET", &path, None).await?;
 
-        let order_data = response
-            .data
-            .and_then(|mut v| v.pop())
-            .ok_or_else(|| CcxtError::OrderNotFound {
-                order_id: id.to_string(),
-            })?;
+        let order_data =
+            response
+                .data
+                .and_then(|mut v| v.pop())
+                .ok_or_else(|| CcxtError::OrderNotFound {
+                    order_id: id.to_string(),
+                })?;
         let timestamp = order_data
             .c_time
             .as_ref()
@@ -1296,8 +1391,14 @@ impl Exchange for Deepcoin {
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or(Decimal::ZERO);
 
-        let price = order_data.px.as_ref().and_then(|v| Decimal::from_str(v).ok());
-        let avg_price = order_data.avg_px.as_ref().and_then(|v| Decimal::from_str(v).ok());
+        let price = order_data
+            .px
+            .as_ref()
+            .and_then(|v| Decimal::from_str(v).ok());
+        let avg_price = order_data
+            .avg_px
+            .as_ref()
+            .and_then(|v| Decimal::from_str(v).ok());
 
         let fee = order_data.fee.as_ref().and_then(|f| {
             let cost = Decimal::from_str(f).ok()?;
@@ -1358,7 +1459,12 @@ impl Exchange for Deepcoin {
         })
     }
 
-    async fn fetch_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut query_parts = Vec::new();
 
         if let Some(s) = symbol {
@@ -1376,9 +1482,8 @@ impl Exchange for Deepcoin {
             format!("/deepcoin/trade/orders-history?{}", query_parts.join("&"))
         };
 
-        let response: DeepCoinResponse<Vec<DeepCoinOrderData>> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: DeepCoinResponse<Vec<DeepCoinOrderData>> =
+            self.private_request("GET", &path, None).await?;
 
         let mut orders = Vec::new();
 
@@ -1439,8 +1544,14 @@ impl Exchange for Deepcoin {
                         .as_ref()
                         .map(|s| self.parse_order_side(s))
                         .unwrap_or(OrderSide::Buy),
-                    price: order_data.px.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    average: order_data.avg_px.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                    price: order_data
+                        .px
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
+                    average: order_data
+                        .avg_px
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
                     amount,
                     filled,
                     remaining: Some(amount - filled),
@@ -1462,7 +1573,12 @@ impl Exchange for Deepcoin {
         Ok(orders)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut query_parts = Vec::new();
 
         if let Some(s) = symbol {
@@ -1477,12 +1593,14 @@ impl Exchange for Deepcoin {
         let path = if query_parts.is_empty() {
             "/deepcoin/trade/v2/orders-pending".to_string()
         } else {
-            format!("/deepcoin/trade/v2/orders-pending?{}", query_parts.join("&"))
+            format!(
+                "/deepcoin/trade/v2/orders-pending?{}",
+                query_parts.join("&")
+            )
         };
 
-        let response: DeepCoinResponse<Vec<DeepCoinOrderData>> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: DeepCoinResponse<Vec<DeepCoinOrderData>> =
+            self.private_request("GET", &path, None).await?;
 
         let mut orders = Vec::new();
 
@@ -1539,8 +1657,14 @@ impl Exchange for Deepcoin {
                         .as_ref()
                         .map(|s| self.parse_order_side(s))
                         .unwrap_or(OrderSide::Buy),
-                    price: order_data.px.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    average: order_data.avg_px.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                    price: order_data
+                        .px
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
+                    average: order_data
+                        .avg_px
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
                     amount,
                     filled,
                     remaining: Some(amount - filled),
@@ -1562,7 +1686,12 @@ impl Exchange for Deepcoin {
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let orders = self.fetch_orders(symbol, since, limit).await?;
         Ok(orders
             .into_iter()
@@ -1570,7 +1699,12 @@ impl Exchange for Deepcoin {
             .collect())
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut query_parts = vec!["instType=SPOT".to_string()];
 
         if let Some(s) = symbol {
@@ -1584,9 +1718,8 @@ impl Exchange for Deepcoin {
 
         let path = format!("/deepcoin/trade/fills?{}", query_parts.join("&"));
 
-        let response: DeepCoinResponse<Vec<DeepCoinFillData>> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: DeepCoinResponse<Vec<DeepCoinFillData>> =
+            self.private_request("GET", &path, None).await?;
 
         let mut trades = Vec::new();
 
@@ -1637,12 +1770,10 @@ impl Exchange for Deepcoin {
                     ),
                     symbol: sym,
                     trade_type: None,
-                    taker_or_maker: fill_data.exec_type.as_ref().and_then(|e| {
-                        match e.as_str() {
-                            "M" => Some(crate::types::TakerOrMaker::Maker),
-                            "T" => Some(crate::types::TakerOrMaker::Taker),
-                            _ => None,
-                        }
+                    taker_or_maker: fill_data.exec_type.as_ref().and_then(|e| match e.as_str() {
+                        "M" => Some(crate::types::TakerOrMaker::Maker),
+                        "T" => Some(crate::types::TakerOrMaker::Taker),
+                        _ => None,
                     }),
                     side: fill_data.side.clone(),
                     price,
@@ -1692,7 +1823,10 @@ mod tests {
         let exchange = Deepcoin::new(config).unwrap();
 
         assert_eq!(exchange.get_market_id("BTC/USDT").unwrap(), "BTC-USDT");
-        assert_eq!(exchange.get_market_id("BTC/USDT:USDT").unwrap(), "BTC-USDT-SWAP");
+        assert_eq!(
+            exchange.get_market_id("BTC/USDT:USDT").unwrap(),
+            "BTC-USDT-SWAP"
+        );
     }
 
     #[test]
@@ -1711,7 +1845,10 @@ mod tests {
 
         assert_eq!(exchange.parse_order_status("live"), OrderStatus::Open);
         assert_eq!(exchange.parse_order_status("filled"), OrderStatus::Closed);
-        assert_eq!(exchange.parse_order_status("canceled"), OrderStatus::Canceled);
+        assert_eq!(
+            exchange.parse_order_status("canceled"),
+            OrderStatus::Canceled
+        );
     }
 
     #[test]

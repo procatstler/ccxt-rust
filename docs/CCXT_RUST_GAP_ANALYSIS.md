@@ -3,7 +3,7 @@
 **비교 기준**: ccxt-reference (TypeScript/Python 원본) vs ccxt-rust (Rust 포팅)
 
 **작성일**: 2025년 12월 20일
-**최종 업데이트**: 2025년 12월 28일 (Phase 15 완료 반영)
+**최종 업데이트**: 2025년 1월 11일 (Phase 16 완료 반영)
 
 ---
 
@@ -24,7 +24,7 @@
 
 | 항목 | CCXT Reference | CCXT-Rust | 커버리지 |
 |------|----------------|-----------|----------|
-| **거래소 수** | 110+ | 19 | 17% |
+| **거래소 수** | 110+ | 24+ | ~22% |
 | **Exchange 메서드** | 100+ | 70+ | ~70% |
 | **WebSocket 메서드** | 30+ | 26 | ~87% |
 | **타입 정의** | 60+ | 45+ | ~75% |
@@ -35,22 +35,24 @@
 
 1. **거래소**: 91개 거래소 미구현
 2. **메서드**: ~~주문 편집, 계정 전송~~ ✅ 완료 / 마진 대출 등 미구현
-3. **타입**: Greeks, OptionChain, Conversion 등 미구현
+3. **타입**: ✅ Greeks, OptionChain, Settlement, VolatilityHistory, Conversion 타입 구현 완료 / ✅ Deribit 옵션 메서드 연동 완료
 4. **유틸리티**: RSA, TOTP, 고급 암호화 미구현
 
-### 최근 완료된 작업 (Phase 11-15)
+### 최근 완료된 작업 (Phase 11-17)
 
 - ✅ **Phase 11**: 선물 기능 확장 (Bitget, Kucoin, MEXC)
 - ✅ **Phase 12**: 고급 주문 기능 (`edit_order`, `create_orders`, `cancel_all_orders`)
 - ✅ **Phase 13**: 고급 시장 데이터 (`fetch_mark_price`, `fetch_mark_prices`, `fetch_mark_ohlcv`, `fetch_index_ohlcv`)
 - ✅ **Phase 14**: 추가 계정 기능 (`transfer`, `add_margin`, `reduce_margin`, `set_position_mode`, `withdraw`, `fetch_deposit_address`)
 - ✅ **Phase 15**: 마진 대출/상환 (`borrow_cross_margin`, `repay_cross_margin`, `fetch_cross_borrow_rate` - Binance, OKX, Bybit)
+- ✅ **Phase 16**: 주요 거래소 추가 (Hyperliquid DEX, BitMEX, Deribit 옵션, Crypto.com, Gemini)
+- ✅ **Phase 17**: 옵션 거래 기능 (`fetch_option`, `fetch_option_chain`, `fetch_greeks`, `fetch_underlying_assets`, `fetch_settlement_history`, `fetch_volatility_history` - Deribit)
 
 ---
 
 ## 2. 거래소 구현 현황
 
-### 2.1 구현 완료 (19개)
+### 2.1 구현 완료 (24개+)
 
 #### 한국 거래소 (4개)
 | 거래소 | REST | WebSocket | 선물 |
@@ -83,18 +85,18 @@
 
 #### 우선순위 높음 - Certified Exchanges
 ```
-- Hyperliquid (DEX)
-- BitMEX
-- Crypto.com
+- ✅ Hyperliquid (DEX) - 완료
+- ✅ BitMEX - 완료
+- ✅ Crypto.com - 완료
 - HashKey
 - WOO X / WOOFI PRO
-- Deribit (옵션)
+- ✅ Deribit (옵션) - 완료
 ```
 
 #### 우선순위 중간 - 주요 거래소
 ```
 - Bitfinex
-- Gemini
+- ✅ Gemini - 완료
 - Poloniex
 - Huobi Global
 - LBank
@@ -200,55 +202,52 @@ wavesexchange, yobit, zaif, zebpay, zonda
 
 ## 4. 타입 시스템 Gap
 
-### 4.1 미구현 타입
+### 4.1 ✅ 구현 완료 타입
 
-#### Options 관련
+#### Options 관련 ✅ 구현 완료
 ```rust
-// 미구현
-struct Greeks {
-    delta: Option<Decimal>,
-    gamma: Option<Decimal>,
-    theta: Option<Decimal>,
-    vega: Option<Decimal>,
-    rho: Option<Decimal>,
+// src/types/derivatives.rs에 구현됨
+pub struct Greeks {
+    pub symbol: String,
+    pub timestamp: Option<i64>,
+    pub delta: Decimal,
+    pub gamma: Decimal,
+    pub theta: Decimal,
+    pub vega: Decimal,
+    pub rho: Decimal,
+    pub vanna: Option<Decimal>,
+    pub volga: Option<Decimal>,
+    pub charm: Option<Decimal>,
+    // ... bid_size, ask_size, implied volatility 등
 }
 
-struct OptionContract {
-    symbol: String,
-    underlying: String,
-    strike: Decimal,
-    option_type: OptionType, // Call, Put
-    expiry: i64,
+pub struct OptionContract {
+    pub currency: String,
+    pub symbol: String,
+    pub implied_volatility: Decimal,
+    pub open_interest: Decimal,
+    pub bid_price: Decimal,
+    pub ask_price: Decimal,
+    pub mark_price: Decimal,
+    pub underlying_price: Decimal,
+    // ...
 }
 
-struct OptionChain {
-    underlying: String,
-    calls: Vec<OptionContract>,
-    puts: Vec<OptionContract>,
-}
+pub type OptionChain = HashMap<String, OptionContract>;
 ```
 
-#### Conversion 관련
+#### Conversion 관련 ✅ 구현 완료
 ```rust
-// 미구현
-struct ConvertQuote {
-    from_currency: String,
-    to_currency: String,
-    from_amount: Decimal,
-    to_amount: Decimal,
-    rate: Decimal,
-    inverse_rate: Decimal,
-    expires: i64,
-}
-
-struct ConvertTrade {
-    id: String,
-    from_currency: String,
-    to_currency: String,
-    from_amount: Decimal,
-    to_amount: Decimal,
-    timestamp: i64,
-    status: String,
+// src/types/derivatives.rs에 구현됨
+pub struct Conversion {
+    pub id: String,
+    pub from_currency: String,
+    pub from_amount: Decimal,
+    pub to_currency: String,
+    pub to_amount: Decimal,
+    pub price: Decimal,
+    pub fee: Decimal,
+    pub timestamp: Option<i64>,
 }
 ```
 
@@ -481,22 +480,24 @@ struct WsReconnectConfig {
 - [x] `fetch_cross_borrow_rate()` (Binance, OKX, Bybit)
 - [x] `fetch_isolated_borrow_rate()` (Binance)
 
-### 8.2 🔴 높음 (Phase 16-17)
+### 8.2 ✅ 완료 (Phase 16)
 
-#### Phase 16: 주요 거래소 추가
-1. Hyperliquid (DEX)
-2. BitMEX
-3. Deribit (옵션 선물)
-4. Crypto.com
-5. Gemini
+#### Phase 16: 주요 거래소 추가 ✅ 완료
+1. ✅ Hyperliquid (DEX) - swap, future, positions, leverage, funding rates
+2. ✅ BitMEX - swap, future, positions, leverage
+3. ✅ Deribit (옵션 선물) - swap, future, **option**, funding rates
+4. ✅ Crypto.com - spot, swap
+5. ✅ Gemini - spot
 
-### 8.3 🟡 중간 (Phase 17-18)
+### 8.3 🔴 높음 (Phase 17-18)
 
-#### Phase 17: 옵션 거래 기능
-1. Options 타입 및 메서드 추가
-2. Greeks 계산
-3. `fetch_option()`, `fetch_option_chain()` 구현
-4. Sandbox/Testnet 지원
+#### Phase 17: 옵션 거래 기능 ✅ 완료
+1. ✅ Options 타입 및 메서드 추가 (Exchange trait에 fetch_option, fetch_option_chain, fetch_greeks, fetch_underlying_assets, fetch_settlement_history, fetch_volatility_history)
+2. ✅ Greeks 구조체 및 파싱 구현 (delta, gamma, theta, vega, rho + 2차 Greeks)
+3. ✅ `fetch_option()`, `fetch_option_chain()` Deribit 구현
+4. ✅ Settlement, VolatilityHistory 타입 추가
+5. ✅ ExchangeFeatures에 옵션 기능 플래그 추가
+6. ⏳ Sandbox/Testnet 지원 (Deribit은 이미 지원)
 
 #### Phase 18: 인프라 고도화
 1. 프록시 지원
@@ -505,7 +506,7 @@ struct WsReconnectConfig {
 4. Order Book 동기화 (checksum)
 5. WebSocket 연결 복구 개선
 
-### 8.4 🟢 낮음 (Phase 19+)
+### 8.4 🟡 중간 (Phase 19+)
 
 #### Phase 19: Conversion 기능
 1. `fetch_convert_currencies()` 구현

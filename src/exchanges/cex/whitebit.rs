@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -122,12 +122,18 @@ impl Whitebit {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis();
         let mut request_body = body.unwrap_or(serde_json::json!({}));
@@ -135,12 +141,16 @@ impl Whitebit {
         request_body["nonce"] = serde_json::json!(nonce);
 
         let body_str = serde_json::to_string(&request_body)?;
-        let payload = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, body_str.as_bytes());
+        let payload = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            body_str.as_bytes(),
+        );
 
-        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".into(),
-            })?;
+            }
+        })?;
         mac.update(payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -150,7 +160,9 @@ impl Whitebit {
         headers.insert("X-TXC-SIGNATURE".into(), signature);
         headers.insert("Content-Type".into(), "application/json".into());
 
-        self.client.post(path, Some(request_body), Some(headers)).await
+        self.client
+            .post(path, Some(request_body), Some(headers))
+            .await
     }
 
     /// Convert symbol (BTC/USDT -> BTC_USDT)
@@ -232,7 +244,8 @@ impl Exchange for Whitebit {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: HashMap<String, WhitebitMarket> = self.public_get("/public/markets", None).await?;
+        let response: HashMap<String, WhitebitMarket> =
+            self.public_get("/public/markets", None).await?;
 
         let mut markets = Vec::new();
         for (id, info) in response {
@@ -309,12 +322,15 @@ impl Exchange for Whitebit {
     }
 
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
-        let response: HashMap<String, WhitebitTicker> = self.public_get("/public/ticker", None).await?;
+        let response: HashMap<String, WhitebitTicker> =
+            self.public_get("/public/ticker", None).await?;
 
         let market_id = self.convert_to_market_id(symbol);
-        let ticker_data = response.get(&market_id).ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })?;
+        let ticker_data = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
 
@@ -354,7 +370,10 @@ impl Exchange for Whitebit {
 
         let response: WhitebitOrderBook = self.public_get(&path, Some(params)).await?;
 
-        let timestamp = response.timestamp.map(|t| (t * 1000.0) as i64).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .timestamp
+            .map(|t| (t * 1000.0) as i64)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let parse_entries = |entries: &Vec<Vec<String>>| -> Vec<OrderBookEntry> {
             let iter = entries.iter().filter_map(|e| {
@@ -383,12 +402,18 @@ impl Exchange for Whitebit {
                     .unwrap_or_default(),
             ),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let path = format!("/public/trades/{market_id}");
 
@@ -398,12 +423,24 @@ impl Exchange for Whitebit {
         let response: Vec<WhitebitTrade> = self.public_get(&path, Some(params)).await?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .take(limit)
             .map(|t| {
-                let timestamp = t.time.map(|time| (time * 1000.0) as i64).unwrap_or_else(|| Utc::now().timestamp_millis());
-                let price: Decimal = t.price.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-                let amount: Decimal = t.amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+                let timestamp = t
+                    .time
+                    .map(|time| (time * 1000.0) as i64)
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
+                let price: Decimal = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
+                let amount: Decimal = t
+                    .amount
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
 
                 Trade {
                     id: t.id.map(|i| i.to_string()).unwrap_or_default(),
@@ -439,7 +476,11 @@ impl Exchange for Whitebit {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).cloned().unwrap_or("1h".into());
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or("1h".into());
 
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
@@ -449,24 +490,29 @@ impl Exchange for Whitebit {
             params.insert("start".into(), (s / 1000).to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self.public_get("/public/kline", Some(params)).await?;
+        let response: Vec<Vec<serde_json::Value>> =
+            self.public_get("/public/kline", Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.iter().filter_map(|c| {
-            Some(OHLCV {
-                timestamp: c.first()?.as_i64()? * 1000,
-                open: c.get(1)?.as_str()?.parse().ok()?,
-                close: c.get(2)?.as_str()?.parse().ok()?,
-                high: c.get(3)?.as_str()?.parse().ok()?,
-                low: c.get(4)?.as_str()?.parse().ok()?,
-                volume: c.get(5)?.as_str()?.parse().ok()?,
+        let ohlcv: Vec<OHLCV> = response
+            .iter()
+            .filter_map(|c| {
+                Some(OHLCV {
+                    timestamp: c.first()?.as_i64()? * 1000,
+                    open: c.get(1)?.as_str()?.parse().ok()?,
+                    close: c.get(2)?.as_str()?.parse().ok()?,
+                    high: c.get(3)?.as_str()?.parse().ok()?,
+                    low: c.get(4)?.as_str()?.parse().ok()?,
+                    volume: c.get(5)?.as_str()?.parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(ohlcv)
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: HashMap<String, WhitebitBalance> = self.private_post("/trade-account/balance", None).await?;
+        let response: HashMap<String, WhitebitBalance> =
+            self.private_post("/trade-account/balance", None).await?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -474,8 +520,16 @@ impl Exchange for Whitebit {
         balances.datetime = Some(Utc::now().to_rfc3339());
 
         for (currency, data) in response {
-            let free: Decimal = data.available.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-            let used: Decimal = data.freeze.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+            let free: Decimal = data
+                .available
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
+            let used: Decimal = data
+                .freeze
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
 
             balances.currencies.insert(
                 currency.to_uppercase(),
@@ -519,7 +573,10 @@ impl Exchange for Whitebit {
 
         let response: WhitebitOrder = self.private_post(path, Some(body)).await?;
 
-        let timestamp = response.ctime.map(|t| (t * 1000.0) as i64).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .ctime
+            .map(|t| (t * 1000.0) as i64)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Order {
             id: response.order_id.map(|i| i.to_string()).unwrap_or_default(),
@@ -540,7 +597,11 @@ impl Exchange for Whitebit {
             price,
             average: None,
             amount,
-            filled: response.deal_stock.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+            filled: response
+                .deal_stock
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
             remaining: response.left.as_ref().and_then(|s| s.parse().ok()),
             cost: response.deal_money.as_ref().and_then(|s| s.parse().ok()),
             trades: Vec::new(),
@@ -566,7 +627,10 @@ impl Exchange for Whitebit {
 
         let response: WhitebitOrder = self.private_post("/order/cancel", Some(body)).await?;
 
-        let timestamp = response.ctime.map(|t| (t * 1000.0) as i64).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .ctime
+            .map(|t| (t * 1000.0) as i64)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Order {
             id: id.to_string(),
@@ -608,7 +672,8 @@ impl Exchange for Whitebit {
         // We need to check open orders
         let orders = self.fetch_open_orders(Some(symbol), None, None).await?;
 
-        orders.into_iter()
+        orders
+            .into_iter()
             .find(|o| o.id == id)
             .ok_or_else(|| CcxtError::OrderNotFound {
                 order_id: id.to_string(),
@@ -631,9 +696,13 @@ impl Exchange for Whitebit {
 
         let response: Vec<WhitebitOrder> = self.private_post("/orders", Some(body)).await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|o| {
-                let timestamp = o.ctime.map(|t| (t * 1000.0) as i64).unwrap_or_else(|| Utc::now().timestamp_millis());
+                let timestamp = o
+                    .ctime
+                    .map(|t| (t * 1000.0) as i64)
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
                 let side = match o.side.as_deref() {
                     Some("buy") => OrderSide::Buy,
                     Some("sell") => OrderSide::Sell,
@@ -648,7 +717,9 @@ impl Exchange for Whitebit {
                     _ => OrderType::Limit,
                 };
 
-                let sym = o.market.as_ref()
+                let sym = o
+                    .market
+                    .as_ref()
                     .map(|m| m.replace("_", "/"))
                     .unwrap_or_else(|| symbol.unwrap_or("").to_string());
 
@@ -669,14 +740,27 @@ impl Exchange for Whitebit {
                     time_in_force: None,
                     side,
                     price: o.price.as_ref().and_then(|s| s.parse().ok()),
-                    average: o.deal_money.as_ref().zip(o.deal_stock.as_ref())
-                        .and_then(|(money, stock)| {
+                    average: o.deal_money.as_ref().zip(o.deal_stock.as_ref()).and_then(
+                        |(money, stock)| {
                             let m: Decimal = money.parse().ok()?;
                             let s: Decimal = stock.parse().ok()?;
-                            if s > Decimal::ZERO { Some(m / s) } else { None }
-                        }),
-                    amount: o.amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
-                    filled: o.deal_stock.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+                            if s > Decimal::ZERO {
+                                Some(m / s)
+                            } else {
+                                None
+                            }
+                        },
+                    ),
+                    amount: o
+                        .amount
+                        .as_ref()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
+                    filled: o
+                        .deal_stock
+                        .as_ref()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
                     remaining: o.left.as_ref().and_then(|s| s.parse().ok()),
                     cost: o.deal_money.as_ref().and_then(|s| s.parse().ok()),
                     trades: Vec::new(),

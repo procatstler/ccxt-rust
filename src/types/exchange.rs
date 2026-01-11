@@ -7,26 +7,55 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::errors::CcxtResult;
 use super::{
-    Balances, Currency, Market, OHLCV, Order, OrderBook, OrderSide, OrderType,
-    Ticker, Trade, Transaction,
-    // Futures/Derivatives types
-    Position, Leverage, LeverageTier, FundingRate, FundingRateHistory, OpenInterest, Liquidation,
-    // Margin types
-    BorrowInterest, CrossBorrowRate, IsolatedBorrowRate, MarginModeInfo, MarginLoan,
     margin::MarginModification,
     // Account types
-    Account, DepositAddress, TransferEntry, LedgerEntry,
-    // Position types
-    MarginMode, PositionModeInfo,
-    // WebSocket types
-    WsMessage,
+    Account,
+    Balances,
+    // Margin types
+    BorrowInterest,
+    // Convert types
+    ConvertCurrencyPair,
+    ConvertQuote,
+    ConvertTrade,
+    CrossBorrowRate,
+    Currency,
+    DepositAddress,
+    FundingRate,
+    FundingRateHistory,
+    // Options types
+    Greeks,
+    IsolatedBorrowRate,
+    LedgerEntry,
+    Leverage,
+    LeverageTier,
+    Liquidation,
     // Derivatives types
     LongShortRatio,
-    // Convert types
-    ConvertCurrencyPair, ConvertQuote, ConvertTrade,
+    MarginLoan,
+    // Position types
+    MarginMode,
+    MarginModeInfo,
+    Market,
+    OpenInterest,
+    OptionChain,
+    OptionContract,
+    Order,
+    OrderBook,
+    OrderSide,
+    OrderType,
+    // Futures/Derivatives types
+    Position,
+    PositionModeInfo,
+    Ticker,
+    Trade,
+    Transaction,
+    TransferEntry,
+    // WebSocket types
+    WsMessage,
+    OHLCV,
 };
+use crate::errors::CcxtResult;
 
 /// Exchange ID - identifies the exchange
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -136,12 +165,12 @@ pub enum ExchangeId {
     Ndax,
     Btcturk,
     // Alias exchanges
-    Bequant,    // Hitbtc alias
-    MyOkx,      // OKX alias (EEA region)
-    OkxUs,      // OKX alias (US region)
-    Fmfwio,     // Hitbtc alias
-    Gateio,     // Gate alias
-    Huobi,      // HTX alias
+    Bequant,     // Hitbtc alias
+    MyOkx,       // OKX alias (EEA region)
+    OkxUs,       // OKX alias (US region)
+    Fmfwio,      // Hitbtc alias
+    Gateio,      // Gate alias
+    Huobi,       // HTX alias
     BinanceUsdm, // Binance USDⓈ-M Futures alias
     // Additional exchanges
     Toobit,
@@ -529,6 +558,14 @@ pub struct ExchangeFeatures {
     pub watch_mark_price: bool,
     pub watch_funding_rate: bool,
     pub watch_liquidations: bool,
+
+    // === Options Trading ===
+    pub fetch_option: bool,
+    pub fetch_option_chain: bool,
+    pub fetch_greeks: bool,
+    pub fetch_underlying_assets: bool,
+    pub fetch_settlement_history: bool,
+    pub fetch_volatility_history: bool,
 
     // === Convert ===
     pub fetch_convert_currencies: bool,
@@ -942,10 +979,7 @@ pub trait Exchange: Send + Sync {
     // === Positions (Futures/Derivatives) ===
 
     /// Fetch single position
-    async fn fetch_position(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Position> {
+    async fn fetch_position(&self, symbol: &str) -> CcxtResult<Position> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchPosition".into(),
@@ -953,10 +987,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Fetch all positions
-    async fn fetch_positions(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
+    async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         let _ = symbols;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchPositions".into(),
@@ -964,11 +995,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Close a position
-    async fn close_position(
-        &self,
-        symbol: &str,
-        side: Option<OrderSide>,
-    ) -> CcxtResult<Order> {
+    async fn close_position(&self, symbol: &str, side: Option<OrderSide>) -> CcxtResult<Order> {
         let _ = (symbol, side);
         Err(crate::errors::CcxtError::NotSupported {
             feature: "closePosition".into(),
@@ -1023,10 +1050,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Fetch current position mode
-    async fn fetch_position_mode(
-        &self,
-        symbol: Option<&str>,
-    ) -> CcxtResult<PositionModeInfo> {
+    async fn fetch_position_mode(&self, symbol: Option<&str>) -> CcxtResult<PositionModeInfo> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchPositionMode".into(),
@@ -1036,11 +1060,7 @@ pub trait Exchange: Send + Sync {
     // === Leverage ===
 
     /// Set leverage for a symbol
-    async fn set_leverage(
-        &self,
-        leverage: Decimal,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn set_leverage(&self, leverage: Decimal, symbol: &str) -> CcxtResult<Leverage> {
         let _ = (leverage, symbol);
         Err(crate::errors::CcxtError::NotSupported {
             feature: "setLeverage".into(),
@@ -1048,10 +1068,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Fetch current leverage for a symbol
-    async fn fetch_leverage(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn fetch_leverage(&self, symbol: &str) -> CcxtResult<Leverage> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchLeverage".into(),
@@ -1084,10 +1101,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Fetch current margin mode
-    async fn fetch_margin_mode(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<MarginModeInfo> {
+    async fn fetch_margin_mode(&self, symbol: &str) -> CcxtResult<MarginModeInfo> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchMarginMode".into(),
@@ -1123,11 +1137,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Borrow cross margin
-    async fn borrow_cross_margin(
-        &self,
-        code: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginLoan> {
+    async fn borrow_cross_margin(&self, code: &str, amount: Decimal) -> CcxtResult<MarginLoan> {
         let _ = (code, amount);
         Err(crate::errors::CcxtError::NotSupported {
             feature: "borrowCrossMargin".into(),
@@ -1148,11 +1158,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Repay cross margin
-    async fn repay_cross_margin(
-        &self,
-        code: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginLoan> {
+    async fn repay_cross_margin(&self, code: &str, amount: Decimal) -> CcxtResult<MarginLoan> {
         let _ = (code, amount);
         Err(crate::errors::CcxtError::NotSupported {
             feature: "repayCrossMargin".into(),
@@ -1173,11 +1179,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Add margin to a position
-    async fn add_margin(
-        &self,
-        symbol: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginModification> {
+    async fn add_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<MarginModification> {
         let _ = (symbol, amount);
         Err(crate::errors::CcxtError::NotSupported {
             feature: "addMargin".into(),
@@ -1185,11 +1187,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Reduce margin from a position
-    async fn reduce_margin(
-        &self,
-        symbol: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginModification> {
+    async fn reduce_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<MarginModification> {
         let _ = (symbol, amount);
         Err(crate::errors::CcxtError::NotSupported {
             feature: "reduceMargin".into(),
@@ -1197,10 +1195,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Fetch borrow rate for cross margin
-    async fn fetch_cross_borrow_rate(
-        &self,
-        code: &str,
-    ) -> CcxtResult<CrossBorrowRate> {
+    async fn fetch_cross_borrow_rate(&self, code: &str) -> CcxtResult<CrossBorrowRate> {
         let _ = code;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchCrossBorrowRate".into(),
@@ -1208,10 +1203,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Fetch borrow rate for isolated margin
-    async fn fetch_isolated_borrow_rate(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<IsolatedBorrowRate> {
+    async fn fetch_isolated_borrow_rate(&self, symbol: &str) -> CcxtResult<IsolatedBorrowRate> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchIsolatedBorrowRate".into(),
@@ -1235,10 +1227,7 @@ pub trait Exchange: Send + Sync {
     // === Funding Rates ===
 
     /// Fetch current funding rate
-    async fn fetch_funding_rate(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<FundingRate> {
+    async fn fetch_funding_rate(&self, symbol: &str) -> CcxtResult<FundingRate> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchFundingRate".into(),
@@ -1285,10 +1274,7 @@ pub trait Exchange: Send + Sync {
     // === Mark Price / Index Price ===
 
     /// Fetch mark price for a symbol (futures/perpetual)
-    async fn fetch_mark_price(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Ticker> {
+    async fn fetch_mark_price(&self, symbol: &str) -> CcxtResult<Ticker> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchMarkPrice".into(),
@@ -1307,10 +1293,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Fetch index price for a symbol
-    async fn fetch_index_price(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Ticker> {
+    async fn fetch_index_price(&self, symbol: &str) -> CcxtResult<Ticker> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchIndexPrice".into(),
@@ -1320,10 +1303,7 @@ pub trait Exchange: Send + Sync {
     // === Open Interest ===
 
     /// Fetch open interest for a symbol
-    async fn fetch_open_interest(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<OpenInterest> {
+    async fn fetch_open_interest(&self, symbol: &str) -> CcxtResult<OpenInterest> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchOpenInterest".into(),
@@ -1421,10 +1401,7 @@ pub trait Exchange: Send + Sync {
     // === Advanced Order Management (Phase 5) ===
 
     /// Create multiple orders at once
-    async fn create_orders(
-        &self,
-        orders: Vec<super::OrderRequest>,
-    ) -> CcxtResult<Vec<Order>> {
+    async fn create_orders(&self, orders: Vec<super::OrderRequest>) -> CcxtResult<Vec<Order>> {
         let _ = orders;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "createOrders".into(),
@@ -1527,8 +1504,15 @@ pub trait Exchange: Send + Sync {
         price: Decimal,
         stop_price: Decimal,
     ) -> CcxtResult<Order> {
-        self.create_stop_order(symbol, OrderType::StopLimit, side, amount, Some(price), stop_price)
-            .await
+        self.create_stop_order(
+            symbol,
+            OrderType::StopLimit,
+            side,
+            amount,
+            Some(price),
+            stop_price,
+        )
+        .await
     }
 
     /// Create a stop-market order
@@ -1539,8 +1523,15 @@ pub trait Exchange: Send + Sync {
         amount: Decimal,
         stop_price: Decimal,
     ) -> CcxtResult<Order> {
-        self.create_stop_order(symbol, OrderType::StopMarket, side, amount, None, stop_price)
-            .await
+        self.create_stop_order(
+            symbol,
+            OrderType::StopMarket,
+            side,
+            amount,
+            None,
+            stop_price,
+        )
+        .await
     }
 
     /// Create a take-profit order
@@ -1670,9 +1661,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Watch balance updates (requires authentication)
-    async fn watch_balance(
-        &self,
-    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_balance(&self) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchBalance".into(),
         })
@@ -1733,6 +1722,81 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    // === Options Trading ===
+
+    /// Fetch option contract information
+    ///
+    /// Returns detailed information about a specific option contract including
+    /// implied volatility, open interest, and pricing data.
+    async fn fetch_option(&self, symbol: &str) -> CcxtResult<OptionContract> {
+        let _ = symbol;
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: "fetchOption".into(),
+        })
+    }
+
+    /// Fetch option chain for an underlying asset
+    ///
+    /// Returns all available option contracts (calls and puts) for a given
+    /// underlying asset, organized by strike price and expiration.
+    async fn fetch_option_chain(&self, underlying: &str) -> CcxtResult<OptionChain> {
+        let _ = underlying;
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: "fetchOptionChain".into(),
+        })
+    }
+
+    /// Fetch Greeks for an option contract
+    ///
+    /// Returns option Greeks (delta, gamma, theta, vega, rho) and implied
+    /// volatility for a specific option contract.
+    async fn fetch_greeks(&self, symbol: &str) -> CcxtResult<Greeks> {
+        let _ = symbol;
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: "fetchGreeks".into(),
+        })
+    }
+
+    /// Fetch underlying assets available for options trading
+    ///
+    /// Returns a list of underlying assets (e.g., BTC, ETH) that have
+    /// option contracts available on this exchange.
+    async fn fetch_underlying_assets(&self) -> CcxtResult<Vec<String>> {
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: "fetchUnderlyingAssets".into(),
+        })
+    }
+
+    /// Fetch settlement history for options
+    ///
+    /// Returns historical settlement data for expired option contracts.
+    async fn fetch_settlement_history(
+        &self,
+        underlying: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<super::Settlement>> {
+        let _ = (underlying, since, limit);
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: "fetchSettlementHistory".into(),
+        })
+    }
+
+    /// Fetch volatility history for an underlying asset
+    ///
+    /// Returns historical implied volatility data for an underlying asset.
+    async fn fetch_volatility_history(
+        &self,
+        underlying: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<super::VolatilityHistory>> {
+        let _ = (underlying, since, limit);
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: "fetchVolatilityHistory".into(),
+        })
+    }
+
     // === Convert ===
 
     /// Fetch supported currency pairs for conversion
@@ -1756,10 +1820,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Create a convert trade (execute conversion)
-    async fn create_convert_trade(
-        &self,
-        quote_id: &str,
-    ) -> CcxtResult<ConvertTrade> {
+    async fn create_convert_trade(&self, quote_id: &str) -> CcxtResult<ConvertTrade> {
         let _ = quote_id;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "createConvertTrade".into(),
@@ -1767,10 +1828,7 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Fetch a specific convert trade
-    async fn fetch_convert_trade(
-        &self,
-        id: &str,
-    ) -> CcxtResult<ConvertTrade> {
+    async fn fetch_convert_trade(&self, id: &str) -> CcxtResult<ConvertTrade> {
         let _ = id;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "fetchConvertTrade".into(),

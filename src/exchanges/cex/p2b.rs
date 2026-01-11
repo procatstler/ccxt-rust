@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -17,9 +17,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha512 = Hmac<Sha512>;
@@ -79,7 +79,10 @@ impl P2b {
         api_urls.insert("private".into(), Self::BASE_URL_PRIVATE.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/ccxt/ccxt/assets/43336371/8da13a80-1f0a-49be-bb90-ff8b25164755".into()),
+            logo: Some(
+                "https://github.com/ccxt/ccxt/assets/43336371/8da13a80-1f0a-49be-bb90-ff8b25164755"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://p2pb2b.com/".into()),
             doc: vec!["https://github.com/P2B-team/p2b-api-docs/blob/master/api-doc.md".into()],
@@ -145,12 +148,18 @@ impl P2b {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // Generate nonce
         let nonce = {
@@ -160,7 +169,10 @@ impl P2b {
         };
 
         // Add required parameters
-        params.insert("request".into(), serde_json::json!(format!("/api/v2/{}", path)));
+        params.insert(
+            "request".into(),
+            serde_json::json!(format!("/api/v2/{}", path)),
+        );
         params.insert("nonce".into(), serde_json::json!(nonce.to_string()));
 
         // Create payload (base64 encoded JSON)
@@ -170,8 +182,8 @@ impl P2b {
         let payload = general_purpose::STANDARD.encode(body.as_bytes());
 
         // Create HMAC-SHA512 signature
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha512::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -305,21 +317,27 @@ impl P2b {
 
     /// Parse trade
     fn parse_trade(&self, data: &P2bTrade, symbol: &str) -> Trade {
-        let timestamp = data.time.or(data.deal_time)
-            .map(|t| (t * 1000.0) as i64);
+        let timestamp = data.time.or(data.deal_time).map(|t| (t * 1000.0) as i64);
 
         let price: Decimal = data.price.parse().unwrap_or_default();
         let amount: Decimal = data.amount.parse().unwrap_or_default();
 
         Trade {
-            id: data.id.as_ref().or(data.deal_id.as_ref()).map(|s| s.to_string()).unwrap_or_default(),
-            order: data.deal_order_id.as_ref().cloned()
+            id: data
+                .id
+                .as_ref()
+                .or(data.deal_id.as_ref())
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            order: data
+                .deal_order_id
+                .as_ref()
+                .cloned()
                 .or_else(|| data.deal_order_id_num.as_ref().map(|n| n.to_string())),
             timestamp,
-            datetime: timestamp.and_then(|ts|
-                chrono::DateTime::from_timestamp_millis(ts)
-                    .map(|dt| dt.to_rfc3339())
-            ),
+            datetime: timestamp.and_then(|ts| {
+                chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
+            }),
             symbol: symbol.to_string(),
             trade_type: None,
             side: data.side.clone().or_else(|| data.type_field.clone()),
@@ -335,7 +353,11 @@ impl P2b {
             price,
             amount,
             cost: data.deal.as_ref().and_then(|s| s.parse().ok()),
-            fee: data.fee.as_ref().or(data.deal_fee.as_ref()).map(|f| crate::types::Fee {
+            fee: data
+                .fee
+                .as_ref()
+                .or(data.deal_fee.as_ref())
+                .map(|f| crate::types::Fee {
                     cost: f.parse().ok(),
                     currency: None,
                     rate: None,
@@ -347,10 +369,15 @@ impl P2b {
 
     /// Parse order
     fn parse_order(&self, data: &P2bOrder, symbol: &str) -> Order {
-        let timestamp = data.timestamp.or(data.ctime)
-            .map(|t| (t * 1000.0) as i64);
+        let timestamp = data.timestamp.or(data.ctime).map(|t| (t * 1000.0) as i64);
 
-        let status = if data.left.as_ref().map(|l| l.parse::<Decimal>().unwrap_or_default()).unwrap_or_default() == Decimal::ZERO {
+        let status = if data
+            .left
+            .as_ref()
+            .map(|l| l.parse::<Decimal>().unwrap_or_default())
+            .unwrap_or_default()
+            == Decimal::ZERO
+        {
             OrderStatus::Closed
         } else {
             OrderStatus::Open
@@ -358,19 +385,25 @@ impl P2b {
 
         let price: Option<Decimal> = data.price.parse().ok();
         let amount: Decimal = data.amount.parse().unwrap_or_default();
-        let filled: Decimal = data.deal_stock.as_ref()
+        let filled: Decimal = data
+            .deal_stock
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
         let remaining = Some(amount - filled);
 
         Order {
-            id: data.id.as_ref().or(data.order_id.as_ref()).map(|s| s.to_string()).unwrap_or_default(),
+            id: data
+                .id
+                .as_ref()
+                .or(data.order_id.as_ref())
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
             client_order_id: None,
             timestamp,
-            datetime: timestamp.and_then(|ts|
-                chrono::DateTime::from_timestamp_millis(ts)
-                    .map(|dt| dt.to_rfc3339())
-            ),
+            datetime: timestamp.and_then(|ts| {
+                chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
+            }),
             last_trade_timestamp: data.ftime.map(|t| (t * 1000.0) as i64),
             last_update_timestamp: data.ftime.map(|t| (t * 1000.0) as i64),
             status,
@@ -394,10 +427,10 @@ impl P2b {
             cost: data.deal_money.as_ref().and_then(|s| s.parse().ok()),
             trades: Vec::new(),
             fee: data.deal_fee.as_ref().map(|f| crate::types::Fee {
-                    cost: f.parse().ok(),
-                    currency: None,
-                    rate: None,
-                }),
+                cost: f.parse().ok(),
+                currency: None,
+                rate: None,
+            }),
             fees: Vec::new(),
             reduce_only: None,
             post_only: None,
@@ -521,7 +554,8 @@ impl Exchange for P2b {
 
         let data: P2bOrderBook = self.public_get("/depth/result", Some(params)).await?;
 
-        let bids: Vec<OrderBookEntry> = data.bids
+        let bids: Vec<OrderBookEntry> = data
+            .bids
             .iter()
             .filter_map(|b| {
                 if b.len() >= 2 {
@@ -535,7 +569,8 @@ impl Exchange for P2b {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks
+        let asks: Vec<OrderBookEntry> = data
+            .asks
             .iter()
             .filter_map(|a| {
                 if a.len() >= 2 {
@@ -556,6 +591,7 @@ impl Exchange for P2b {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -579,9 +615,12 @@ impl Exchange for P2b {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
@@ -590,7 +629,8 @@ impl Exchange for P2b {
             params.insert("limit".into(), l.to_string());
         }
 
-        let data: Vec<Vec<serde_json::Value>> = self.public_get("/market/kline", Some(params)).await?;
+        let data: Vec<Vec<serde_json::Value>> =
+            self.public_get("/market/kline", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = data
             .iter()
@@ -626,12 +666,15 @@ impl Exchange for P2b {
                 _ => None,
             };
 
-            result.add(&currency, Balance {
-                free,
-                used,
-                total,
-                debt: None,
-            });
+            result.add(
+                &currency,
+                Balance {
+                    free,
+                    used,
+                    total,
+                    debt: None,
+                },
+            );
         }
 
         Ok(result)
@@ -658,10 +701,13 @@ impl Exchange for P2b {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("market".into(), serde_json::json!(market_id));
-        params.insert("side".into(), serde_json::json!(match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }));
+        params.insert(
+            "side".into(),
+            serde_json::json!(match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }),
+        );
         params.insert("amount".into(), serde_json::json!(amount.to_string()));
         params.insert("price".into(), serde_json::json!(price_val.to_string()));
 
@@ -728,15 +774,15 @@ impl Exchange for P2b {
             params.insert("limit".into(), serde_json::json!(l));
         }
 
-        let response: HashMap<String, Vec<P2bOrder>> = self
-            .private_post("account/order_history", params)
-            .await?;
+        let response: HashMap<String, Vec<P2bOrder>> =
+            self.private_post("account/order_history", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut orders = Vec::new();
 
         for (market_id, market_orders) in response {
-            let sym = markets_by_id.get(&market_id)
+            let sym = markets_by_id
+                .get(&market_id)
                 .map(|s| s.as_str())
                 .or(symbol)
                 .unwrap_or(&market_id);
@@ -781,7 +827,11 @@ impl Exchange for P2b {
             .private_post("account/market_deal_history", params)
             .await?;
 
-        Ok(response.deals.iter().map(|t| self.parse_trade(t, symbol)).collect())
+        Ok(response
+            .deals
+            .iter()
+            .map(|t| self.parse_trade(t, symbol))
+            .collect())
     }
 
     async fn fetch_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {

@@ -13,16 +13,17 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+use super::bybit_ws::BybitWs;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, FundingRate,
-    FundingRateHistory, Leverage, Liquidation, Market, MarketLimits, MarketPrecision, MarketType,
-    MarginMode, MarginModeInfo, OpenInterest, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, Position, PositionSide, SignedRequest, Ticker, Timeframe, TimeInForce,
-    Trade, Transaction, TransactionStatus, TransactionType, WsExchange, WsMessage, OHLCV,
+    Balance, Balances, ConvertCurrencyPair, ConvertQuote, ConvertTrade, Exchange, ExchangeFeatures,
+    ExchangeId, ExchangeUrls, FundingRate, FundingRateHistory, Leverage, Liquidation, MarginMode,
+    MarginModeInfo, Market, MarketLimits, MarketPrecision, MarketType, OpenInterest, Order,
+    OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide,
+    SignedRequest, Ticker, TimeInForce, Timeframe, Trade, Transaction, TransactionStatus,
+    TransactionType, WsExchange, WsMessage, OHLCV,
 };
-use super::bybit_ws::BybitWs;
 use std::sync::Arc;
 use tokio::sync::RwLock as TokioRwLock;
 
@@ -166,7 +167,9 @@ impl Bybit {
 
         if response.ret_code != 0 {
             return Err(CcxtError::ExchangeError {
-                message: response.ret_msg.unwrap_or_else(|| format!("Bybit error code: {}", response.ret_code)),
+                message: response
+                    .ret_msg
+                    .unwrap_or_else(|| format!("Bybit error code: {}", response.ret_code)),
             });
         }
 
@@ -184,12 +187,18 @@ impl Bybit {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -223,12 +232,13 @@ impl Bybit {
                 };
 
                 self.client.get(&url, None, Some(headers)).await?
-            }
+            },
             "POST" => {
                 // For POST requests, sign JSON body
                 let body_str = serde_json::to_string(&params).unwrap_or_else(|_| "{}".into());
 
-                let param_str = format!("{}{}{}{}", timestamp, api_key, Self::RECV_WINDOW, body_str);
+                let param_str =
+                    format!("{}{}{}{}", timestamp, api_key, Self::RECV_WINDOW, body_str);
 
                 let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
                     .expect("HMAC can take key of any size");
@@ -238,17 +248,24 @@ impl Bybit {
                 headers.insert("X-BAPI-SIGN".into(), signature);
                 headers.insert("Content-Type".into(), "application/json".into());
 
-                let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or_default();
-                self.client.post(path, Some(json_body), Some(headers)).await?
-            }
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("HTTP method: {method}"),
-            }),
+                let json_body: serde_json::Value =
+                    serde_json::from_str(&body_str).unwrap_or_default();
+                self.client
+                    .post(path, Some(json_body), Some(headers))
+                    .await?
+            },
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("HTTP method: {method}"),
+                })
+            },
         };
 
         if response.ret_code != 0 {
             return Err(CcxtError::ExchangeError {
-                message: response.ret_msg.unwrap_or_else(|| format!("Bybit error code: {}", response.ret_code)),
+                message: response
+                    .ret_msg
+                    .unwrap_or_else(|| format!("Bybit error code: {}", response.ret_code)),
             });
         }
 
@@ -328,17 +345,24 @@ impl Bybit {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            "PostOnly" => Some(TimeInForce::PO),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                "PostOnly" => Some(TimeInForce::PO),
+                _ => None,
+            });
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
         let amount: Decimal = data.qty.parse().unwrap_or_default();
-        let filled: Decimal = data.cum_exec_qty.as_ref().and_then(|f| f.parse().ok()).unwrap_or_default();
+        let filled: Decimal = data
+            .cum_exec_qty
+            .as_ref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
         let remaining = Some(amount - filled);
         let average = data.avg_price.as_ref().and_then(|a| a.parse().ok());
         let cost = data.cum_exec_value.as_ref().and_then(|c| c.parse().ok());
@@ -348,7 +372,12 @@ impl Bybit {
             symbol_str
         } else {
             // Try to parse BTCUSDT format
-            self.markets_by_id.read().unwrap().get(&data.symbol).cloned().unwrap_or(data.symbol.clone())
+            self.markets_by_id
+                .read()
+                .unwrap()
+                .get(&data.symbol)
+                .cloned()
+                .unwrap_or(data.symbol.clone())
         };
 
         Order {
@@ -389,7 +418,10 @@ impl Bybit {
         let mut result = Balances::new();
 
         for b in balances {
-            let available: Option<Decimal> = b.available_to_withdraw.as_ref().and_then(|v| v.parse().ok());
+            let available: Option<Decimal> = b
+                .available_to_withdraw
+                .as_ref()
+                .and_then(|v| v.parse().ok());
             let total: Option<Decimal> = b.wallet_balance.as_ref().and_then(|v| v.parse().ok());
             let used = match (total, available) {
                 (Some(t), Some(a)) => Some(t - a),
@@ -439,7 +471,10 @@ impl Bybit {
             txid: data.tx_id.clone(),
             fee: None,
             internal: None,
-            confirmations: data.confirmations.as_ref().and_then(|c| c.parse::<u32>().ok()),
+            confirmations: data
+                .confirmations
+                .as_ref()
+                .and_then(|c| c.parse::<u32>().ok()),
             info: serde_json::to_value(data).unwrap_or_default(),
         }
     }
@@ -449,15 +484,18 @@ impl Bybit {
         let status = match data.status.as_deref() {
             Some("SecurityCheck") | Some("Pending") | Some("CancelByUser") => {
                 TransactionStatus::Pending
-            }
+            },
             Some("success") => TransactionStatus::Ok,
             Some("Reject") | Some("Fail") | Some("BlockchainConfirmed") => {
                 TransactionStatus::Failed
-            }
+            },
             _ => TransactionStatus::Pending,
         };
 
-        let timestamp = data.create_time.as_ref().and_then(|t| t.parse::<i64>().ok());
+        let timestamp = data
+            .create_time
+            .as_ref()
+            .and_then(|t| t.parse::<i64>().ok());
         let amount: Decimal = data.amount.parse().unwrap_or_default();
 
         Transaction {
@@ -466,7 +504,10 @@ impl Bybit {
             datetime: timestamp.and_then(|ts| {
                 chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
             }),
-            updated: data.update_time.as_ref().and_then(|t| t.parse::<i64>().ok()),
+            updated: data
+                .update_time
+                .as_ref()
+                .and_then(|t| t.parse::<i64>().ok()),
             tx_type: TransactionType::Withdrawal,
             currency: data.coin.clone(),
             network: data.chain.clone(),
@@ -475,13 +516,15 @@ impl Bybit {
             address: data.to_address.clone(),
             tag: data.tag.clone(),
             txid: data.tx_id.clone(),
-            fee: data.withdraw_fee.as_ref().and_then(|f| f.parse::<Decimal>().ok()).map(|cost| {
-                crate::types::Fee {
+            fee: data
+                .withdraw_fee
+                .as_ref()
+                .and_then(|f| f.parse::<Decimal>().ok())
+                .map(|cost| crate::types::Fee {
                     cost: Some(cost),
                     currency: Some(data.coin.clone()),
                     rate: None,
-                }
-            }),
+                }),
             internal: None,
             confirmations: None,
             info: serde_json::to_value(data).unwrap_or_default(),
@@ -490,8 +533,14 @@ impl Bybit {
 
     /// 포지션 파싱
     fn parse_position(&self, data: &BybitPosition) -> Position {
-        let timestamp = data.updated_time.as_ref().and_then(|t| t.parse::<i64>().ok());
-        let symbol = self.markets_by_id.read().unwrap()
+        let timestamp = data
+            .updated_time
+            .as_ref()
+            .and_then(|t| t.parse::<i64>().ok());
+        let symbol = self
+            .markets_by_id
+            .read()
+            .unwrap()
             .get(&data.symbol)
             .cloned()
             .unwrap_or_else(|| data.symbol.clone());
@@ -506,10 +555,15 @@ impl Bybit {
         let entry_price: Option<Decimal> = data.avg_price.as_ref().and_then(|p| p.parse().ok());
         let mark_price: Option<Decimal> = data.mark_price.as_ref().and_then(|p| p.parse().ok());
         let leverage: Option<Decimal> = data.leverage.as_ref().and_then(|l| l.parse().ok());
-        let unrealized_pnl: Option<Decimal> = data.unrealised_pnl.as_ref().and_then(|u| u.parse().ok());
+        let unrealized_pnl: Option<Decimal> =
+            data.unrealised_pnl.as_ref().and_then(|u| u.parse().ok());
         let liquidation_price: Option<Decimal> = data.liq_price.as_ref().and_then(|l| {
             let val: Decimal = l.parse().ok()?;
-            if val == Decimal::ZERO { None } else { Some(val) }
+            if val == Decimal::ZERO {
+                None
+            } else {
+                Some(val)
+            }
         });
         let margin: Option<Decimal> = data.position_im.as_ref().and_then(|m| m.parse().ok());
 
@@ -555,8 +609,14 @@ impl Bybit {
 
     /// 펀딩 레이트 파싱
     fn parse_funding_rate(&self, data: &BybitFundingRateData) -> FundingRate {
-        let timestamp = data.funding_rate_timestamp.as_ref().and_then(|t| t.parse::<i64>().ok());
-        let symbol = self.markets_by_id.read().unwrap()
+        let timestamp = data
+            .funding_rate_timestamp
+            .as_ref()
+            .and_then(|t| t.parse::<i64>().ok());
+        let symbol = self
+            .markets_by_id
+            .read()
+            .unwrap()
             .get(&data.symbol)
             .cloned()
             .unwrap_or_else(|| data.symbol.clone());
@@ -573,7 +633,10 @@ impl Bybit {
             index_price: None,
             interest_rate: None,
             estimated_settle_price: None,
-            funding_timestamp: data.funding_rate_timestamp.as_ref().and_then(|t| t.parse().ok()),
+            funding_timestamp: data
+                .funding_rate_timestamp
+                .as_ref()
+                .and_then(|t| t.parse().ok()),
             funding_datetime: None,
             next_funding_rate: None,
             next_funding_timestamp: None,
@@ -587,12 +650,20 @@ impl Bybit {
 
     /// 펀딩 레이트 기록 파싱
     fn parse_funding_rate_history(&self, data: &BybitFundingRateHistoryData) -> FundingRateHistory {
-        let timestamp = data.funding_rate_timestamp.as_ref().and_then(|t| t.parse::<i64>().ok());
-        let symbol = self.markets_by_id.read().unwrap()
+        let timestamp = data
+            .funding_rate_timestamp
+            .as_ref()
+            .and_then(|t| t.parse::<i64>().ok());
+        let symbol = self
+            .markets_by_id
+            .read()
+            .unwrap()
             .get(&data.symbol)
             .cloned()
             .unwrap_or_else(|| data.symbol.clone());
-        let funding_rate: Decimal = data.funding_rate.as_ref()
+        let funding_rate: Decimal = data
+            .funding_rate
+            .as_ref()
             .and_then(|r| r.parse().ok())
             .unwrap_or_default();
 
@@ -698,16 +769,24 @@ impl Exchange for Bybit {
             let quote = inst.quote_coin.clone();
             let symbol = format!("{base}/{quote}");
 
-            let lot_sz: Option<Decimal> = inst.lot_size_filter.as_ref()
+            let lot_sz: Option<Decimal> = inst
+                .lot_size_filter
+                .as_ref()
                 .and_then(|f| f.base_precision.as_ref())
                 .and_then(|v| v.parse().ok());
-            let tick_sz: Option<Decimal> = inst.price_filter.as_ref()
+            let tick_sz: Option<Decimal> = inst
+                .price_filter
+                .as_ref()
                 .and_then(|f| f.tick_size.as_ref())
                 .and_then(|v| v.parse().ok());
-            let min_qty: Option<Decimal> = inst.lot_size_filter.as_ref()
+            let min_qty: Option<Decimal> = inst
+                .lot_size_filter
+                .as_ref()
                 .and_then(|f| f.min_order_qty.as_ref())
                 .and_then(|v| v.parse().ok());
-            let max_qty: Option<Decimal> = inst.lot_size_filter.as_ref()
+            let max_qty: Option<Decimal> = inst
+                .lot_size_filter
+                .as_ref()
                 .and_then(|f| f.max_order_qty.as_ref())
                 .and_then(|v| v.parse().ok());
 
@@ -724,7 +803,11 @@ impl Exchange for Bybit {
                 active: inst.status == "Trading",
                 market_type: MarketType::Spot,
                 spot: true,
-                margin: inst.margin_trading.as_ref().map(|m| m != "none").unwrap_or(false),
+                margin: inst
+                    .margin_trading
+                    .as_ref()
+                    .map(|m| m != "none")
+                    .unwrap_or(false),
                 swap: false,
                 future: false,
                 option: false,
@@ -775,9 +858,8 @@ impl Exchange for Bybit {
         params.insert("category".into(), "spot".into());
         params.insert("symbol".into(), market_id);
 
-        let response: BybitTickersResult = self
-            .public_get("/v5/market/tickers", Some(params))
-            .await?;
+        let response: BybitTickersResult =
+            self.public_get("/v5/market/tickers", Some(params)).await?;
 
         let ticker_data = response.list.first().ok_or_else(|| CcxtError::BadSymbol {
             symbol: symbol.into(),
@@ -790,15 +872,16 @@ impl Exchange for Bybit {
         let mut params = HashMap::new();
         params.insert("category".into(), "spot".into());
 
-        let response: BybitTickersResult = self
-            .public_get("/v5/market/tickers", Some(params))
-            .await?;
+        let response: BybitTickersResult =
+            self.public_get("/v5/market/tickers", Some(params)).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut tickers = HashMap::new();
 
         for data in response.list {
-            let symbol = markets_by_id.get(&data.symbol).cloned()
+            let symbol = markets_by_id
+                .get(&data.symbol)
+                .cloned()
                 .unwrap_or_else(|| data.symbol.clone());
 
             if let Some(filter) = symbols {
@@ -868,6 +951,7 @@ impl Exchange for Bybit {
             nonce: response.u,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -929,9 +1013,12 @@ impl Exchange for Bybit {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("category".into(), "spot".into());
@@ -944,9 +1031,7 @@ impl Exchange for Bybit {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: BybitKlineResult = self
-            .public_get("/v5/market/kline", Some(params))
-            .await?;
+        let response: BybitKlineResult = self.public_get("/v5/market/kline", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .list
@@ -977,9 +1062,12 @@ impl Exchange for Bybit {
             .private_request("GET", "/v5/account/wallet-balance", params)
             .await?;
 
-        let account = response.list.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "Empty balance response".into(),
-        })?;
+        let account = response
+            .list
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "Empty balance response".into(),
+            })?;
 
         Ok(self.parse_balance(&account.coin))
     }
@@ -997,9 +1085,11 @@ impl Exchange for Bybit {
         let ord_type = match order_type {
             OrderType::Limit => "Limit",
             OrderType::Market => "Market",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -1088,9 +1178,12 @@ impl Exchange for Bybit {
             .private_request("GET", "/v5/order/realtime", params)
             .await?;
 
-        let order_data = response.list.first().ok_or_else(|| CcxtError::OrderNotFound {
-            order_id: id.into(),
-        })?;
+        let order_data = response
+            .list
+            .first()
+            .ok_or_else(|| CcxtError::OrderNotFound {
+                order_id: id.into(),
+            })?;
 
         Ok(self.parse_order(order_data))
     }
@@ -1347,9 +1440,12 @@ impl Exchange for Bybit {
             .private_request("GET", "/v5/asset/deposit/query-address", params)
             .await?;
 
-        let chain = response.chains.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No deposit address found".into(),
-        })?;
+        let chain = response
+            .chains
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No deposit address found".into(),
+            })?;
 
         let mut deposit_addr =
             crate::types::DepositAddress::new(&response.coin, &chain.address_deposit);
@@ -1378,7 +1474,10 @@ impl Exchange for Bybit {
         params.insert("coin".into(), code.to_string());
         params.insert("amount".into(), amount.to_string());
         params.insert("address".into(), address.to_string());
-        params.insert("timestamp".into(), Utc::now().timestamp_millis().to_string());
+        params.insert(
+            "timestamp".into(),
+            Utc::now().timestamp_millis().to_string(),
+        );
 
         if let Some(t) = tag {
             params.insert("tag".into(), t.to_string());
@@ -1512,10 +1611,7 @@ impl Exchange for Bybit {
 
     // === Futures Methods ===
 
-    async fn fetch_positions(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
+    async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         let mut params = HashMap::new();
         params.insert("category".into(), "linear".into());
 
@@ -1537,11 +1633,7 @@ impl Exchange for Bybit {
         Ok(positions)
     }
 
-    async fn set_leverage(
-        &self,
-        leverage: Decimal,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn set_leverage(&self, leverage: Decimal, symbol: &str) -> CcxtResult<Leverage> {
         let market_id = self.to_linear_market_id(symbol);
 
         let mut params = HashMap::new();
@@ -1557,10 +1649,7 @@ impl Exchange for Bybit {
         Ok(Leverage::new(symbol, MarginMode::Cross, leverage, leverage))
     }
 
-    async fn fetch_leverage(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn fetch_leverage(&self, symbol: &str) -> CcxtResult<Leverage> {
         let positions = self.fetch_positions(Some(&[symbol])).await?;
 
         if let Some(pos) = positions.first() {
@@ -1568,7 +1657,12 @@ impl Exchange for Bybit {
             let margin_mode = pos.margin_mode.clone().unwrap_or(MarginMode::Cross);
             Ok(Leverage::new(symbol, margin_mode, leverage, leverage))
         } else {
-            Ok(Leverage::new(symbol, MarginMode::Cross, Decimal::ONE, Decimal::ONE))
+            Ok(Leverage::new(
+                symbol,
+                MarginMode::Cross,
+                Decimal::ONE,
+                Decimal::ONE,
+            ))
         }
     }
 
@@ -1582,9 +1676,11 @@ impl Exchange for Bybit {
         let mode_str = match margin_mode {
             MarginMode::Cross => "0",
             MarginMode::Isolated => "1",
-            MarginMode::Unknown => return Err(CcxtError::BadRequest {
-                message: "Unknown margin mode is not supported".into(),
-            }),
+            MarginMode::Unknown => {
+                return Err(CcxtError::BadRequest {
+                    message: "Unknown margin mode is not supported".into(),
+                })
+            },
         };
 
         let mut params = HashMap::new();
@@ -1602,18 +1698,14 @@ impl Exchange for Bybit {
         Ok(MarginModeInfo::new(symbol, margin_mode))
     }
 
-    async fn fetch_funding_rate(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<FundingRate> {
+    async fn fetch_funding_rate(&self, symbol: &str) -> CcxtResult<FundingRate> {
         let market_id = self.to_linear_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("category".into(), "linear".into());
         params.insert("symbol".into(), market_id);
 
-        let response: BybitTickersResult = self
-            .public_get("/v5/market/tickers", Some(params))
-            .await?;
+        let response: BybitTickersResult =
+            self.public_get("/v5/market/tickers", Some(params)).await?;
 
         let data = response.list.first().ok_or_else(|| CcxtError::BadSymbol {
             symbol: symbol.into(),
@@ -1650,15 +1742,17 @@ impl Exchange for Bybit {
         let mut params = HashMap::new();
         params.insert("category".into(), "linear".into());
 
-        let response: BybitTickersResult = self
-            .public_get("/v5/market/tickers", Some(params))
-            .await?;
+        let response: BybitTickersResult =
+            self.public_get("/v5/market/tickers", Some(params)).await?;
 
         let timestamp = Utc::now().timestamp_millis();
         let mut rates = HashMap::new();
 
         for data in response.list {
-            let symbol = self.markets_by_id.read().unwrap()
+            let symbol = self
+                .markets_by_id
+                .read()
+                .unwrap()
                 .get(&data.symbol)
                 .cloned()
                 .unwrap_or_else(|| data.symbol.clone());
@@ -1682,7 +1776,10 @@ impl Exchange for Bybit {
                 funding_timestamp: data.next_funding_time.as_ref().and_then(|t| t.parse().ok()),
                 funding_datetime: None,
                 next_funding_rate: None,
-                next_funding_timestamp: data.next_funding_time.as_ref().and_then(|t| t.parse().ok()),
+                next_funding_timestamp: data
+                    .next_funding_time
+                    .as_ref()
+                    .and_then(|t| t.parse().ok()),
                 next_funding_datetime: None,
                 previous_funding_rate: None,
                 previous_funding_timestamp: None,
@@ -1738,9 +1835,12 @@ impl Exchange for Bybit {
             .public_get("/v5/market/open-interest", Some(params))
             .await?;
 
-        let data = response.list.first().ok_or_else(|| CcxtError::BadResponse {
-            message: "Empty open interest response".into(),
-        })?;
+        let data = response
+            .list
+            .first()
+            .ok_or_else(|| CcxtError::BadResponse {
+                message: "Empty open interest response".into(),
+            })?;
 
         let timestamp: i64 = data.timestamp.parse().unwrap_or_default();
         let amount: Decimal = data.open_interest.parse().unwrap_or_default();
@@ -1797,19 +1897,25 @@ impl Exchange for Bybit {
         params.insert("category".into(), "linear".into());
         params.insert("symbol".into(), market_id);
 
-        let response: BybitTickersResult = self
-            .public_get("/v5/market/tickers", Some(params))
-            .await?;
+        let response: BybitTickersResult =
+            self.public_get("/v5/market/tickers", Some(params)).await?;
 
-        let data = response.list.first().ok_or_else(|| CcxtError::BadResponse {
-            message: "Empty ticker response".into(),
-        })?;
+        let data = response
+            .list
+            .first()
+            .ok_or_else(|| CcxtError::BadResponse {
+                message: "Empty ticker response".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let index_price: Decimal = data.index_price.as_ref()
+        let index_price: Decimal = data
+            .index_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let mark_price: Decimal = data.mark_price.as_ref()
+        let mark_price: Decimal = data
+            .mark_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
 
@@ -1832,16 +1938,20 @@ impl Exchange for Bybit {
         params.insert("category".into(), "linear".into());
         params.insert("symbol".into(), market_id);
 
-        let response: BybitTickersResult = self
-            .public_get("/v5/market/tickers", Some(params))
-            .await?;
+        let response: BybitTickersResult =
+            self.public_get("/v5/market/tickers", Some(params)).await?;
 
-        let data = response.list.first().ok_or_else(|| CcxtError::BadResponse {
-            message: "Empty ticker response".into(),
-        })?;
+        let data = response
+            .list
+            .first()
+            .ok_or_else(|| CcxtError::BadResponse {
+                message: "Empty ticker response".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let mark_price: Decimal = data.mark_price.as_ref()
+        let mark_price: Decimal = data
+            .mark_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
 
@@ -1862,16 +1972,20 @@ impl Exchange for Bybit {
         let mut params = HashMap::new();
         params.insert("category".into(), "linear".into());
 
-        let response: BybitTickersResult = self
-            .public_get("/v5/market/tickers", Some(params))
-            .await?;
+        let response: BybitTickersResult =
+            self.public_get("/v5/market/tickers", Some(params)).await?;
 
         let timestamp = Utc::now().timestamp_millis();
 
         let mut tickers: HashMap<String, Ticker> = HashMap::new();
 
         for data in &response.list {
-            let symbol = match self.markets_by_id.read().ok().and_then(|m| m.get(&data.symbol).cloned()) {
+            let symbol = match self
+                .markets_by_id
+                .read()
+                .ok()
+                .and_then(|m| m.get(&data.symbol).cloned())
+            {
                 Some(s) => s,
                 None => continue,
             };
@@ -1887,14 +2001,17 @@ impl Exchange for Bybit {
                 None => continue,
             };
 
-            tickers.insert(symbol.clone(), Ticker {
-                symbol,
-                timestamp: Some(timestamp),
-                datetime: Some(Utc::now().to_rfc3339()),
-                mark_price: Some(mark_price),
-                info: serde_json::to_value(data).unwrap_or_default(),
-                ..Default::default()
-            });
+            tickers.insert(
+                symbol.clone(),
+                Ticker {
+                    symbol,
+                    timestamp: Some(timestamp),
+                    datetime: Some(Utc::now().to_rfc3339()),
+                    mark_price: Some(mark_price),
+                    info: serde_json::to_value(data).unwrap_or_default(),
+                    ..Default::default()
+                },
+            );
         }
 
         Ok(tickers)
@@ -1908,9 +2025,12 @@ impl Exchange for Bybit {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_linear_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("category".into(), "linear".into());
@@ -1957,9 +2077,12 @@ impl Exchange for Bybit {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_linear_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("category".into(), "linear".into());
@@ -2052,10 +2175,197 @@ impl Exchange for Bybit {
             .private_request("GET", "/v5/spot-cross-margin-trade/loan-info", params)
             .await?;
 
-        let rate = response.interest_rate.parse::<Decimal>().unwrap_or_default();
+        let rate = response
+            .interest_rate
+            .parse::<Decimal>()
+            .unwrap_or_default();
 
-        Ok(crate::types::CrossBorrowRate::new(rate)
-            .with_currency(code))
+        Ok(crate::types::CrossBorrowRate::new(rate).with_currency(code))
+    }
+
+    // === Convert API ===
+
+    /// Fetch available convert currency pairs
+    async fn fetch_convert_currencies(&self) -> CcxtResult<Vec<ConvertCurrencyPair>> {
+        let mut params = HashMap::new();
+        params.insert("accountType".to_string(), "eb_convert_funding".to_string());
+
+        let response: BybitConvertCoins = self
+            .private_request("GET", "/v5/asset/convert/query-coin-list", params)
+            .await?;
+
+        let mut pairs = Vec::new();
+        for coin in response.coins {
+            for to_coin in &coin.to_coins {
+                let mut pair = ConvertCurrencyPair::new(&coin.coin, to_coin);
+                pair.min_amount = coin.min_single_amount.as_ref().and_then(|s| s.parse().ok());
+                pair.max_amount = coin.max_single_amount.as_ref().and_then(|s| s.parse().ok());
+                pair.info = serde_json::json!({
+                    "fromCoin": &coin.coin,
+                    "toCoin": to_coin,
+                    "minSingleAmount": &coin.min_single_amount,
+                    "maxSingleAmount": &coin.max_single_amount,
+                });
+                pairs.push(pair);
+            }
+        }
+
+        Ok(pairs)
+    }
+
+    /// Get a convert quote
+    async fn fetch_convert_quote(
+        &self,
+        from_code: &str,
+        to_code: &str,
+        amount: Decimal,
+    ) -> CcxtResult<ConvertQuote> {
+        let mut params = HashMap::new();
+        params.insert("fromCoin".to_string(), from_code.to_uppercase());
+        params.insert("toCoin".to_string(), to_code.to_uppercase());
+        params.insert("requestCoin".to_string(), from_code.to_uppercase());
+        params.insert("requestAmount".to_string(), amount.to_string());
+        params.insert("accountType".to_string(), "eb_convert_funding".to_string());
+
+        let response: BybitConvertQuote = self
+            .private_request("POST", "/v5/asset/convert/request-quote", params)
+            .await?;
+
+        let from_amount: Decimal = response.from_coin_amount.parse().unwrap_or_default();
+        let to_amount: Decimal = response.to_coin_amount.parse().unwrap_or_default();
+        let exchange_rate: Decimal = response.exchange_rate.parse().unwrap_or_default();
+
+        let mut quote = ConvertQuote::new(
+            &response.quote_tx_id,
+            from_code,
+            to_code,
+            from_amount,
+            exchange_rate,
+        );
+        quote.to_amount = Some(to_amount);
+        let timestamp = Utc::now().timestamp_millis();
+        quote.timestamp = Some(timestamp);
+        quote.datetime = Some(Utc::now().to_rfc3339());
+        quote.expire_timestamp = response
+            .expired_time
+            .as_ref()
+            .map(|t| t.parse::<i64>().unwrap_or_default());
+        quote.info = serde_json::to_value(&response).unwrap_or_default();
+
+        Ok(quote)
+    }
+
+    /// Accept a convert quote and execute the trade
+    async fn create_convert_trade(&self, quote_id: &str) -> CcxtResult<ConvertTrade> {
+        let mut params = HashMap::new();
+        params.insert("quoteTxId".to_string(), quote_id.to_string());
+
+        let response: BybitConvertResult = self
+            .private_request("POST", "/v5/asset/convert/confirm-quote", params)
+            .await?;
+
+        let from_amount: Decimal = response.from_coin_amount.parse().unwrap_or_default();
+        let to_amount: Decimal = response.to_coin_amount.parse().unwrap_or_default();
+        let exchange_rate: Decimal = response.exchange_rate.parse().unwrap_or_default();
+
+        let mut trade = ConvertTrade::new(
+            &response.exchange_tx_id,
+            &response.from_coin,
+            &response.to_coin,
+            from_amount,
+            to_amount,
+            exchange_rate,
+        );
+        trade.timestamp = response
+            .created_time
+            .as_ref()
+            .map(|t| t.parse::<i64>().unwrap_or_default());
+        trade.datetime = trade.timestamp.map(|t| {
+            chrono::DateTime::from_timestamp_millis(t)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+        });
+        trade.info = serde_json::to_value(&response).unwrap_or_default();
+        trade.status = response.status;
+
+        Ok(trade)
+    }
+
+    /// Fetch a convert trade by ID
+    async fn fetch_convert_trade(&self, id: &str) -> CcxtResult<ConvertTrade> {
+        // Bybit doesn't have a direct endpoint for single trade lookup
+        // Use history with filter
+        let history = self.fetch_convert_trade_history(None, Some(100)).await?;
+
+        history
+            .into_iter()
+            .find(|t| t.id == id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("Convert trade {id} not found"),
+            })
+    }
+
+    /// Fetch convert trade history
+    async fn fetch_convert_trade_history(
+        &self,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<ConvertTrade>> {
+        let mut params = HashMap::new();
+        params.insert("accountType".to_string(), "eb_convert_funding".to_string());
+
+        if let Some(l) = limit {
+            params.insert("limit".to_string(), l.min(100).to_string());
+        }
+
+        let response: BybitConvertHistory = self
+            .private_request("GET", "/v5/asset/convert/query-order-list", params)
+            .await?;
+
+        let trades: Vec<ConvertTrade> = response
+            .list
+            .into_iter()
+            .filter(|order| {
+                if let Some(since_ts) = since {
+                    order
+                        .created_time
+                        .as_ref()
+                        .and_then(|t| t.parse::<i64>().ok())
+                        .map(|t| t >= since_ts)
+                        .unwrap_or(true)
+                } else {
+                    true
+                }
+            })
+            .map(|order| {
+                let from_amount: Decimal = order.from_coin_amount.parse().unwrap_or_default();
+                let to_amount: Decimal = order.to_coin_amount.parse().unwrap_or_default();
+                let exchange_rate: Decimal = order.exchange_rate.parse().unwrap_or_default();
+
+                let mut trade = ConvertTrade::new(
+                    &order.exchange_tx_id,
+                    &order.from_coin,
+                    &order.to_coin,
+                    from_amount,
+                    to_amount,
+                    exchange_rate,
+                );
+                trade.timestamp = order
+                    .created_time
+                    .as_ref()
+                    .map(|t| t.parse::<i64>().unwrap_or_default());
+                trade.datetime = trade.timestamp.map(|t| {
+                    chrono::DateTime::from_timestamp_millis(t)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                });
+                trade.status = order.status.clone();
+                trade.info = serde_json::to_value(&order).unwrap_or_default();
+                trade
+            })
+            .collect();
+
+        Ok(trades)
     }
 }
 
@@ -2509,6 +2819,96 @@ struct BybitLoanInfoResponse {
     loan_able_amount: Option<String>,
     #[serde(default)]
     max_loan_amount: Option<String>,
+}
+
+// === Bybit Convert API Response Types ===
+
+/// Convert coin list from /v5/asset/convert/query-coin-list
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitConvertCoins {
+    #[serde(default)]
+    coins: Vec<BybitConvertCoin>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitConvertCoin {
+    coin: String,
+    #[serde(default)]
+    to_coins: Vec<String>,
+    #[serde(default)]
+    min_single_amount: Option<String>,
+    #[serde(default)]
+    max_single_amount: Option<String>,
+}
+
+/// Convert quote from /v5/asset/convert/request-quote
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitConvertQuote {
+    quote_tx_id: String,
+    #[serde(default)]
+    exchange_rate: String,
+    #[serde(default)]
+    from_coin: String,
+    #[serde(default)]
+    from_coin_amount: String,
+    #[serde(default)]
+    to_coin: String,
+    #[serde(default)]
+    to_coin_amount: String,
+    #[serde(default)]
+    expired_time: Option<String>,
+}
+
+/// Convert result from /v5/asset/convert/confirm-quote
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitConvertResult {
+    exchange_tx_id: String,
+    #[serde(default)]
+    exchange_rate: String,
+    #[serde(default)]
+    from_coin: String,
+    #[serde(default)]
+    from_coin_amount: String,
+    #[serde(default)]
+    to_coin: String,
+    #[serde(default)]
+    to_coin_amount: String,
+    #[serde(default)]
+    created_time: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+/// Convert order history from /v5/asset/convert/query-order-list
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitConvertHistory {
+    #[serde(default)]
+    list: Vec<BybitConvertOrder>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitConvertOrder {
+    exchange_tx_id: String,
+    #[serde(default)]
+    exchange_rate: String,
+    #[serde(default)]
+    from_coin: String,
+    #[serde(default)]
+    from_coin_amount: String,
+    #[serde(default)]
+    to_coin: String,
+    #[serde(default)]
+    to_coin_amount: String,
+    #[serde(default)]
+    created_time: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
 }
 
 #[cfg(test)]

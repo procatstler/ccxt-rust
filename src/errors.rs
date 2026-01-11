@@ -51,7 +51,6 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum CcxtError {
     // === ExchangeError family ===
-
     /// Generic exchange error
     #[error("Exchange error: {message}")]
     ExchangeError { message: String },
@@ -165,7 +164,6 @@ pub enum CcxtError {
     ExchangeClosedByUser,
 
     // === OperationFailed / NetworkError family ===
-
     /// Generic operation failed error (parent of NetworkError family)
     #[error("Operation failed: {message}")]
     OperationFailed { message: String },
@@ -219,13 +217,11 @@ pub enum CcxtError {
     CancelPending { order_id: String },
 
     // === WebSocket specific ===
-
     /// WebSocket unsubscribe error
     #[error("Unsubscribe error: {message}")]
     UnsubscribeError { message: String },
 
     // === Parsing errors ===
-
     /// Failed to parse response data
     #[error("Parse error: {data_type} - {message}")]
     ParseError { data_type: String, message: String },
@@ -235,7 +231,6 @@ pub enum CcxtError {
     JsonError { message: String },
 
     // === Cryptographic errors ===
-
     /// Invalid cryptographic signature
     #[error("Invalid signature: {message}")]
     InvalidSignature { message: String },
@@ -362,13 +357,13 @@ impl CcxtError {
         match self {
             CcxtError::RateLimitExceeded { retry_after_ms, .. } => {
                 retry_after_ms.or(Some(1000)) // Default 1 second for rate limits
-            }
+            },
             CcxtError::RequestTimeout { .. } => Some(5000), // 5 seconds for timeouts
             CcxtError::ExchangeNotAvailable { .. } => Some(30000), // 30 seconds
             CcxtError::OnMaintenance { .. } => Some(60000), // 1 minute for maintenance
-            CcxtError::NetworkError { .. } => Some(1000), // 1 second for network errors
+            CcxtError::NetworkError { .. } => Some(1000),   // 1 second for network errors
             CcxtError::OperationFailed { .. } => Some(1000), // 1 second for operation failures
-            CcxtError::InvalidNonce { .. } => Some(100), // 100ms for nonce issues
+            CcxtError::InvalidNonce { .. } => Some(100),    // 100ms for nonce issues
             CcxtError::DDoSProtection { .. } => Some(60000), // 1 minute for DDoS protection
             _ => None,
         }

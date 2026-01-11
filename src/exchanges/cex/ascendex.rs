@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -13,14 +14,13 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::RwLock;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Fee, OHLCV,
+    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://ascendex.com";
@@ -50,10 +50,16 @@ impl Ascendex {
         api_urls.insert("private".into(), BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/55bab6b9-d4ca-42a8-a0e6-fac81ae557f1".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/55bab6b9-d4ca-42a8-a0e6-fac81ae557f1"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://ascendex.com".into()),
-            doc: vec!["https://ascendex.github.io/ascendex-pro-api/#ascendex-pro-api-documentation".into()],
+            doc: vec![
+                "https://ascendex.github.io/ascendex-pro-api/#ascendex-pro-api-documentation"
+                    .into(),
+            ],
             fees: Some("https://ascendex.com/en/feerate/transactionfee-traderate".into()),
         };
 
@@ -128,18 +134,20 @@ impl Ascendex {
     /// Get account group ID
     async fn get_account_group(&self) -> CcxtResult<String> {
         {
-            let ag = self.account_group.read().map_err(|_| CcxtError::ExchangeError {
-                message: "Failed to acquire read lock".into(),
-            })?;
+            let ag = self
+                .account_group
+                .read()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to acquire read lock".into(),
+                })?;
             if let Some(group) = ag.as_ref() {
                 return Ok(group.clone());
             }
         }
 
         // Fetch account info
-        let response: AscendexResponse<AscendexAccountInfo> = self
-            .private_get("/api/pro/v1/info", HashMap::new())
-            .await?;
+        let response: AscendexResponse<AscendexAccountInfo> =
+            self.private_get("/api/pro/v1/info", HashMap::new()).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No account info returned".into(),
@@ -148,9 +156,12 @@ impl Ascendex {
         let group_id = data.account_group.to_string();
 
         {
-            let mut ag = self.account_group.write().map_err(|_| CcxtError::ExchangeError {
-                message: "Failed to acquire write lock".into(),
-            })?;
+            let mut ag = self
+                .account_group
+                .write()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to acquire write lock".into(),
+                })?;
             *ag = Some(group_id.clone());
         }
 
@@ -159,58 +170,123 @@ impl Ascendex {
 
     /// Parse market data
     fn parse_market(&self, data: &AscendexMarket, market_type: MarketType) -> Market {
-        let (id, symbol, base, quote, base_id, quote_id, settle, settle_id) = if market_type == MarketType::Spot {
-            let id = data.symbol.clone().unwrap_or_default();
-            let parts: Vec<&str> = id.split('/').collect();
-            let base_id = parts.first().unwrap_or(&"").to_string();
-            let quote_id = parts.get(1).unwrap_or(&"").to_string();
-            let base = base_id.clone();
-            let quote = quote_id.clone();
-            let symbol = format!("{base}/{quote}");
-            (id, symbol, base, quote, base_id, quote_id, None, None)
-        } else {
-            let id = data.symbol.clone().unwrap_or_default();
-            let underlying = data.underlying.as_ref().unwrap_or(&id);
-            let parts: Vec<&str> = underlying.split('/').collect();
-            let base_id = parts.first().unwrap_or(&"").to_string();
-            let quote_id = parts.get(1).unwrap_or(&"").to_string();
-            let settle_id = data.settlement_asset.clone().unwrap_or_default();
-            let base = base_id.clone();
-            let quote = quote_id.clone();
-            let settle = settle_id.clone();
-            let symbol = format!("{base}{quote}:{settle}");
-            (id, symbol, base, quote, base_id, quote_id, Some(settle), Some(settle_id))
-        };
+        let (id, symbol, base, quote, base_id, quote_id, settle, settle_id) =
+            if market_type == MarketType::Spot {
+                let id = data.symbol.clone().unwrap_or_default();
+                let parts: Vec<&str> = id.split('/').collect();
+                let base_id = parts.first().unwrap_or(&"").to_string();
+                let quote_id = parts.get(1).unwrap_or(&"").to_string();
+                let base = base_id.clone();
+                let quote = quote_id.clone();
+                let symbol = format!("{base}/{quote}");
+                (id, symbol, base, quote, base_id, quote_id, None, None)
+            } else {
+                let id = data.symbol.clone().unwrap_or_default();
+                let underlying = data.underlying.as_ref().unwrap_or(&id);
+                let parts: Vec<&str> = underlying.split('/').collect();
+                let base_id = parts.first().unwrap_or(&"").to_string();
+                let quote_id = parts.get(1).unwrap_or(&"").to_string();
+                let settle_id = data.settlement_asset.clone().unwrap_or_default();
+                let base = base_id.clone();
+                let quote = quote_id.clone();
+                let settle = settle_id.clone();
+                let symbol = format!("{base}{quote}:{settle}");
+                (
+                    id,
+                    symbol,
+                    base,
+                    quote,
+                    base_id,
+                    quote_id,
+                    Some(settle),
+                    Some(settle_id),
+                )
+            };
 
         let active = data.status.as_deref() == Some("Normal");
 
-        let (price_precision, amount_precision, min_price, max_price, min_amount, max_amount, min_cost, max_cost) =
-            if let Some(price_filter) = &data.price_filter {
-                let tick_size = price_filter.tick_size.and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let min_price = price_filter.min_price.and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let max_price = price_filter.max_price.and_then(|v| Decimal::from_str(&v.to_string()).ok());
+        let (
+            price_precision,
+            amount_precision,
+            min_price,
+            max_price,
+            min_amount,
+            max_amount,
+            min_cost,
+            max_cost,
+        ) = if let Some(price_filter) = &data.price_filter {
+            let tick_size = price_filter
+                .tick_size
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let min_price = price_filter
+                .min_price
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let max_price = price_filter
+                .max_price
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
 
-                let lot_filter = data.lot_size_filter.as_ref();
-                let lot_size = lot_filter.and_then(|f| f.lot_size).and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let min_qty = lot_filter.and_then(|f| f.min_qty).and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let max_qty = lot_filter.and_then(|f| f.max_qty).and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let lot_filter = data.lot_size_filter.as_ref();
+            let lot_size = lot_filter
+                .and_then(|f| f.lot_size)
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let min_qty = lot_filter
+                .and_then(|f| f.min_qty)
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let max_qty = lot_filter
+                .and_then(|f| f.max_qty)
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
 
-                let min_notional = data.min_notional.and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let max_notional = data.max_notional.and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let min_notional = data
+                .min_notional
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let max_notional = data
+                .max_notional
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
 
-                (tick_size, lot_size, min_price, max_price, min_qty, max_qty, min_notional, max_notional)
-            } else {
-                let tick_size = data.tick_size.and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let lot_size = data.lot_size.and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let min_qty = data.min_qty.and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let max_qty = data.max_qty.and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let min_notional = data.min_notional.and_then(|v| Decimal::from_str(&v.to_string()).ok());
-                let max_notional = data.max_notional.and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            (
+                tick_size,
+                lot_size,
+                min_price,
+                max_price,
+                min_qty,
+                max_qty,
+                min_notional,
+                max_notional,
+            )
+        } else {
+            let tick_size = data
+                .tick_size
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let lot_size = data
+                .lot_size
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let min_qty = data
+                .min_qty
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let max_qty = data
+                .max_qty
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let min_notional = data
+                .min_notional
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
+            let max_notional = data
+                .max_notional
+                .and_then(|v| Decimal::from_str(&v.to_string()).ok());
 
-                (tick_size, lot_size, None, None, min_qty, max_qty, min_notional, max_notional)
-            };
+            (
+                tick_size,
+                lot_size,
+                None,
+                None,
+                min_qty,
+                max_qty,
+                min_notional,
+                max_notional,
+            )
+        };
 
-        let fee = data.commission_reserve_rate
+        let fee = data
+            .commission_reserve_rate
             .and_then(|v| Decimal::from_str(&v.to_string()).ok());
 
         Market {
@@ -304,10 +380,22 @@ impl Ascendex {
             datetime: Some(Utc::now().to_rfc3339()),
             high: data.high.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             low: data.low.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            bid: bid_data.and_then(|b| b.first()).and_then(|v| v.as_str()).and_then(|v| Decimal::from_str(v).ok()),
-            bid_volume: bid_data.and_then(|b| b.get(1)).and_then(|v| v.as_str()).and_then(|v| Decimal::from_str(v).ok()),
-            ask: ask_data.and_then(|a| a.first()).and_then(|v| v.as_str()).and_then(|v| Decimal::from_str(v).ok()),
-            ask_volume: ask_data.and_then(|a| a.get(1)).and_then(|v| v.as_str()).and_then(|v| Decimal::from_str(v).ok()),
+            bid: bid_data
+                .and_then(|b| b.first())
+                .and_then(|v| v.as_str())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            bid_volume: bid_data
+                .and_then(|b| b.get(1))
+                .and_then(|v| v.as_str())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            ask: ask_data
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            ask_volume: ask_data
+                .and_then(|a| a.get(1))
+                .and_then(|v| v.as_str())
+                .and_then(|v| Decimal::from_str(v).ok()),
             vwap: None,
             open: data.open.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             close: data.close.as_ref().and_then(|v| Decimal::from_str(v).ok()),
@@ -399,20 +487,30 @@ impl Ascendex {
 
         let symbol = data.symbol.clone().unwrap_or_default();
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.order_qty.as_ref()
+        let amount = data
+            .order_qty
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
-        let filled = data.cum_filled_qty.as_ref()
+        let filled = data
+            .cum_filled_qty
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
         let remaining = amount - filled;
-        let average = data.avg_filled_px.as_ref().and_then(|p| Decimal::from_str(p).ok());
+        let average = data
+            .avg_filled_px
+            .as_ref()
+            .and_then(|p| Decimal::from_str(p).ok());
         let cost = if filled > Decimal::ZERO {
             average.map(|avg| avg * filled)
         } else {
             None
         };
-        let fee_cost = data.cum_fee.as_ref().and_then(|f| Decimal::from_str(f).ok());
+        let fee_cost = data
+            .cum_fee
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok());
 
         Ok(Order {
             id: data.order_id.clone().unwrap_or_default(),
@@ -443,7 +541,10 @@ impl Ascendex {
             reduce_only: data.exec_inst.as_ref().map(|i| i.contains("ReduceOnly")),
             post_only: None,
             time_in_force: None,
-            stop_price: data.stop_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            stop_price: data
+                .stop_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
@@ -457,20 +558,27 @@ impl Ascendex {
 
         for entry in data {
             let code = entry.asset.clone().unwrap_or_default();
-            let total = entry.total_balance.as_ref()
+            let total = entry
+                .total_balance
+                .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok())
                 .unwrap_or_default();
-            let free = entry.available_balance.as_ref()
+            let free = entry
+                .available_balance
+                .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok())
                 .unwrap_or_default();
             let used = total - free;
 
-            currencies.insert(code, Balance {
-                free: Some(free),
-                used: Some(used),
-                total: Some(total),
-                debt: None,
-            });
+            currencies.insert(
+                code,
+                Balance {
+                    free: Some(free),
+                    used: Some(used),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         Balances {
@@ -483,16 +591,20 @@ impl Ascendex {
 
     /// Sign request with HMAC SHA256
     fn sign_request(&self, timestamp: &str, path: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         let message = format!("{timestamp}+{path}");
 
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = mac.finalize().into_bytes();
 
@@ -517,9 +629,12 @@ impl Ascendex {
     ) -> CcxtResult<AscendexResponse<T>> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let signature = self.sign_request(&timestamp, path)?;
@@ -529,11 +644,14 @@ impl Ascendex {
         headers.insert("x-auth-timestamp".to_string(), timestamp);
         headers.insert("x-auth-signature".to_string(), signature);
 
-        let response: AscendexResponse<T> = self.client.get(path, Some(params), Some(headers)).await?;
+        let response: AscendexResponse<T> =
+            self.client.get(path, Some(params), Some(headers)).await?;
 
         if response.code != Some(0) {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Unknown error".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             });
         }
 
@@ -548,9 +666,12 @@ impl Ascendex {
     ) -> CcxtResult<AscendexResponse<T>> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let signature = self.sign_request(&timestamp, path)?;
@@ -561,11 +682,14 @@ impl Ascendex {
         headers.insert("x-auth-signature".to_string(), signature);
         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-        let response: AscendexResponse<T> = self.client.post(path, Some(params), Some(headers)).await?;
+        let response: AscendexResponse<T> =
+            self.client.post(path, Some(params), Some(headers)).await?;
 
         if response.code != Some(0) {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Unknown error".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             });
         }
 
@@ -580,9 +704,12 @@ impl Ascendex {
     ) -> CcxtResult<AscendexResponse<T>> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let signature = self.sign_request(&timestamp, path)?;
@@ -593,11 +720,20 @@ impl Ascendex {
         headers.insert("x-auth-signature".to_string(), signature);
         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-        let response: AscendexResponse<T> = self.client.delete_json(path, Some(serde_json::to_value(&params).unwrap_or_default()), Some(headers)).await?;
+        let response: AscendexResponse<T> = self
+            .client
+            .delete_json(
+                path,
+                Some(serde_json::to_value(&params).unwrap_or_default()),
+                Some(headers),
+            )
+            .await?;
 
         if response.code != Some(0) {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Unknown error".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             });
         }
 
@@ -663,7 +799,12 @@ impl Exchange for Ascendex {
 
         // Parse spot markets
         for market_data in spot_data {
-            if market_data.symbol.as_ref().map(|s| s.contains("-PERP")).unwrap_or(false) {
+            if market_data
+                .symbol
+                .as_ref()
+                .map(|s| s.contains("-PERP"))
+                .unwrap_or(false)
+            {
                 continue; // Skip perpetuals in spot list
             }
             let market = self.parse_market(&market_data, MarketType::Spot);
@@ -685,9 +826,12 @@ impl Exchange for Ascendex {
             *m = markets_map.clone();
         }
         {
-            let mut m = self.markets_by_id.write().map_err(|_| CcxtError::ExchangeError {
-                message: "Failed to acquire write lock".into(),
-            })?;
+            let mut m = self
+                .markets_by_id
+                .write()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to acquire write lock".into(),
+                })?;
             *m = markets_by_id_map;
         }
 
@@ -714,9 +858,8 @@ impl Exchange for Ascendex {
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
 
-        let response: AscendexResponse<AscendexTicker> = self
-            .public_get("/api/pro/v1/ticker", params)
-            .await?;
+        let response: AscendexResponse<AscendexTicker> =
+            self.public_get("/api/pro/v1/ticker", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No ticker data returned".into(),
@@ -741,9 +884,8 @@ impl Exchange for Ascendex {
             params.insert("symbol".to_string(), market_ids.join(","));
         }
 
-        let response: AscendexResponse<Vec<AscendexTicker>> = self
-            .public_get("/api/pro/v1/ticker", params)
-            .await?;
+        let response: AscendexResponse<Vec<AscendexTicker>> =
+            self.public_get("/api/pro/v1/ticker", params).await?;
 
         let data = response.data.unwrap_or_default();
         let mut tickers = HashMap::new();
@@ -775,9 +917,8 @@ impl Exchange for Ascendex {
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
 
-        let response: AscendexResponse<AscendexOrderBookWrapper> = self
-            .public_get("/api/pro/v1/depth", params)
-            .await?;
+        let response: AscendexResponse<AscendexOrderBookWrapper> =
+            self.public_get("/api/pro/v1/depth", params).await?;
 
         let wrapper = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No order book data returned".into(),
@@ -787,29 +928,39 @@ impl Exchange for Ascendex {
             message: "No order book data returned".into(),
         })?;
 
-        let timestamp = orderbook_data.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = orderbook_data
+            .ts
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = orderbook_data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(b[0].as_str()?).ok()?,
-                    amount: Decimal::from_str(b[1].as_str()?).ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = orderbook_data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(b[0].as_str()?).ok()?,
+                        amount: Decimal::from_str(b[1].as_str()?).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = orderbook_data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(a[0].as_str()?).ok()?,
-                    amount: Decimal::from_str(a[1].as_str()?).ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = orderbook_data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(a[0].as_str()?).ok()?,
+                        amount: Decimal::from_str(a[1].as_str()?).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
@@ -822,10 +973,16 @@ impl Exchange for Ascendex {
             nonce: orderbook_data.seqnum,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         self.load_markets(false).await?;
         let market_id = {
             let markets = self.markets.read().map_err(|_| CcxtError::ExchangeError {
@@ -843,9 +1000,8 @@ impl Exchange for Ascendex {
             params.insert("n".to_string(), l.to_string());
         }
 
-        let response: AscendexResponse<AscendexTradesWrapper> = self
-            .public_get("/api/pro/v1/trades", params)
-            .await?;
+        let response: AscendexResponse<AscendexTradesWrapper> =
+            self.public_get("/api/pro/v1/trades", params).await?;
 
         let wrapper = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No trades data returned".into(),
@@ -888,7 +1044,9 @@ impl Exchange for Ascendex {
             market.id.clone()
         };
 
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -904,9 +1062,8 @@ impl Exchange for Ascendex {
             params.insert("n".to_string(), l.to_string());
         }
 
-        let response: AscendexResponse<Vec<AscendexOHLCV>> = self
-            .public_get("/api/pro/v1/barhist", params)
-            .await?;
+        let response: AscendexResponse<Vec<AscendexOHLCV>> =
+            self.public_get("/api/pro/v1/barhist", params).await?;
 
         let data = response.data.unwrap_or_default();
         let mut ohlcv_list = Vec::new();
@@ -925,9 +1082,8 @@ impl Exchange for Ascendex {
         let account_group = self.get_account_group().await?;
 
         let path = format!("/api/pro/v1/{account_group}/spot/balance");
-        let response: AscendexResponse<Vec<AscendexBalanceEntry>> = self
-            .private_get(&path, HashMap::new())
-            .await?;
+        let response: AscendexResponse<Vec<AscendexBalanceEntry>> =
+            self.private_get(&path, HashMap::new()).await?;
 
         let data = response.data.unwrap_or_default();
         Ok(self.parse_balance(&data))
@@ -958,9 +1114,11 @@ impl Exchange for Ascendex {
             OrderType::Limit => "limit",
             OrderType::StopMarket => "stop_market",
             OrderType::StopLimit => "stop_limit",
-            _ => return Err(CcxtError::BadRequest {
-                message: format!("Unsupported order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: format!("Unsupported order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -980,9 +1138,8 @@ impl Exchange for Ascendex {
         }
 
         let path = format!("/api/pro/v1/{account_group}/cash/order");
-        let response: AscendexResponse<AscendexOrderResponse> = self
-            .private_post(&path, request)
-            .await?;
+        let response: AscendexResponse<AscendexOrderResponse> =
+            self.private_post(&path, request).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No order response".into(),
@@ -1041,9 +1198,8 @@ impl Exchange for Ascendex {
         });
 
         let path = format!("/api/pro/v1/{account_group}/cash/order");
-        let _response: AscendexResponse<AscendexCancelResponse> = self
-            .private_delete(&path, request)
-            .await?;
+        let _response: AscendexResponse<AscendexCancelResponse> =
+            self.private_delete(&path, request).await?;
 
         Ok(Order {
             id: id.to_string(),
@@ -1084,9 +1240,7 @@ impl Exchange for Ascendex {
         params.insert("orderId".to_string(), id.to_string());
 
         let path = format!("/api/pro/v1/{account_group}/cash/order/status");
-        let response: AscendexResponse<AscendexOrder> = self
-            .private_get(&path, params)
-            .await?;
+        let response: AscendexResponse<AscendexOrder> = self.private_get(&path, params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::OrderNotFound {
             order_id: id.to_string(),
@@ -1095,14 +1249,18 @@ impl Exchange for Ascendex {
         self.parse_order(&data)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         self.load_markets(false).await?;
         let account_group = self.get_account_group().await?;
 
         let path = format!("/api/pro/v1/{account_group}/cash/order/open");
-        let response: AscendexResponse<Vec<AscendexOrder>> = self
-            .private_get(&path, HashMap::new())
-            .await?;
+        let response: AscendexResponse<Vec<AscendexOrder>> =
+            self.private_get(&path, HashMap::new()).await?;
 
         let data = response.data.unwrap_or_default();
         let mut orders = Vec::new();
@@ -1119,7 +1277,12 @@ impl Exchange for Ascendex {
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         self.load_markets(false).await?;
         let account_group = self.get_account_group().await?;
 
@@ -1129,9 +1292,8 @@ impl Exchange for Ascendex {
         }
 
         let path = format!("/{account_group}/api/pro/v2/data/order/hist");
-        let response: AscendexResponse<Vec<AscendexOrder>> = self
-            .private_get(&path, params)
-            .await?;
+        let response: AscendexResponse<Vec<AscendexOrder>> =
+            self.private_get(&path, params).await?;
 
         let data = response.data.unwrap_or_default();
         let mut orders = Vec::new();
@@ -1187,7 +1349,8 @@ impl Exchange for Ascendex {
                     result_headers.insert("x-auth-signature".to_string(), signature);
 
                     if method == "POST" || method == "DELETE" {
-                        result_headers.insert("Content-Type".to_string(), "application/json".to_string());
+                        result_headers
+                            .insert("Content-Type".to_string(), "application/json".to_string());
                     }
                 }
             }

@@ -9,11 +9,11 @@
 
 #![allow(dead_code)]
 
-use crate::errors::{CcxtError, CcxtResult};
-use super::poseidon::{poseidon_hash_many, string_to_felt};
 use super::curve::get_public_key;
+use super::poseidon::{poseidon_hash_many, string_to_felt};
+use crate::errors::{CcxtError, CcxtResult};
+use sha2::{Digest, Sha256};
 use starknet_types_core::felt::Felt;
-use sha2::{Sha256, Digest};
 
 /// StarkNet 계정
 #[derive(Debug, Clone)]
@@ -58,12 +58,18 @@ impl StarkNetAccount {
 
     /// 공개키 16진수 반환
     pub fn public_key_hex(&self) -> String {
-        format!("0x{}", hex::encode(self.public_key.to_bytes_be()).trim_start_matches('0'))
+        format!(
+            "0x{}",
+            hex::encode(self.public_key.to_bytes_be()).trim_start_matches('0')
+        )
     }
 
     /// 주소 16진수 반환
     pub fn address_hex(&self) -> String {
-        format!("0x{}", hex::encode(self.address.to_bytes_be()).trim_start_matches('0'))
+        format!(
+            "0x{}",
+            hex::encode(self.address.to_bytes_be()).trim_start_matches('0')
+        )
     }
 }
 
@@ -127,10 +133,9 @@ pub fn derive_from_signature(signature: &[u8]) -> CcxtResult<Felt> {
 fn grind_key(seed: &[u8]) -> CcxtResult<Felt> {
     // StarkNet 필드 최대값 (약 2^251)
     let max_value = [
-        0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
     ];
 
     let mut current_seed = seed.to_vec();

@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://socket.btcmarkets.net/v2";
@@ -51,7 +51,8 @@ impl BtcmarketsWs {
 
     /// Parse ticker data
     fn parse_ticker(data: &BtcmarketsWsTicker, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp
+        let timestamp = data
+            .timestamp
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis())
@@ -60,7 +61,10 @@ impl BtcmarketsWs {
         Ticker {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: data.timestamp.clone().or_else(|| Some(Utc::now().to_rfc3339())),
+            datetime: data
+                .timestamp
+                .clone()
+                .or_else(|| Some(Utc::now().to_rfc3339())),
             high: data.high24h,
             low: data.low24h,
             bid: data.best_bid,
@@ -85,7 +89,8 @@ impl BtcmarketsWs {
 
     /// Parse order book data
     fn parse_order_book(data: &BtcmarketsWsOrderBook, symbol: &str) -> OrderBook {
-        let timestamp = data.timestamp
+        let timestamp = data
+            .timestamp
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis())
@@ -124,16 +129,21 @@ impl BtcmarketsWs {
         OrderBook {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: data.timestamp.clone().or_else(|| Some(Utc::now().to_rfc3339())),
+            datetime: data
+                .timestamp
+                .clone()
+                .or_else(|| Some(Utc::now().to_rfc3339())),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         }
     }
 
     /// Parse trade data
     fn parse_trade(data: &BtcmarketsWsTrade, symbol: &str) -> Trade {
-        let timestamp = data.timestamp
+        let timestamp = data
+            .timestamp
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis())
@@ -146,7 +156,10 @@ impl BtcmarketsWs {
             id: data.id.clone().unwrap_or_default(),
             order: None,
             timestamp: Some(timestamp),
-            datetime: data.timestamp.clone().or_else(|| Some(Utc::now().to_rfc3339())),
+            datetime: data
+                .timestamp
+                .clone()
+                .or_else(|| Some(Utc::now().to_rfc3339())),
             symbol: symbol.to_string(),
             trade_type: None,
             side: data.side.as_ref().map(|s| s.to_lowercase()),
@@ -171,16 +184,20 @@ impl BtcmarketsWs {
 
             match msg_type {
                 "tick" => {
-                    if let Ok(ticker_data) = serde_json::from_value::<BtcmarketsWsTicker>(json.clone()) {
+                    if let Ok(ticker_data) =
+                        serde_json::from_value::<BtcmarketsWsTicker>(json.clone())
+                    {
                         let ticker = Self::parse_ticker(&ticker_data, &symbol);
                         let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent {
                             symbol: symbol.clone(),
                             ticker,
                         }));
                     }
-                }
+                },
                 "orderbook" => {
-                    if let Ok(orderbook_data) = serde_json::from_value::<BtcmarketsWsOrderBook>(json.clone()) {
+                    if let Ok(orderbook_data) =
+                        serde_json::from_value::<BtcmarketsWsOrderBook>(json.clone())
+                    {
                         let order_book = Self::parse_order_book(&orderbook_data, &symbol);
                         let _ = event_tx.send(WsMessage::OrderBook(WsOrderBookEvent {
                             symbol: symbol.clone(),
@@ -188,17 +205,19 @@ impl BtcmarketsWs {
                             is_snapshot: true,
                         }));
                     }
-                }
+                },
                 "trade" => {
-                    if let Ok(trade_data) = serde_json::from_value::<BtcmarketsWsTrade>(json.clone()) {
+                    if let Ok(trade_data) =
+                        serde_json::from_value::<BtcmarketsWsTrade>(json.clone())
+                    {
                         let trade = Self::parse_trade(&trade_data, &symbol);
                         let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
                             symbol: symbol.clone(),
                             trades: vec![trade],
                         }));
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -221,6 +240,7 @@ impl BtcmarketsWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -246,18 +266,19 @@ impl BtcmarketsWs {
                 match event {
                     WsEvent::Message(msg) => {
                         let _ = Self::process_message(&msg, &event_tx);
-                    }
+                    },
                     WsEvent::Connected => {
                         let _ = event_tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = event_tx.send(WsMessage::Disconnected);
                         break;
-                    }
+                    },
                     WsEvent::Error(e) => {
                         let _ = event_tx.send(WsMessage::Error(e));
-                    }
-                    WsEvent::Ping | WsEvent::Pong => {}
+                    },
+                    WsEvent::Ping | WsEvent::Pong => {},
+                    _ => {},
                 }
             }
 
@@ -295,7 +316,11 @@ impl WsExchange for BtcmarketsWs {
         ws.subscribe_stream("tick", &market_id).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let market_id = Self::format_symbol(symbol);
         ws.subscribe_stream("orderbook", &market_id).await
@@ -307,7 +332,11 @@ impl WsExchange for BtcmarketsWs {
         ws.subscribe_stream("trade", &market_id).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // BTCMarkets doesn't support OHLCV WebSocket natively
         Err(crate::errors::CcxtError::NotSupported {
             feature: format!("OHLCV WebSocket for {symbol}"),
@@ -323,6 +352,7 @@ impl WsExchange for BtcmarketsWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             ws_client.connect().await?;

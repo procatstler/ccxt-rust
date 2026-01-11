@@ -7,11 +7,11 @@
 //!
 //! - [SNIP-12: Off-chain signing](https://github.com/starknet-io/SNIPs/blob/main/SNIPS/snip-12.md)
 
-use crate::errors::{CcxtError, CcxtResult};
 use super::poseidon::{poseidon_hash_many, string_to_felt, u64_to_felt};
+use crate::errors::{CcxtError, CcxtResult};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use starknet_types_core::felt::Felt;
+use std::collections::HashMap;
 
 /// StarkNet 타입 데이터 도메인
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,9 +128,12 @@ impl StarkNetTypedData {
 
     /// 타입 인코딩 문자열 생성
     fn encode_type(&self, type_name: &str) -> CcxtResult<String> {
-        let fields = self.types.get(type_name).ok_or_else(|| CcxtError::InvalidSignature {
-            message: format!("Type not found: {type_name}"),
-        })?;
+        let fields = self
+            .types
+            .get(type_name)
+            .ok_or_else(|| CcxtError::InvalidSignature {
+                message: format!("Type not found: {type_name}"),
+            })?;
 
         let field_strings: Vec<String> = fields
             .iter()
@@ -145,14 +148,19 @@ impl StarkNetTypedData {
         let type_hash = self.type_hash(type_name)?;
         let mut values = vec![type_hash];
 
-        let fields = self.types.get(type_name).ok_or_else(|| CcxtError::InvalidSignature {
-            message: format!("Type not found: {type_name}"),
-        })?;
+        let fields = self
+            .types
+            .get(type_name)
+            .ok_or_else(|| CcxtError::InvalidSignature {
+                message: format!("Type not found: {type_name}"),
+            })?;
 
         for field in fields {
-            let value = data.get(&field.name).ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Field not found: {}", field.name),
-            })?;
+            let value = data
+                .get(&field.name)
+                .ok_or_else(|| CcxtError::InvalidSignature {
+                    message: format!("Field not found: {}", field.name),
+                })?;
 
             let encoded = self.encode_value(&field.field_type, value)?;
             values.push(encoded);
@@ -204,7 +212,7 @@ impl StarkNetTypedData {
                             // 일반 문자열 - short string으로 인코딩
                             Ok(string_to_felt(s))
                         }
-                    }
+                    },
                     serde_json::Value::Number(n) => {
                         if let Some(u) = n.as_u64() {
                             Ok(u64_to_felt(u))
@@ -213,18 +221,18 @@ impl StarkNetTypedData {
                                 message: format!("Number too large: {n}"),
                             })
                         }
-                    }
+                    },
                     _ => Err(CcxtError::InvalidSignature {
                         message: format!("Expected felt, got {value:?}"),
                     }),
                 }
-            }
+            },
             "string" | "shortstring" => {
                 let s = value.as_str().ok_or_else(|| CcxtError::InvalidSignature {
                     message: format!("Expected string, got {value:?}"),
                 })?;
                 Ok(string_to_felt(s))
-            }
+            },
             "u64" | "u128" | "u256" => {
                 match value {
                     serde_json::Value::Number(n) => {
@@ -235,7 +243,7 @@ impl StarkNetTypedData {
                                 message: format!("Number too large: {n}"),
                             })
                         }
-                    }
+                    },
                     serde_json::Value::String(s) => {
                         // 16진수 또는 10진수 문자열
                         if s.starts_with("0x") {
@@ -246,18 +254,18 @@ impl StarkNetTypedData {
                             })?;
                             Ok(u64_to_felt(n))
                         }
-                    }
+                    },
                     _ => Err(CcxtError::InvalidSignature {
                         message: format!("Expected number, got {value:?}"),
                     }),
                 }
-            }
+            },
             "bool" => {
                 let b = value.as_bool().ok_or_else(|| CcxtError::InvalidSignature {
                     message: format!("Expected bool, got {value:?}"),
                 })?;
                 Ok(if b { Felt::ONE } else { Felt::ZERO })
-            }
+            },
             // 커스텀 구조체 타입
             _ => {
                 if self.types.contains_key(field_type) {
@@ -267,7 +275,7 @@ impl StarkNetTypedData {
                         message: format!("Unsupported type: {field_type}"),
                     })
                 }
-            }
+            },
         }
     }
 
@@ -284,7 +292,12 @@ impl StarkNetTypedData {
         let domain_hash = self.domain.hash();
         let message_hash = self.message_hash()?;
 
-        Ok(poseidon_hash_many(&[prefix, domain_hash, *account_address, message_hash]))
+        Ok(poseidon_hash_many(&[
+            prefix,
+            domain_hash,
+            *account_address,
+            message_hash,
+        ]))
     }
 }
 
@@ -302,8 +315,7 @@ mod tests {
 
     #[test]
     fn test_domain_hash() {
-        let domain = StarkNetDomain::new("TestApp", "1")
-            .with_chain_id("SN_MAIN");
+        let domain = StarkNetDomain::new("TestApp", "1").with_chain_id("SN_MAIN");
 
         let hash = domain.hash();
         assert_ne!(hash, Felt::ZERO);

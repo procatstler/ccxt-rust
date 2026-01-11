@@ -16,15 +16,15 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
-    WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOrderBookEvent,
-    WsOrderEvent, WsOhlcvEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
+    TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
+    WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    OHLCV,
 };
+use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::str::FromStr;
-use base64::{Engine as _, engine::general_purpose};
 
 /// Kucoin WebSocket 클라이언트
 pub struct KucoinWs {
@@ -115,12 +115,16 @@ impl KucoinWs {
             .post(url)
             .send()
             .await
-            .map_err(|e| CcxtError::NetworkError { url: url.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: url.to_string(),
+                message: e.to_string(),
+            })?;
 
-        let token_response: KucoinTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| CcxtError::ParseError { data_type: "KucoinTokenResponse".to_string(), message: e.to_string() })?;
+        let token_response: KucoinTokenResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
+                data_type: "KucoinTokenResponse".to_string(),
+                message: e.to_string(),
+            })?;
 
         token_response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Failed to get WebSocket token".into(),
@@ -130,8 +134,8 @@ impl KucoinWs {
     /// HMAC-SHA256 서명 생성
     fn sign(secret: &str, message: &str) -> String {
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(message.as_bytes());
         let result = mac.finalize();
         general_purpose::STANDARD.encode(result.into_bytes())
@@ -144,15 +148,24 @@ impl KucoinWs {
 
     /// Private 토큰 가져오기 (인증된 WebSocket 연결에 필요)
     async fn get_private_token(&self) -> CcxtResult<KucoinWsToken> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".into(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channels".into(),
-        })?;
-        let passphrase = self.passphrase.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required for private channels".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".into(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for private channels".into(),
+                })?;
+        let passphrase =
+            self.passphrase
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Passphrase required for private channels".into(),
+                })?;
 
         let url = "https://api.kucoin.com/api/v1/bullet-private";
         let timestamp = Utc::now().timestamp_millis().to_string();
@@ -170,12 +183,16 @@ impl KucoinWs {
             .header("KC-API-KEY-VERSION", "2")
             .send()
             .await
-            .map_err(|e| CcxtError::NetworkError { url: url.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: url.to_string(),
+                message: e.to_string(),
+            })?;
 
-        let token_response: KucoinTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| CcxtError::ParseError { data_type: "KucoinTokenResponse".to_string(), message: e.to_string() })?;
+        let token_response: KucoinTokenResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
+                data_type: "KucoinTokenResponse".to_string(),
+                message: e.to_string(),
+            })?;
 
         token_response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Failed to get private WebSocket token".into(),
@@ -207,9 +224,10 @@ impl KucoinWs {
             last: data.last.as_ref().and_then(|v| v.parse().ok()),
             previous_close: None,
             change: data.change_price.as_ref().and_then(|v| v.parse().ok()),
-            percentage: data.change_rate.as_ref().and_then(|v| {
-                v.parse::<Decimal>().ok().map(|d| d * Decimal::from(100))
-            }),
+            percentage: data
+                .change_rate
+                .as_ref()
+                .and_then(|v| v.parse::<Decimal>().ok().map(|d| d * Decimal::from(100))),
             average: None,
             base_volume: data.vol.as_ref().and_then(|v| v.parse().ok()),
             quote_volume: data.vol_value.as_ref().and_then(|v| v.parse().ok()),
@@ -222,30 +240,44 @@ impl KucoinWs {
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &KucoinOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+    fn parse_order_book(
+        data: &KucoinOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.to_string(),
@@ -258,6 +290,7 @@ impl KucoinWs {
             nonce: data.sequence,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -271,7 +304,9 @@ impl KucoinWs {
     fn parse_trade(data: &KucoinTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
         // Kucoin time is in nanoseconds
-        let timestamp = data.time.map(|t| t / 1_000_000)
+        let timestamp = data
+            .time
+            .map(|t| t / 1_000_000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.price.parse().unwrap_or_default();
         let amount: Decimal = data.size.parse().unwrap_or_default();
@@ -288,7 +323,10 @@ impl KucoinWs {
             symbol: symbol.clone(),
             trade_type: None,
             side: Some(data.side.to_lowercase()),
-            taker_or_maker: data.taker_order_id.as_ref().map(|_| crate::types::TakerOrMaker::Taker),
+            taker_or_maker: data
+                .taker_order_id
+                .as_ref()
+                .map(|_| crate::types::TakerOrMaker::Taker),
             price,
             amount,
             cost: Some(price * amount),
@@ -347,30 +385,40 @@ impl KucoinWs {
                 if let (Some(topic), Some(data)) = (&response.topic, &response.data) {
                     // Ticker
                     if topic.starts_with("/market/ticker:") {
-                        if let Ok(ticker_data) = serde_json::from_value::<KucoinTickerData>(data.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<KucoinTickerData>(data.clone())
+                        {
                             return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                         }
                     }
 
                     // Level2 OrderBook
                     if topic.starts_with("/market/level2:") {
-                        if let Ok(ob_data) = serde_json::from_value::<KucoinOrderBookData>(data.clone()) {
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<KucoinOrderBookData>(data.clone())
+                        {
                             let symbol_part = topic.trim_start_matches("/market/level2:");
                             let symbol = Self::to_unified_symbol(symbol_part);
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol, false)));
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data, &symbol, false,
+                            )));
                         }
                     }
 
                     // Match (trades)
                     if topic.starts_with("/market/match:") {
-                        if let Ok(trade_data) = serde_json::from_value::<KucoinTradeData>(data.clone()) {
+                        if let Ok(trade_data) =
+                            serde_json::from_value::<KucoinTradeData>(data.clone())
+                        {
                             return Some(WsMessage::Trade(Self::parse_trade(&trade_data)));
                         }
                     }
 
                     // Candles
                     if topic.starts_with("/market/candles:") {
-                        if let Ok(candle_data) = serde_json::from_value::<KucoinCandleData>(data.clone()) {
+                        if let Ok(candle_data) =
+                            serde_json::from_value::<KucoinCandleData>(data.clone())
+                        {
                             // Extract timeframe from topic (e.g., "/market/candles:BTC-USDT_1hour")
                             let parts: Vec<&str> = topic.split('_').collect();
                             let timeframe = if parts.len() >= 2 {
@@ -404,7 +452,9 @@ impl KucoinWs {
 
                     // Order updates (/spotMarket/tradeOrders)
                     if topic.starts_with("/spotMarket/tradeOrders") {
-                        if let Ok(order_data) = serde_json::from_value::<KucoinOrderData>(data.clone()) {
+                        if let Ok(order_data) =
+                            serde_json::from_value::<KucoinOrderData>(data.clone())
+                        {
                             // Check if this is a trade (match) event
                             if order_data.order_type.as_deref() == Some("match") {
                                 if let Some(trade_event) = Self::parse_my_trade(&order_data) {
@@ -420,7 +470,9 @@ impl KucoinWs {
 
                     // Balance updates (/account/balance)
                     if topic.starts_with("/account/balance") {
-                        if let Ok(balance_data) = serde_json::from_value::<KucoinBalanceData>(data.clone()) {
+                        if let Ok(balance_data) =
+                            serde_json::from_value::<KucoinBalanceData>(data.clone())
+                        {
                             if let Some(balance_event) = Self::parse_balance_update(&balance_data) {
                                 return Some(WsMessage::Balance(balance_event));
                             }
@@ -437,7 +489,9 @@ impl KucoinWs {
     fn parse_order_update(data: &KucoinOrderData) -> Option<WsOrderEvent> {
         let symbol = Self::to_unified_symbol(&data.symbol);
         // Kucoin timestamp is in nanoseconds, convert to milliseconds
-        let timestamp_ms = data.ts.map(|t| t / 1_000_000)
+        let timestamp_ms = data
+            .ts
+            .map(|t| t / 1_000_000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let side = match data.side.as_str() {
@@ -459,12 +513,18 @@ impl KucoinWs {
             Some("match") => OrderStatus::Open, // Partial fill
             Some("done") => {
                 // Check if canceled or filled
-                if data.remain_size.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default() > Decimal::ZERO {
+                if data
+                    .remain_size
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or_default()
+                    > Decimal::ZERO
+                {
                     OrderStatus::Canceled
                 } else {
                     OrderStatus::Closed
                 }
-            }
+            },
             Some("canceled") => OrderStatus::Canceled,
             _ => OrderStatus::Open,
         };
@@ -479,13 +539,21 @@ impl KucoinWs {
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
         let amount = data.size.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let filled = data.filled_size.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let remaining = data.remain_size.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let filled = data
+            .filled_size
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let remaining = data
+            .remain_size
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
 
         let average = if let (Some(amt), Some(fill)) = (amount, filled) {
             if fill > Decimal::ZERO && amt > Decimal::ZERO {
                 // Kucoin doesn't provide average directly, we'd need fills_price
-                data.fill_price.as_ref().and_then(|p| Decimal::from_str(p).ok())
+                data.fill_price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok())
             } else {
                 None
             }
@@ -499,13 +567,15 @@ impl KucoinWs {
             None
         };
 
-        let fee = data.fee.as_ref().and_then(|f| Decimal::from_str(f).ok()).map(|fee_amount| {
-            Fee {
+        let fee = data
+            .fee
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok())
+            .map(|fee_amount| Fee {
                 currency: data.fee_currency.clone(),
                 cost: Some(fee_amount),
                 rate: None,
-            }
-        });
+            });
 
         let is_post_only = data.time_in_force.as_deref() == Some("GTX");
 
@@ -555,11 +625,19 @@ impl KucoinWs {
 
         let symbol = Self::to_unified_symbol(&data.symbol);
         // Kucoin timestamp is in nanoseconds, convert to milliseconds
-        let timestamp_ms = data.ts.map(|t| t / 1_000_000)
+        let timestamp_ms = data
+            .ts
+            .map(|t| t / 1_000_000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let match_size = data.match_size.as_ref().and_then(|s| Decimal::from_str(s).ok())?;
-        let match_price = data.match_price.as_ref().and_then(|p| Decimal::from_str(p).ok())?;
+        let match_size = data
+            .match_size
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok())?;
+        let match_price = data
+            .match_price
+            .as_ref()
+            .and_then(|p| Decimal::from_str(p).ok())?;
 
         if match_size == Decimal::ZERO {
             return None;
@@ -572,13 +650,15 @@ impl KucoinWs {
             Some(TakerOrMaker::Maker)
         };
 
-        let fee = data.fee.as_ref().and_then(|f| Decimal::from_str(f).ok()).map(|fee_amount| {
-            Fee {
+        let fee = data
+            .fee
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok())
+            .map(|fee_amount| Fee {
                 currency: data.fee_currency.clone(),
                 cost: Some(fee_amount),
                 rate: None,
-            }
-        });
+            });
 
         let trade = Trade {
             id: data.trade_id.clone().unwrap_or_default(),
@@ -640,16 +720,29 @@ impl KucoinWs {
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
-    async fn subscribe_stream(&mut self, topics: Vec<String>, channel: &str, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        topics: Vec<String>,
+        channel: &str,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
         // Get WebSocket token
         let token_data = Self::get_public_token().await?;
-        let server = token_data.instance_servers.first()
-            .ok_or_else(|| CcxtError::ExchangeError { message: "No WebSocket server available".into() })?;
+        let server =
+            token_data
+                .instance_servers
+                .first()
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "No WebSocket server available".into(),
+                })?;
 
-        let ws_url = format!("{}?token={}&connectId={}", server.endpoint, token_data.token, self.connect_id);
+        let ws_url = format!(
+            "{}?token={}&connectId={}",
+            server.endpoint, token_data.token, self.connect_id
+        );
 
         let ping_interval = (server.ping_interval.unwrap_or(18000) / 1000) as u64;
 
@@ -660,6 +753,7 @@ impl KucoinWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: ping_interval,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -680,7 +774,10 @@ impl KucoinWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -690,19 +787,19 @@ impl KucoinWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -711,16 +808,28 @@ impl KucoinWs {
     }
 
     /// Private 채널 구독 (인증 필요)
-    async fn subscribe_private_stream(&mut self, topics: Vec<String>, channel: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_private_stream(
+        &mut self,
+        topics: Vec<String>,
+        channel: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
         // Get private WebSocket token (requires authentication)
         let token_data = self.get_private_token().await?;
-        let server = token_data.instance_servers.first()
-            .ok_or_else(|| CcxtError::ExchangeError { message: "No WebSocket server available".into() })?;
+        let server =
+            token_data
+                .instance_servers
+                .first()
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "No WebSocket server available".into(),
+                })?;
 
-        let ws_url = format!("{}?token={}&connectId={}", server.endpoint, token_data.token, self.connect_id);
+        let ws_url = format!(
+            "{}?token={}&connectId={}",
+            server.endpoint, token_data.token, self.connect_id
+        );
 
         let ping_interval = (server.ping_interval.unwrap_or(18000) / 1000) as u64;
 
@@ -731,6 +840,7 @@ impl KucoinWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: ping_interval,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -753,7 +863,10 @@ impl KucoinWs {
         // Store subscription
         {
             let key = format!("private:{channel}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Send authenticated message
@@ -766,19 +879,19 @@ impl KucoinWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -799,32 +912,49 @@ impl WsExchange for KucoinWs {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let topics = vec![format!("/market/ticker:{}", market_id)];
-        client.subscribe_stream(topics, "ticker", Some(symbol)).await
+        client
+            .subscribe_stream(topics, "ticker", Some(symbol))
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_ids: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
         let topics = vec![format!("/market/ticker:{}", market_ids.join(","))];
         client.subscribe_stream(topics, "tickers", None).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         // Use level2Depth5 for smaller updates, level2:50 for more depth
         let topics = vec![format!("/market/level2:{}", market_id)];
-        client.subscribe_stream(topics, "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream(topics, "orderBook", Some(symbol))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let topics = vec![format!("/market/match:{}", market_id)];
-        client.subscribe_stream(topics, "trades", Some(symbol)).await
+        client
+            .subscribe_stream(topics, "trades", Some(symbol))
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -864,9 +994,15 @@ impl WsExchange for KucoinWs {
         Ok(())
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if let (Some(key), Some(secret), Some(pass)) =
-            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) = (
+            self.api_key.as_ref(),
+            self.api_secret.as_ref(),
+            self.passphrase.as_ref(),
+        ) {
             Self::with_credentials(key, secret, pass)
         } else {
             return Err(CcxtError::AuthenticationError {
@@ -883,9 +1019,15 @@ impl WsExchange for KucoinWs {
         client.subscribe_private_stream(vec![topic], "orders").await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if let (Some(key), Some(secret), Some(pass)) =
-            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) = (
+            self.api_key.as_ref(),
+            self.api_secret.as_ref(),
+            self.passphrase.as_ref(),
+        ) {
             Self::with_credentials(key, secret, pass)
         } else {
             return Err(CcxtError::AuthenticationError {
@@ -900,12 +1042,17 @@ impl WsExchange for KucoinWs {
             "/spotMarket/tradeOrders".to_string()
         };
 
-        client.subscribe_private_stream(vec![topic], "myTrades").await
+        client
+            .subscribe_private_stream(vec![topic], "myTrades")
+            .await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if let (Some(key), Some(secret), Some(pass)) =
-            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) = (
+            self.api_key.as_ref(),
+            self.api_secret.as_ref(),
+            self.passphrase.as_ref(),
+        ) {
             Self::with_credentials(key, secret, pass)
         } else {
             return Err(CcxtError::AuthenticationError {
@@ -914,7 +1061,9 @@ impl WsExchange for KucoinWs {
         };
 
         let topic = "/account/balance".to_string();
-        client.subscribe_private_stream(vec![topic], "balance").await
+        client
+            .subscribe_private_stream(vec![topic], "balance")
+            .await
     }
 }
 
@@ -1165,7 +1314,10 @@ mod tests {
         let trade_event = event.unwrap();
         assert_eq!(trade_event.symbol, "BTC/USDT");
         assert!(!trade_event.trades.is_empty());
-        assert_eq!(trade_event.trades[0].amount, Decimal::from_str("0.05").unwrap());
+        assert_eq!(
+            trade_event.trades[0].amount,
+            Decimal::from_str("0.05").unwrap()
+        );
     }
 
     #[test]
@@ -1177,9 +1329,18 @@ mod tests {
         let balance_event = event.unwrap();
         assert!(balance_event.balances.currencies.contains_key("USDT"));
         let usdt_balance = balance_event.balances.currencies.get("USDT").unwrap();
-        assert_eq!(usdt_balance.free, Some(Decimal::from_str("9000.00").unwrap()));
-        assert_eq!(usdt_balance.used, Some(Decimal::from_str("1000.00").unwrap()));
-        assert_eq!(usdt_balance.total, Some(Decimal::from_str("10000.00").unwrap()));
+        assert_eq!(
+            usdt_balance.free,
+            Some(Decimal::from_str("9000.00").unwrap())
+        );
+        assert_eq!(
+            usdt_balance.used,
+            Some(Decimal::from_str("1000.00").unwrap())
+        );
+        assert_eq!(
+            usdt_balance.total,
+            Some(Decimal::from_str("10000.00").unwrap())
+        );
     }
 
     #[test]

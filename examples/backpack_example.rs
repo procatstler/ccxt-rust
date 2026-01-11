@@ -26,7 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Show first few markets
     for market in markets.iter().take(5) {
-        println!("  {} - {:?} ({})",
+        println!(
+            "  {} - {:?} ({})",
             market.symbol,
             market.market_type,
             if market.active { "active" } else { "inactive" }
@@ -45,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  24h High: {:?}", ticker.high);
             println!("  24h Low: {:?}", ticker.low);
             println!("  Volume: {:?}", ticker.base_volume);
-        }
+        },
         Err(e) => println!("  Error: {e}"),
     }
     println!();
@@ -62,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for ask in orderbook.asks.iter().take(5) {
                 println!("    {} @ {}", ask.amount, ask.price);
             }
-        }
+        },
         Err(e) => println!("  Error: {e}"),
     }
     println!();
@@ -72,7 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match exchange.fetch_trades("BTC/USDC", None, Some(5)).await {
         Ok(trades) => {
             for trade in trades.iter().take(5) {
-                println!("  {} {} @ {} - {} {}",
+                println!(
+                    "  {} {} @ {} - {} {}",
                     trade.datetime.clone().unwrap_or_else(|| "?".to_string()),
                     trade.side.clone().unwrap_or_else(|| "?".to_string()),
                     trade.price,
@@ -80,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     trade.symbol
                 );
             }
-        }
+        },
         Err(e) => println!("  Error: {e}"),
     }
 

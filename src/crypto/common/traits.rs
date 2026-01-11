@@ -38,11 +38,7 @@ impl Signature {
         let mut s = [0u8; 32];
         r.copy_from_slice(&bytes[..32]);
         s.copy_from_slice(&bytes[32..64]);
-        Self {
-            r,
-            s,
-            v: bytes[64],
-        }
+        Self { r, s, v: bytes[64] }
     }
 
     /// Hex 문자열로 변환 (0x 접두사 포함)
@@ -53,9 +49,10 @@ impl Signature {
     /// Hex 문자열에서 파싱 (0x 접두사 선택)
     pub fn from_hex(hex_str: &str) -> CcxtResult<Self> {
         let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-        let bytes = hex::decode(hex_str).map_err(|e| crate::errors::CcxtError::InvalidSignature {
-            message: format!("Invalid hex: {e}"),
-        })?;
+        let bytes =
+            hex::decode(hex_str).map_err(|e| crate::errors::CcxtError::InvalidSignature {
+                message: format!("Invalid hex: {e}"),
+            })?;
 
         if bytes.len() != 65 {
             return Err(crate::errors::CcxtError::InvalidSignature {
@@ -145,11 +142,7 @@ mod tests {
 
     #[test]
     fn test_signature_bytes_roundtrip() {
-        let sig = Signature::new(
-            [1u8; 32],
-            [2u8; 32],
-            27,
-        );
+        let sig = Signature::new([1u8; 32], [2u8; 32], 27);
 
         let bytes = sig.to_bytes();
         let recovered = Signature::from_bytes(&bytes);
@@ -159,11 +152,7 @@ mod tests {
 
     #[test]
     fn test_signature_hex_roundtrip() {
-        let sig = Signature::new(
-            [0xab; 32],
-            [0xcd; 32],
-            28,
-        );
+        let sig = Signature::new([0xab; 32], [0xcd; 32], 28);
 
         let hex_str = sig.to_hex();
         let recovered = Signature::from_hex(&hex_str).unwrap();

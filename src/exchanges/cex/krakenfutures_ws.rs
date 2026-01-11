@@ -5,23 +5,23 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256, Sha512};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use hmac::{Hmac, Mac};
-use sha2::{Sha256, Sha512, Digest};
 
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Position, PositionSide, MarginMode, Ticker, Trade, TakerOrMaker,
-    WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOrderBookEvent, WsOrderEvent,
-    WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Trade, WsBalanceEvent, WsExchange,
+    WsMessage, WsMyTradeEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsTickerEvent,
+    WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://futures.kraken.com/ws/v1";
@@ -295,7 +295,11 @@ impl KrakenFuturesWs {
         }
 
         let base_lower = parts[0].to_lowercase();
-        let base = if parts[0] == "BTC" { "xbt".to_string() } else { base_lower };
+        let base = if parts[0] == "BTC" {
+            "xbt".to_string()
+        } else {
+            base_lower
+        };
         let quote_settle: Vec<&str> = parts[1].split(':').collect();
 
         if quote_settle.len() == 2 {
@@ -402,27 +406,39 @@ impl KrakenFuturesWs {
     fn parse_order_book(data: &KfWsOrderBook, is_snapshot: bool) -> Option<WsOrderBookEvent> {
         let product_id = data.product_id.as_ref()?;
         let symbol = Self::to_unified_symbol(product_id);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.bids.as_ref()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .as_ref()
             .map(|entries| {
-                entries.iter().filter_map(|e| {
-                    Some(OrderBookEntry {
-                        price: Decimal::from_f64_retain(e.price)?,
-                        amount: Decimal::from_f64_retain(e.qty)?,
+                entries
+                    .iter()
+                    .filter_map(|e| {
+                        Some(OrderBookEntry {
+                            price: Decimal::from_f64_retain(e.price)?,
+                            amount: Decimal::from_f64_retain(e.qty)?,
+                        })
                     })
-                }).collect()
+                    .collect()
             })
             .unwrap_or_default();
 
-        let asks: Vec<OrderBookEntry> = data.asks.as_ref()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .as_ref()
             .map(|entries| {
-                entries.iter().filter_map(|e| {
-                    Some(OrderBookEntry {
-                        price: Decimal::from_f64_retain(e.price)?,
-                        amount: Decimal::from_f64_retain(e.qty)?,
+                entries
+                    .iter()
+                    .filter_map(|e| {
+                        Some(OrderBookEntry {
+                            price: Decimal::from_f64_retain(e.price)?,
+                            amount: Decimal::from_f64_retain(e.qty)?,
+                        })
                     })
-                }).collect()
+                    .collect()
             })
             .unwrap_or_default();
 
@@ -437,6 +453,7 @@ impl KrakenFuturesWs {
             nonce: data.seq,
             bids,
             asks,
+            checksum: None,
         };
 
         Some(WsOrderBookEvent {
@@ -481,12 +498,10 @@ impl KrakenFuturesWs {
         let product_id = data.product_id.as_ref()?;
         let symbol = Self::to_unified_symbol(product_id);
 
-        let trades: Vec<Trade> = data.trades.as_ref()
-            .map(|trades| {
-                trades.iter()
-                    .filter_map(Self::parse_trade)
-                    .collect()
-            })
+        let trades: Vec<Trade> = data
+            .trades
+            .as_ref()
+            .map(|trades| trades.iter().filter_map(Self::parse_trade).collect())
             .unwrap_or_default();
 
         Some(WsTradeEvent { symbol, trades })
@@ -496,7 +511,9 @@ impl KrakenFuturesWs {
     fn parse_order_update(data: &KfWsOrder) -> Option<WsOrderEvent> {
         let product_id = data.symbol.as_ref()?;
         let symbol = Self::to_unified_symbol(product_id);
-        let timestamp = data.last_update_timestamp.or(data.timestamp)
+        let timestamp = data
+            .last_update_timestamp
+            .or(data.timestamp)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let status = match data.status.as_deref() {
@@ -522,10 +539,12 @@ impl KrakenFuturesWs {
         };
 
         let price = data.limit_price.and_then(Decimal::from_f64_retain);
-        let amount = data.quantity
+        let amount = data
+            .quantity
             .and_then(Decimal::from_f64_retain)
             .unwrap_or_default();
-        let filled = data.filled
+        let filled = data
+            .filled
             .and_then(Decimal::from_f64_retain)
             .unwrap_or_default();
 
@@ -533,8 +552,7 @@ impl KrakenFuturesWs {
             id: data.order_id.clone().unwrap_or_default(),
             client_order_id: data.cli_ord_id.clone(),
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             last_trade_timestamp: None,
             last_update_timestamp: Some(timestamp),
             status,
@@ -565,15 +583,19 @@ impl KrakenFuturesWs {
 
     /// 잔고 업데이트 파싱
     fn parse_balance_update(data: &KfWsBalance) -> Option<WsBalanceEvent> {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let mut balances = Balances::new();
 
         if let Some(ref balance_map) = data.balances {
             for (currency, item) in balance_map {
-                let free = item.available
+                let free = item
+                    .available
                     .and_then(Decimal::from_f64_retain)
                     .unwrap_or_default();
-                let total = item.balance
+                let total = item
+                    .balance
                     .and_then(Decimal::from_f64_retain)
                     .unwrap_or_default();
                 let used = total - free;
@@ -584,59 +606,66 @@ impl KrakenFuturesWs {
         }
 
         balances.timestamp = Some(timestamp);
-        balances.datetime = chrono::DateTime::from_timestamp_millis(timestamp)
-            .map(|dt| dt.to_rfc3339());
+        balances.datetime =
+            chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339());
 
         Some(WsBalanceEvent { balances })
     }
 
     /// 포지션 업데이트 파싱
     fn parse_position_update(data: &KfWsPosition) -> Option<WsPositionEvent> {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let positions: Vec<Position> = data.positions.as_ref()
+        let positions: Vec<Position> = data
+            .positions
+            .as_ref()
             .map(|items| {
-                items.iter().filter_map(|item| {
-                    let instrument = item.instrument.as_ref()?;
-                    let symbol = Self::to_unified_symbol(instrument);
-                    let contracts = item.balance.and_then(Decimal::from_f64_retain)?;
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        let instrument = item.instrument.as_ref()?;
+                        let symbol = Self::to_unified_symbol(instrument);
+                        let contracts = item.balance.and_then(Decimal::from_f64_retain)?;
 
-                    Some(Position {
-                        id: None,
-                        symbol,
-                        timestamp: Some(timestamp),
-                        datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                            .map(|dt| dt.to_rfc3339()),
-                        contracts: Some(contracts),
-                        contract_size: None,
-                        side: if contracts >= Decimal::ZERO {
-                            Some(PositionSide::Long)
-                        } else {
-                            Some(PositionSide::Short)
-                        },
-                        notional: None,
-                        leverage: item.effective_leverage.and_then(Decimal::from_f64_retain),
-                        unrealized_pnl: item.pnl.and_then(Decimal::from_f64_retain),
-                        realized_pnl: None,
-                        collateral: None,
-                        margin_mode: Some(MarginMode::Cross),
-                        entry_price: item.entry_price.and_then(Decimal::from_f64_retain),
-                        mark_price: item.mark_price.and_then(Decimal::from_f64_retain),
-                        liquidation_price: None,
-                        margin_ratio: None,
-                        percentage: None,
-                        initial_margin: None,
-                        initial_margin_percentage: None,
-                        maintenance_margin: None,
-                        maintenance_margin_percentage: None,
-                        hedged: None,
-                        stop_loss_price: None,
-                        take_profit_price: None,
-                        last_price: item.mark_price.and_then(Decimal::from_f64_retain),
-                        last_update_timestamp: Some(timestamp),
-                        info: serde_json::to_value(item).unwrap_or_default(),
+                        Some(Position {
+                            id: None,
+                            symbol,
+                            timestamp: Some(timestamp),
+                            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
+                                .map(|dt| dt.to_rfc3339()),
+                            contracts: Some(contracts),
+                            contract_size: None,
+                            side: if contracts >= Decimal::ZERO {
+                                Some(PositionSide::Long)
+                            } else {
+                                Some(PositionSide::Short)
+                            },
+                            notional: None,
+                            leverage: item.effective_leverage.and_then(Decimal::from_f64_retain),
+                            unrealized_pnl: item.pnl.and_then(Decimal::from_f64_retain),
+                            realized_pnl: None,
+                            collateral: None,
+                            margin_mode: Some(MarginMode::Cross),
+                            entry_price: item.entry_price.and_then(Decimal::from_f64_retain),
+                            mark_price: item.mark_price.and_then(Decimal::from_f64_retain),
+                            liquidation_price: None,
+                            margin_ratio: None,
+                            percentage: None,
+                            initial_margin: None,
+                            initial_margin_percentage: None,
+                            maintenance_margin: None,
+                            maintenance_margin_percentage: None,
+                            hedged: None,
+                            stop_loss_price: None,
+                            take_profit_price: None,
+                            last_price: item.mark_price.and_then(Decimal::from_f64_retain),
+                            last_update_timestamp: Some(timestamp),
+                            info: serde_json::to_value(item).unwrap_or_default(),
+                        })
                     })
-                }).collect()
+                    .collect()
             })
             .unwrap_or_default();
 
@@ -645,41 +674,50 @@ impl KrakenFuturesWs {
 
     /// My trade (fill) 업데이트 파싱
     fn parse_fill_update(data: &KfWsFill) -> Option<WsMyTradeEvent> {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let trades: Vec<Trade> = data.fills.as_ref()
+        let trades: Vec<Trade> = data
+            .fills
+            .as_ref()
             .map(|items| {
-                items.iter().filter_map(|item| {
-                    let instrument = item.instrument.as_ref()?;
-                    let symbol = Self::to_unified_symbol(instrument);
-                    let price = Decimal::from_f64_retain(item.price?)?;
-                    let amount = Decimal::from_f64_retain(item.qty?)?;
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        let instrument = item.instrument.as_ref()?;
+                        let symbol = Self::to_unified_symbol(instrument);
+                        let price = Decimal::from_f64_retain(item.price?)?;
+                        let amount = Decimal::from_f64_retain(item.qty?)?;
 
-                    Some(Trade {
-                        id: item.fill_id.clone().unwrap_or_default(),
-                        order: item.order_id.clone(),
-                        timestamp: item.time.or(Some(timestamp)),
-                        datetime: item.time.or(Some(timestamp))
-                            .and_then(chrono::DateTime::from_timestamp_millis)
-                            .map(|dt| dt.to_rfc3339()),
-                        symbol,
-                        trade_type: item.fill_type.clone(),
-                        side: item.side.clone(),
-                        taker_or_maker: Some(TakerOrMaker::Taker),
-                        price,
-                        amount,
-                        cost: Some(price * amount),
-                        fee: item.fee_paid.and_then(|v| {
-                            Decimal::from_f64_retain(v).map(|fee| crate::types::Fee {
-                                currency: item.fee_currency.clone(),
-                                cost: Some(fee),
-                                rate: None,
-                            })
-                        }),
-                        fees: Vec::new(),
-                        info: serde_json::to_value(item).unwrap_or_default(),
+                        Some(Trade {
+                            id: item.fill_id.clone().unwrap_or_default(),
+                            order: item.order_id.clone(),
+                            timestamp: item.time.or(Some(timestamp)),
+                            datetime: item
+                                .time
+                                .or(Some(timestamp))
+                                .and_then(chrono::DateTime::from_timestamp_millis)
+                                .map(|dt| dt.to_rfc3339()),
+                            symbol,
+                            trade_type: item.fill_type.clone(),
+                            side: item.side.clone(),
+                            taker_or_maker: Some(TakerOrMaker::Taker),
+                            price,
+                            amount,
+                            cost: Some(price * amount),
+                            fee: item.fee_paid.and_then(|v| {
+                                Decimal::from_f64_retain(v).map(|fee| crate::types::Fee {
+                                    currency: item.fee_currency.clone(),
+                                    cost: Some(fee),
+                                    rate: None,
+                                })
+                            }),
+                            fees: Vec::new(),
+                            info: serde_json::to_value(item).unwrap_or_default(),
+                        })
                     })
-                }).collect()
+                    .collect()
             })
             .unwrap_or_default();
 
@@ -725,21 +763,21 @@ impl KrakenFuturesWs {
                         return Some(WsMessage::Ticker(event));
                     }
                 }
-            }
+            },
             "book_snapshot" => {
                 if let Ok(ob_data) = serde_json::from_value::<KfWsOrderBook>(value) {
                     if let Some(event) = Self::parse_order_book(&ob_data, true) {
                         return Some(WsMessage::OrderBook(event));
                     }
                 }
-            }
+            },
             "book" => {
                 if let Ok(ob_data) = serde_json::from_value::<KfWsOrderBook>(value) {
                     if let Some(event) = Self::parse_order_book(&ob_data, false) {
                         return Some(WsMessage::OrderBook(event));
                     }
                 }
-            }
+            },
             "trade" => {
                 if let Ok(trade_data) = serde_json::from_value::<KfWsTrade>(value) {
                     if let Some(trade) = Self::parse_trade(&trade_data) {
@@ -750,45 +788,47 @@ impl KrakenFuturesWs {
                         }));
                     }
                 }
-            }
+            },
             "trade_snapshot" => {
                 if let Ok(snapshot_data) = serde_json::from_value::<KfWsTradeSnapshot>(value) {
                     if let Some(event) = Self::parse_trade_snapshot(&snapshot_data) {
                         return Some(WsMessage::Trade(event));
                     }
                 }
-            }
+            },
             // Private feeds
-            "open_orders" | "open_orders_snapshot" | "open_orders_verbose"
+            "open_orders"
+            | "open_orders_snapshot"
+            | "open_orders_verbose"
             | "open_orders_verbose_snapshot" => {
                 if let Ok(order_data) = serde_json::from_value::<KfWsOrder>(value) {
                     if let Some(event) = Self::parse_order_update(&order_data) {
                         return Some(WsMessage::Order(event));
                     }
                 }
-            }
+            },
             "account_balances_and_margins" | "balances" => {
                 if let Ok(balance_data) = serde_json::from_value::<KfWsBalance>(value) {
                     if let Some(event) = Self::parse_balance_update(&balance_data) {
                         return Some(WsMessage::Balance(event));
                     }
                 }
-            }
+            },
             "open_positions" => {
                 if let Ok(position_data) = serde_json::from_value::<KfWsPosition>(value) {
                     if let Some(event) = Self::parse_position_update(&position_data) {
                         return Some(WsMessage::Position(event));
                     }
                 }
-            }
+            },
             "fills" | "fills_snapshot" => {
                 if let Ok(fill_data) = serde_json::from_value::<KfWsFill>(value) {
                     if let Some(event) = Self::parse_fill_update(&fill_data) {
                         return Some(WsMessage::MyTrade(event));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -810,6 +850,7 @@ impl KrakenFuturesWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -828,7 +869,10 @@ impl KrakenFuturesWs {
         // 구독 저장
         {
             let key = format!("{}:{}", feed, product_ids.join(","));
-            self.subscriptions.write().await.insert(key, feed.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, feed.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -838,19 +882,19 @@ impl KrakenFuturesWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -866,13 +910,21 @@ impl KrakenFuturesWs {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
-        let api_key = self.config.api_key().ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
-            message: "API key required".to_string(),
-        })?.to_string();
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
+                message: "API key required".to_string(),
+            })?
+            .to_string();
 
-        let secret = self.config.secret().ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
-            message: "API secret required".to_string(),
-        })?.to_string();
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
+                message: "API secret required".to_string(),
+            })?
+            .to_string();
 
         let mut ws_client = WsClient::new(WsConfig {
             url: WS_PRIVATE_URL.to_string(),
@@ -881,6 +933,7 @@ impl KrakenFuturesWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -896,7 +949,10 @@ impl KrakenFuturesWs {
 
         // 구독 저장
         {
-            self.subscriptions.write().await.insert(feed.to_string(), feed.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(feed.to_string(), feed.to_string());
         }
 
         let feed_clone = feed.to_string();
@@ -911,17 +967,21 @@ impl KrakenFuturesWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         // Challenge 처리
                         if !authenticated {
                             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&msg) {
-                                if let Some(event_type) = value.get("event").and_then(|e| e.as_str()) {
+                                if let Some(event_type) =
+                                    value.get("event").and_then(|e| e.as_str())
+                                {
                                     if event_type == "challenge" {
-                                        if let Some(challenge) = value.get("message").and_then(|m| m.as_str()) {
+                                        if let Some(challenge) =
+                                            value.get("message").and_then(|m| m.as_str())
+                                        {
                                             // SHA256 hash of challenge
                                             let mut hasher = Sha256::new();
                                             hasher.update(challenge.as_bytes());
@@ -929,9 +989,12 @@ impl KrakenFuturesWs {
 
                                             // HMAC-SHA512
                                             if let Ok(secret_decoded) = BASE64.decode(&secret) {
-                                                if let Ok(mut mac) = Hmac::<Sha512>::new_from_slice(&secret_decoded) {
+                                                if let Ok(mut mac) =
+                                                    Hmac::<Sha512>::new_from_slice(&secret_decoded)
+                                                {
                                                     mac.update(&hash);
-                                                    let signature = BASE64.encode(mac.finalize().into_bytes());
+                                                    let signature =
+                                                        BASE64.encode(mac.finalize().into_bytes());
 
                                                     // Log successful authentication (note: can't send subscribe here as we don't have ws_client)
                                                     // The subscribe message should be sent upon receiving challenge
@@ -940,7 +1003,11 @@ impl KrakenFuturesWs {
 
                                                     // Note: In production, subscription message needs to be sent
                                                     // This simplified version processes messages after authentication
-                                                    let _ = (feed_clone.clone(), api_key_clone.clone(), signature);
+                                                    let _ = (
+                                                        feed_clone.clone(),
+                                                        api_key_clone.clone(),
+                                                        signature,
+                                                    );
                                                 }
                                             }
                                         }
@@ -953,11 +1020,11 @@ impl KrakenFuturesWs {
                         if let Some(ws_msg) = KrakenFuturesWs::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -993,15 +1060,20 @@ impl WsExchange for KrakenFuturesWs {
         client.subscribe_stream(vec![market_id], "ticker").await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
-        let market_ids: Vec<String> = symbols.iter()
-            .map(|s| Self::to_market_id(s))
-            .collect();
+        let market_ids: Vec<String> = symbols.iter().map(|s| Self::to_market_id(s)).collect();
         client.subscribe_stream(market_ids, "ticker").await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         let market_id = Self::to_market_id(symbol);
         client.subscribe_stream(vec![market_id], "book").await
@@ -1024,22 +1096,33 @@ impl WsExchange for KrakenFuturesWs {
         })
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         client.subscribe_private_stream("open_orders_verbose").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         client.subscribe_private_stream("fills").await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
-        client.subscribe_private_stream("account_balances_and_margins").await
+        client
+            .subscribe_private_stream("account_balances_and_margins")
+            .await
     }
 
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         client.subscribe_private_stream("open_positions").await
     }
@@ -1074,15 +1157,30 @@ mod tests {
     fn test_to_market_id() {
         assert_eq!(KrakenFuturesWs::to_market_id("BTC/USD:USD"), "pi_xbtusd");
         assert_eq!(KrakenFuturesWs::to_market_id("ETH/USD:USD"), "pi_ethusd");
-        assert_eq!(KrakenFuturesWs::to_market_id("BTC/USD:USD-240329"), "fi_xbtusd_240329");
+        assert_eq!(
+            KrakenFuturesWs::to_market_id("BTC/USD:USD-240329"),
+            "fi_xbtusd_240329"
+        );
     }
 
     #[test]
     fn test_to_unified_symbol() {
-        assert_eq!(KrakenFuturesWs::to_unified_symbol("PI_XBTUSD"), "BTC/USD:USD");
-        assert_eq!(KrakenFuturesWs::to_unified_symbol("PI_ETHUSD"), "ETH/USD:USD");
-        assert_eq!(KrakenFuturesWs::to_unified_symbol("FI_XBTUSD_240329"), "BTC/USD:USD-240329");
-        assert_eq!(KrakenFuturesWs::to_unified_symbol("PF_XBTUSD"), "BTC/USD:USD");
+        assert_eq!(
+            KrakenFuturesWs::to_unified_symbol("PI_XBTUSD"),
+            "BTC/USD:USD"
+        );
+        assert_eq!(
+            KrakenFuturesWs::to_unified_symbol("PI_ETHUSD"),
+            "ETH/USD:USD"
+        );
+        assert_eq!(
+            KrakenFuturesWs::to_unified_symbol("FI_XBTUSD_240329"),
+            "BTC/USD:USD-240329"
+        );
+        assert_eq!(
+            KrakenFuturesWs::to_unified_symbol("PF_XBTUSD"),
+            "BTC/USD:USD"
+        );
     }
 
     #[test]
@@ -1194,14 +1292,20 @@ mod tests {
     #[test]
     fn test_parse_balance_update() {
         let mut balance_map = HashMap::new();
-        balance_map.insert("USD".to_string(), KfWsBalanceItem {
-            balance: Some(10000.0),
-            available: Some(8000.0),
-        });
-        balance_map.insert("BTC".to_string(), KfWsBalanceItem {
-            balance: Some(1.5),
-            available: Some(1.0),
-        });
+        balance_map.insert(
+            "USD".to_string(),
+            KfWsBalanceItem {
+                balance: Some(10000.0),
+                available: Some(8000.0),
+            },
+        );
+        balance_map.insert(
+            "BTC".to_string(),
+            KfWsBalanceItem {
+                balance: Some(1.5),
+                available: Some(1.0),
+            },
+        );
 
         let balance_data = KfWsBalance {
             account: Some("test_account".to_string()),
@@ -1222,19 +1326,17 @@ mod tests {
     fn test_parse_position_update() {
         let position_data = KfWsPosition {
             account: Some("test_account".to_string()),
-            positions: Some(vec![
-                KfWsPositionItem {
-                    instrument: Some("PI_XBTUSD".to_string()),
-                    balance: Some(1.5),
-                    entry_price: Some(40000.0),
-                    mark_price: Some(42000.0),
-                    index_price: Some(42050.0),
-                    pnl: Some(3000.0),
-                    funding_pnl: Some(10.0),
-                    unrealized_funding: Some(5.0),
-                    effective_leverage: Some(10.0),
-                },
-            ]),
+            positions: Some(vec![KfWsPositionItem {
+                instrument: Some("PI_XBTUSD".to_string()),
+                balance: Some(1.5),
+                entry_price: Some(40000.0),
+                mark_price: Some(42000.0),
+                index_price: Some(42050.0),
+                pnl: Some(3000.0),
+                funding_pnl: Some(10.0),
+                unrealized_funding: Some(5.0),
+                effective_leverage: Some(10.0),
+            }]),
             seq: Some(1),
             timestamp: Some(1609459200000),
         };
@@ -1254,21 +1356,19 @@ mod tests {
     fn test_parse_fill_update() {
         let fill_data = KfWsFill {
             account: Some("test_account".to_string()),
-            fills: Some(vec![
-                KfWsFillItem {
-                    instrument: Some("PI_XBTUSD".to_string()),
-                    time: Some(1609459200000),
-                    price: Some(42000.0),
-                    qty: Some(0.5),
-                    side: Some("buy".to_string()),
-                    order_id: Some("order123".to_string()),
-                    cli_ord_id: Some("client123".to_string()),
-                    fill_id: Some("fill123".to_string()),
-                    fill_type: Some("taker".to_string()),
-                    fee_paid: Some(1.5),
-                    fee_currency: Some("USD".to_string()),
-                },
-            ]),
+            fills: Some(vec![KfWsFillItem {
+                instrument: Some("PI_XBTUSD".to_string()),
+                time: Some(1609459200000),
+                price: Some(42000.0),
+                qty: Some(0.5),
+                side: Some("buy".to_string()),
+                order_id: Some("order123".to_string()),
+                cli_ord_id: Some("client123".to_string()),
+                fill_id: Some("fill123".to_string()),
+                fill_type: Some("taker".to_string()),
+                fee_paid: Some(1.5),
+                fee_currency: Some("USD".to_string()),
+            }]),
             seq: Some(1),
             timestamp: Some(1609459200000),
         };

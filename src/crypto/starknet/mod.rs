@@ -11,19 +11,21 @@
 //! - 타입 데이터 서명 (SNIP-12)
 //! - Paradex 거래소 인증
 
-mod poseidon;
-mod curve;
-mod typed_data;
 mod account;
-mod wallet;
+mod curve;
 pub mod paradex;
+mod poseidon;
+mod typed_data;
+mod wallet;
 
-pub use poseidon::{poseidon_hash, poseidon_hash_many, pedersen_hash};
-pub use curve::{sign_hash, verify_signature, get_public_key, StarkNetSignature};
-pub use typed_data::{StarkNetDomain, StarkNetTypedData, StarkNetTypedDataField, encode_typed_data_hash};
-pub use account::{StarkNetAccount, derive_starknet_private_key, compute_starknet_address};
-pub use wallet::{StarkNetWallet, ParadexOrder};
+pub use account::{compute_starknet_address, derive_starknet_private_key, StarkNetAccount};
+pub use curve::{get_public_key, sign_hash, verify_signature, StarkNetSignature};
 pub use paradex::{
-    ParadexAuthMessage, ParadexOnboardingMessage, ParadexOrderMessage, ParadexFullNodeMessage,
+    ParadexAuthMessage, ParadexFullNodeMessage, ParadexOnboardingMessage, ParadexOrderMessage,
     PARADEX_CHAIN_ID_MAINNET, PARADEX_CHAIN_ID_TESTNET,
 };
+pub use poseidon::{pedersen_hash, poseidon_hash, poseidon_hash_many};
+pub use typed_data::{
+    encode_typed_data_hash, StarkNetDomain, StarkNetTypedData, StarkNetTypedDataField,
+};
+pub use wallet::{ParadexOrder, StarkNetWallet};

@@ -66,15 +66,26 @@ impl WsExchange for CoinbaseAdvancedWs {
         self.0.watch_ticker(symbol).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_tickers(symbols).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_order_book(symbol, limit).await
     }
 
-    async fn watch_order_book_for_symbols(&self, symbols: &[&str], limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book_for_symbols(
+        &self,
+        symbols: &[&str],
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_order_book_for_symbols(symbols, limit).await
     }
 
@@ -82,23 +93,40 @@ impl WsExchange for CoinbaseAdvancedWs {
         self.0.watch_trades(symbol).await
     }
 
-    async fn watch_trades_for_symbols(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades_for_symbols(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_trades_for_symbols(symbols).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_ohlcv(symbol, timeframe).await
     }
 
-    async fn watch_ohlcv_for_symbols(&self, symbols: &[&str], timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv_for_symbols(
+        &self,
+        symbols: &[&str],
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_ohlcv_for_symbols(symbols, timeframe).await
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_orders(symbol).await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_my_trades(symbol).await
     }
 
@@ -106,7 +134,10 @@ impl WsExchange for CoinbaseAdvancedWs {
         self.0.watch_balance().await
     }
 
-    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.0.watch_positions(symbols).await
     }
 }

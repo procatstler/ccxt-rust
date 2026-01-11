@@ -20,8 +20,8 @@ use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Timeframe, Trade, WsExchange, WsMessage,
-    WsTradeEvent, WsOrderBookEvent,
+    OrderBook, OrderBookEntry, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTradeEvent,
 };
 
 const WS_BASE_URL: &str = "wss://ws.luno.com/api/1/stream";
@@ -171,12 +171,10 @@ impl LunoWs {
     async fn internal_close(&self) -> CcxtResult<()> {
         let mut ws_guard = self.ws_stream.write().await;
         if let Some(ref mut ws) = *ws_guard {
-            ws.close(None)
-                .await
-                .map_err(|e| CcxtError::NetworkError {
-                    url: WS_BASE_URL.to_string(),
-                    message: format!("Failed to close WebSocket: {e}"),
-                })?;
+            ws.close(None).await.map_err(|e| CcxtError::NetworkError {
+                url: WS_BASE_URL.to_string(),
+                message: format!("Failed to close WebSocket: {e}"),
+            })?;
         }
         *ws_guard = None;
         Ok(())
@@ -203,19 +201,25 @@ impl LunoWs {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                            Self::handle_message_static(&data, &subscriptions, &orderbook_cache, &current_market).await;
+                            Self::handle_message_static(
+                                &data,
+                                &subscriptions,
+                                &orderbook_cache,
+                                &current_market,
+                            )
+                            .await;
                         }
-                    }
+                    },
                     Some(Ok(Message::Ping(data))) => {
                         let mut ws_guard = ws_stream.write().await;
                         if let Some(ref mut ws) = *ws_guard {
                             let _ = ws.send(Message::Pong(data)).await;
                         }
-                    }
+                    },
                     Some(Ok(Message::Close(_))) => break,
                     Some(Err(_)) => break,
                     None => break,
-                    _ => {}
+                    _ => {},
                 }
             }
         });
@@ -250,7 +254,11 @@ impl LunoWs {
 
             // Handle trade updates
             if let Some(trade_updates) = data.get("trade_updates") {
-                if trade_updates.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                if trade_updates
+                    .as_array()
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false)
+                {
                     Self::handle_trades(data, subscriptions, &symbol).await;
                 }
             }
@@ -280,10 +288,9 @@ impl LunoWs {
                         ask.get("price").and_then(|v| v.as_str()),
                         ask.get("volume").and_then(|v| v.as_str()),
                     ) {
-                        if let (Ok(price), Ok(amount)) = (
-                            price_str.parse::<Decimal>(),
-                            volume_str.parse::<Decimal>(),
-                        ) {
+                        if let (Ok(price), Ok(amount)) =
+                            (price_str.parse::<Decimal>(), volume_str.parse::<Decimal>())
+                        {
                             asks.push(OrderBookEntry { price, amount });
                         }
                     }
@@ -296,10 +303,9 @@ impl LunoWs {
                         bid.get("price").and_then(|v| v.as_str()),
                         bid.get("volume").and_then(|v| v.as_str()),
                     ) {
-                        if let (Ok(price), Ok(amount)) = (
-                            price_str.parse::<Decimal>(),
-                            volume_str.parse::<Decimal>(),
-                        ) {
+                        if let (Ok(price), Ok(amount)) =
+                            (price_str.parse::<Decimal>(), volume_str.parse::<Decimal>())
+                        {
                             bids.push(OrderBookEntry { price, amount });
                         }
                     }
@@ -316,6 +322,7 @@ impl LunoWs {
                 symbol: symbol.to_string(),
                 bids,
                 asks,
+                checksum: None,
                 timestamp,
                 datetime: None,
                 nonce: None,
@@ -351,10 +358,9 @@ impl LunoWs {
                         create.get("volume").and_then(|v| v.as_str()),
                         create.get("type").and_then(|v| v.as_str()),
                     ) {
-                        if let (Ok(price), Ok(amount)) = (
-                            price_str.parse::<Decimal>(),
-                            volume_str.parse::<Decimal>(),
-                        ) {
+                        if let (Ok(price), Ok(amount)) =
+                            (price_str.parse::<Decimal>(), volume_str.parse::<Decimal>())
+                        {
                             let entry = OrderBookEntry { price, amount };
                             if type_str == "BID" {
                                 Self::update_orderbook_side(&mut book.bids, entry, true);
@@ -402,7 +408,11 @@ impl LunoWs {
     }
 
     /// Update orderbook side with new entry
-    fn update_orderbook_side(book_side: &mut Vec<OrderBookEntry>, entry: OrderBookEntry, is_bid: bool) {
+    fn update_orderbook_side(
+        book_side: &mut Vec<OrderBookEntry>,
+        entry: OrderBookEntry,
+        is_bid: bool,
+    ) {
         // Find existing entry at this price
         let pos = book_side.iter().position(|e| e.price == entry.price);
 
@@ -439,10 +449,14 @@ impl LunoWs {
             let mut trades = Vec::new();
 
             for trade_data in trade_updates {
-                let base = trade_data.get("base").and_then(|v| v.as_str())
+                let base = trade_data
+                    .get("base")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
-                let counter = trade_data.get("counter").and_then(|v| v.as_str())
+                let counter = trade_data
+                    .get("counter")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
 
@@ -456,8 +470,11 @@ impl LunoWs {
                 let timestamp = trade_data.get("timestamp").and_then(|v| v.as_i64());
 
                 let trade = Trade::new(
-                    trade_data.get("order_id").and_then(|v| v.as_str())
-                        .unwrap_or_default().to_string(),
+                    trade_data
+                        .get("order_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
                     symbol.to_string(),
                     price,
                     base,
@@ -470,7 +487,9 @@ impl LunoWs {
                 };
 
                 // Luno doesn't provide side in trade updates, infer from maker/taker if available
-                let trade = if let Some(_maker_order_id) = trade_data.get("maker_order_id").and_then(|v| v.as_str()) {
+                let trade = if let Some(_maker_order_id) =
+                    trade_data.get("maker_order_id").and_then(|v| v.as_str())
+                {
                     // Could potentially infer side, but Luno doesn't provide clear indication
                     trade
                 } else {
@@ -510,12 +529,10 @@ impl WsExchange for LunoWs {
     async fn ws_close(&mut self) -> CcxtResult<()> {
         let mut ws_guard = self.ws_stream.write().await;
         if let Some(ref mut ws) = *ws_guard {
-            ws.close(None)
-                .await
-                .map_err(|e| CcxtError::NetworkError {
-                    url: WS_BASE_URL.to_string(),
-                    message: format!("Failed to close WebSocket: {e}"),
-                })?;
+            ws.close(None).await.map_err(|e| CcxtError::NetworkError {
+                url: WS_BASE_URL.to_string(),
+                message: format!("Failed to close WebSocket: {e}"),
+            })?;
         }
         *ws_guard = None;
         Ok(())
@@ -635,7 +652,10 @@ impl WsExchange for LunoWs {
         })
     }
 
-    async fn watch_tickers(&self, _symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        _symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Luno does not support ticker via WebSocket
         Err(CcxtError::NotSupported {
             feature: "Luno WebSocket does not support tickers".to_string(),
@@ -676,10 +696,7 @@ mod tests {
 
     #[test]
     fn test_luno_ws_with_credentials() {
-        let _ws = LunoWs::with_credentials(
-            "test_key".to_string(),
-            "test_secret".to_string(),
-        );
+        let _ws = LunoWs::with_credentials("test_key".to_string(), "test_secret".to_string());
     }
 
     #[test]

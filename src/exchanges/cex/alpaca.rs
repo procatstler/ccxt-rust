@@ -13,10 +13,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 /// Alpaca exchange
@@ -88,12 +87,13 @@ impl Alpaca {
         api_urls.insert("market".into(), Self::MARKET_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/e9476df8-a450-4c3e-ab9a-1a7794219e1b".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/e9476df8-a450-4c3e-ab9a-1a7794219e1b"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://alpaca.markets".into()),
-            doc: vec![
-                "https://alpaca.markets/docs/".into(),
-            ],
+            doc: vec!["https://alpaca.markets/docs/".into()],
             fees: Some("https://docs.alpaca.markets/docs/crypto-fees".into()),
         };
 
@@ -138,8 +138,14 @@ impl Alpaca {
         self.rate_limiter.throttle(1.0).await;
 
         let mut headers = HashMap::new();
-        headers.insert("APCA-API-KEY-ID".into(), self.config.api_key().unwrap_or_default().to_string());
-        headers.insert("APCA-API-SECRET-KEY".into(), self.config.api_secret().unwrap_or_default().to_string());
+        headers.insert(
+            "APCA-API-KEY-ID".into(),
+            self.config.api_key().unwrap_or_default().to_string(),
+        );
+        headers.insert(
+            "APCA-API-SECRET-KEY".into(),
+            self.config.api_secret().unwrap_or_default().to_string(),
+        );
         headers.insert("APCA-PARTNER-ID".into(), "ccxt".into());
 
         let response = match method {
@@ -148,13 +154,23 @@ impl Alpaca {
                 headers.insert("Content-Type".into(), "application/json".into());
                 let body = params.map(|p| serde_json::to_value(&p).unwrap_or_default());
                 self.trader_client.post(path, body, Some(headers)).await?
-            }
-            "DELETE" => self.trader_client.delete(path, params, Some(headers)).await?,
+            },
+            "DELETE" => {
+                self.trader_client
+                    .delete(path, params, Some(headers))
+                    .await?
+            },
             "PATCH" => {
                 headers.insert("Content-Type".into(), "application/json".into());
-                self.trader_client.patch(path, params.unwrap_or_default(), Some(headers)).await?
-            }
-            _ => return Err(CcxtError::NotSupported { feature: format!("Unsupported method: {method}") }),
+                self.trader_client
+                    .patch(path, params.unwrap_or_default(), Some(headers))
+                    .await?
+            },
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Unsupported method: {method}"),
+                })
+            },
         };
 
         Ok(response)
@@ -204,9 +220,12 @@ impl Alpaca {
     /// Get market by symbol
     fn market(&self, symbol: &str) -> CcxtResult<Market> {
         let markets = self.markets.read().unwrap();
-        markets.get(symbol).cloned().ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })
+        markets
+            .get(symbol)
+            .cloned()
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })
     }
 
     /// Get market by market ID
@@ -214,9 +233,12 @@ impl Alpaca {
         let markets_by_id = self.markets_by_id.read().unwrap();
         if let Some(symbol) = markets_by_id.get(market_id) {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).cloned().ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })
+            markets
+                .get(symbol)
+                .cloned()
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })
         } else {
             Err(CcxtError::BadSymbol {
                 symbol: market_id.to_string(),
@@ -376,7 +398,9 @@ impl Alpaca {
     /// Parse Alpaca order status
     fn parse_order_status(&self, status: &str) -> OrderStatus {
         match status {
-            "pending_new" | "accepted" | "new" | "partially_filled" | "activated" => OrderStatus::Open,
+            "pending_new" | "accepted" | "new" | "partially_filled" | "activated" => {
+                OrderStatus::Open
+            },
             "filled" => OrderStatus::Closed,
             "canceled" => OrderStatus::Canceled,
             "expired" => OrderStatus::Expired,
@@ -388,7 +412,8 @@ impl Alpaca {
     /// Parse Alpaca order
     fn parse_order(&self, order: &AlpacaOrder, market: Option<&Market>) -> Order {
         let market_id = &order.symbol;
-        let symbol = market.map(|m| m.symbol.clone())
+        let symbol = market
+            .map(|m| m.symbol.clone())
             .unwrap_or_else(|| self.market_id_to_symbol(market_id));
 
         let timestamp = chrono::DateTime::parse_from_rfc3339(&order.submitted_at)
@@ -425,9 +450,19 @@ impl Alpaca {
             rate: None,
         });
 
-        let amount = order.qty.and_then(Decimal::from_f64_retain).unwrap_or_default();
-        let filled = order.filled_qty.and_then(Decimal::from_f64_retain).unwrap_or_default();
-        let remaining = if amount > filled { Some(amount - filled) } else { None };
+        let amount = order
+            .qty
+            .and_then(Decimal::from_f64_retain)
+            .unwrap_or_default();
+        let filled = order
+            .filled_qty
+            .and_then(Decimal::from_f64_retain)
+            .unwrap_or_default();
+        let remaining = if amount > filled {
+            Some(amount - filled)
+        } else {
+            None
+        };
 
         Order {
             id: order.id.clone(),
@@ -462,27 +497,69 @@ impl Alpaca {
 
     /// Parse Alpaca ticker from snapshot
     fn parse_ticker(&self, snapshot: &AlpacaSnapshot, market: &Market) -> Ticker {
-        let timestamp = snapshot.latest_quote.as_ref()
+        let timestamp = snapshot
+            .latest_quote
+            .as_ref()
             .and_then(|q| chrono::DateTime::parse_from_rfc3339(&q.t).ok())
             .map(|dt| dt.timestamp_millis());
 
-        let bid = snapshot.latest_quote.as_ref().and_then(|q| q.bp.and_then(Decimal::from_f64_retain));
-        let bid_volume = snapshot.latest_quote.as_ref().and_then(|q| q.bs.and_then(Decimal::from_f64_retain));
-        let ask = snapshot.latest_quote.as_ref().and_then(|q| q.ap.and_then(Decimal::from_f64_retain));
-        let ask_volume = snapshot.latest_quote.as_ref().and_then(|q| q.as_.and_then(Decimal::from_f64_retain));
+        let bid = snapshot
+            .latest_quote
+            .as_ref()
+            .and_then(|q| q.bp.and_then(Decimal::from_f64_retain));
+        let bid_volume = snapshot
+            .latest_quote
+            .as_ref()
+            .and_then(|q| q.bs.and_then(Decimal::from_f64_retain));
+        let ask = snapshot
+            .latest_quote
+            .as_ref()
+            .and_then(|q| q.ap.and_then(Decimal::from_f64_retain));
+        let ask_volume = snapshot
+            .latest_quote
+            .as_ref()
+            .and_then(|q| q.as_.and_then(Decimal::from_f64_retain));
 
-        let last = snapshot.latest_trade.as_ref().and_then(|t| Decimal::from_f64_retain(t.p));
-        let open = snapshot.daily_bar.as_ref().and_then(|b| Decimal::from_f64_retain(b.o));
-        let high = snapshot.daily_bar.as_ref().and_then(|b| Decimal::from_f64_retain(b.h));
-        let low = snapshot.daily_bar.as_ref().and_then(|b| Decimal::from_f64_retain(b.l));
-        let close = snapshot.daily_bar.as_ref().and_then(|b| Decimal::from_f64_retain(b.c));
-        let volume = snapshot.daily_bar.as_ref().and_then(|b| Decimal::from_f64_retain(b.v));
-        let vwap = snapshot.daily_bar.as_ref().and_then(|b| Decimal::from_f64_retain(b.vw));
-        let previous_close = snapshot.prev_daily_bar.as_ref().and_then(|b| Decimal::from_f64_retain(b.c));
+        let last = snapshot
+            .latest_trade
+            .as_ref()
+            .and_then(|t| Decimal::from_f64_retain(t.p));
+        let open = snapshot
+            .daily_bar
+            .as_ref()
+            .and_then(|b| Decimal::from_f64_retain(b.o));
+        let high = snapshot
+            .daily_bar
+            .as_ref()
+            .and_then(|b| Decimal::from_f64_retain(b.h));
+        let low = snapshot
+            .daily_bar
+            .as_ref()
+            .and_then(|b| Decimal::from_f64_retain(b.l));
+        let close = snapshot
+            .daily_bar
+            .as_ref()
+            .and_then(|b| Decimal::from_f64_retain(b.c));
+        let volume = snapshot
+            .daily_bar
+            .as_ref()
+            .and_then(|b| Decimal::from_f64_retain(b.v));
+        let vwap = snapshot
+            .daily_bar
+            .as_ref()
+            .and_then(|b| Decimal::from_f64_retain(b.vw));
+        let previous_close = snapshot
+            .prev_daily_bar
+            .as_ref()
+            .and_then(|b| Decimal::from_f64_retain(b.c));
 
         let (change, percentage) = if let (Some(c), Some(pc)) = (close, previous_close) {
             let change_val = c - pc;
-            let percentage_val = if pc != Decimal::ZERO { (change_val / pc) * Decimal::from(100) } else { Decimal::ZERO };
+            let percentage_val = if pc != Decimal::ZERO {
+                (change_val / pc) * Decimal::from(100)
+            } else {
+                Decimal::ZERO
+            };
             (Some(change_val), Some(percentage_val))
         } else {
             (None, None)
@@ -626,9 +703,14 @@ impl Exchange for Alpaca {
         params.insert("asset_class".into(), "crypto".into());
         params.insert("status".into(), "active".into());
 
-        let assets: Vec<AlpacaAsset> = self.trader_private("GET", "/v2/assets", Some(params)).await?;
+        let assets: Vec<AlpacaAsset> = self
+            .trader_private("GET", "/v2/assets", Some(params))
+            .await?;
 
-        Ok(assets.iter().map(|asset| self.parse_market(asset)).collect())
+        Ok(assets
+            .iter()
+            .map(|asset| self.parse_market(asset))
+            .collect())
     }
 
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
@@ -644,8 +726,12 @@ impl Exchange for Alpaca {
         let path = format!("/v1beta3/crypto/{}/snapshots", self.default_loc);
         let response: AlpacaSnapshotResponse = self.market_public(&path, Some(params)).await?;
 
-        let snapshot = response.snapshots.get(market_id)
-            .ok_or_else(|| CcxtError::BadResponse { message: "No snapshot data".into() })?;
+        let snapshot = response
+            .snapshots
+            .get(market_id)
+            .ok_or_else(|| CcxtError::BadResponse {
+                message: "No snapshot data".into(),
+            })?;
 
         Ok(self.parse_ticker(snapshot, &market))
     }
@@ -654,7 +740,8 @@ impl Exchange for Alpaca {
         self.load_markets(false).await?;
 
         let symbols_str = if let Some(syms) = symbols {
-            let market_ids: Vec<String> = syms.iter()
+            let market_ids: Vec<String> = syms
+                .iter()
                 .filter_map(|s| self.market(s).ok())
                 .map(|m| m.id.clone())
                 .collect();
@@ -662,9 +749,7 @@ impl Exchange for Alpaca {
         } else {
             // Fetch all crypto markets
             let markets = self.markets.read().unwrap();
-            let market_ids: Vec<String> = markets.values()
-                .map(|m| m.id.clone())
-                .collect();
+            let market_ids: Vec<String> = markets.values().map(|m| m.id.clone()).collect();
             market_ids.join(",")
         };
 
@@ -699,18 +784,27 @@ impl Exchange for Alpaca {
         let path = format!("/v1beta3/crypto/{}/latest/orderbooks", self.default_loc);
         let response: AlpacaOrderBookResponse = self.market_public(&path, Some(params)).await?;
 
-        let orderbook = response.orderbooks.get(market_id)
-            .ok_or_else(|| CcxtError::BadResponse { message: "No orderbook data".into() })?;
+        let orderbook =
+            response
+                .orderbooks
+                .get(market_id)
+                .ok_or_else(|| CcxtError::BadResponse {
+                    message: "No orderbook data".into(),
+                })?;
 
         let timestamp = chrono::DateTime::parse_from_rfc3339(&orderbook.t)
             .map(|dt| dt.timestamp_millis())
             .ok();
 
-        let mut bids: Vec<OrderBookEntry> = orderbook.b.iter()
+        let mut bids: Vec<OrderBookEntry> = orderbook
+            .b
+            .iter()
             .map(|entry| self.parse_order_book_entry(entry))
             .collect();
 
-        let mut asks: Vec<OrderBookEntry> = orderbook.a.iter()
+        let mut asks: Vec<OrderBookEntry> = orderbook
+            .a
+            .iter()
             .map(|entry| self.parse_order_book_entry(entry))
             .collect();
 
@@ -723,6 +817,7 @@ impl Exchange for Alpaca {
             symbol: market.symbol.clone(),
             bids,
             asks,
+            checksum: None,
             timestamp,
             datetime: timestamp.map(|ts| {
                 chrono::DateTime::from_timestamp(ts / 1000, 0)
@@ -749,8 +844,11 @@ impl Exchange for Alpaca {
         params.insert("loc".into(), self.default_loc.clone());
 
         if let Some(s) = since {
-            let dt = chrono::DateTime::from_timestamp(s / 1000, 0)
-                .ok_or_else(|| CcxtError::BadRequest { message: "Invalid timestamp".into() })?;
+            let dt = chrono::DateTime::from_timestamp(s / 1000, 0).ok_or_else(|| {
+                CcxtError::BadRequest {
+                    message: "Invalid timestamp".into(),
+                }
+            })?;
             params.insert("start".into(), dt.to_rfc3339());
         }
 
@@ -761,10 +859,17 @@ impl Exchange for Alpaca {
         let path = format!("/v1beta3/crypto/{}/trades", self.default_loc);
         let response: AlpacaTradesResponse = self.market_public(&path, Some(params)).await?;
 
-        let trades = response.trades.get(market_id)
-            .ok_or_else(|| CcxtError::BadResponse { message: "No trades data".into() })?;
+        let trades = response
+            .trades
+            .get(market_id)
+            .ok_or_else(|| CcxtError::BadResponse {
+                message: "No trades data".into(),
+            })?;
 
-        Ok(trades.iter().map(|t| self.parse_trade(t, Some(&market))).collect())
+        Ok(trades
+            .iter()
+            .map(|t| self.parse_trade(t, Some(&market)))
+            .collect())
     }
 
     async fn fetch_ohlcv(
@@ -779,8 +884,12 @@ impl Exchange for Alpaca {
         let market = self.market(symbol)?;
         let market_id = &market.id;
 
-        let tf = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::BadRequest { message: format!("Unsupported timeframe: {timeframe:?}") })?;
+        let tf = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbols".into(), market_id.clone());
@@ -788,8 +897,11 @@ impl Exchange for Alpaca {
         params.insert("timeframe".into(), tf.clone());
 
         if let Some(s) = since {
-            let dt = chrono::DateTime::from_timestamp(s / 1000, 0)
-                .ok_or_else(|| CcxtError::BadRequest { message: "Invalid timestamp".into() })?;
+            let dt = chrono::DateTime::from_timestamp(s / 1000, 0).ok_or_else(|| {
+                CcxtError::BadRequest {
+                    message: "Invalid timestamp".into(),
+                }
+            })?;
             params.insert("start".into(), dt.format("%Y-%m-%d").to_string());
         }
 
@@ -800,8 +912,12 @@ impl Exchange for Alpaca {
         let path = format!("/v1beta3/crypto/{}/bars", self.default_loc);
         let response: AlpacaBarsResponse = self.market_public(&path, Some(params)).await?;
 
-        let bars = response.bars.get(market_id)
-            .ok_or_else(|| CcxtError::BadResponse { message: "No OHLCV data".into() })?;
+        let bars = response
+            .bars
+            .get(market_id)
+            .ok_or_else(|| CcxtError::BadResponse {
+                message: "No OHLCV data".into(),
+            })?;
 
         Ok(bars.iter().map(|b| self.parse_ohlcv(b)).collect())
     }
@@ -866,7 +982,10 @@ impl Exchange for Alpaca {
         };
         params.insert("type".into(), type_str.to_string());
 
-        if matches!(order_type, OrderType::Limit | OrderType::StopLoss | OrderType::TakeProfit) {
+        if matches!(
+            order_type,
+            OrderType::Limit | OrderType::StopLoss | OrderType::TakeProfit
+        ) {
             if let Some(p) = price {
                 params.insert("limit_price".into(), p.to_string());
             }
@@ -879,7 +998,9 @@ impl Exchange for Alpaca {
         let client_id = format!("ccxt_{}", uuid::Uuid::new_v4().simple());
         params.insert("client_order_id".into(), client_id);
 
-        let order: AlpacaOrder = self.trader_private("POST", "/v2/orders", Some(params)).await?;
+        let order: AlpacaOrder = self
+            .trader_private("POST", "/v2/orders", Some(params))
+            .await?;
 
         Ok(self.parse_order(&order, Some(&market)))
     }
@@ -923,8 +1044,11 @@ impl Exchange for Alpaca {
         }
 
         if let Some(s) = since {
-            let dt = chrono::DateTime::from_timestamp(s / 1000, 0)
-                .ok_or_else(|| CcxtError::BadRequest { message: "Invalid timestamp".into() })?;
+            let dt = chrono::DateTime::from_timestamp(s / 1000, 0).ok_or_else(|| {
+                CcxtError::BadRequest {
+                    message: "Invalid timestamp".into(),
+                }
+            })?;
             params.insert("after".into(), dt.to_rfc3339());
         }
 
@@ -932,12 +1056,17 @@ impl Exchange for Alpaca {
             params.insert("limit".into(), l.to_string());
         }
 
-        let orders: Vec<AlpacaOrder> = self.trader_private("GET", "/v2/orders", Some(params)).await?;
+        let orders: Vec<AlpacaOrder> = self
+            .trader_private("GET", "/v2/orders", Some(params))
+            .await?;
 
-        Ok(orders.iter().map(|o| {
-            let market = self.market_by_id(&o.symbol).ok();
-            self.parse_order(o, market.as_ref())
-        }).collect())
+        Ok(orders
+            .iter()
+            .map(|o| {
+                let market = self.market_by_id(&o.symbol).ok();
+                self.parse_order(o, market.as_ref())
+            })
+            .collect())
     }
 
     async fn fetch_open_orders(
@@ -957,8 +1086,11 @@ impl Exchange for Alpaca {
         }
 
         if let Some(s) = since {
-            let dt = chrono::DateTime::from_timestamp(s / 1000, 0)
-                .ok_or_else(|| CcxtError::BadRequest { message: "Invalid timestamp".into() })?;
+            let dt = chrono::DateTime::from_timestamp(s / 1000, 0).ok_or_else(|| {
+                CcxtError::BadRequest {
+                    message: "Invalid timestamp".into(),
+                }
+            })?;
             params.insert("after".into(), dt.to_rfc3339());
         }
 
@@ -966,12 +1098,17 @@ impl Exchange for Alpaca {
             params.insert("limit".into(), l.to_string());
         }
 
-        let orders: Vec<AlpacaOrder> = self.trader_private("GET", "/v2/orders", Some(params)).await?;
+        let orders: Vec<AlpacaOrder> = self
+            .trader_private("GET", "/v2/orders", Some(params))
+            .await?;
 
-        Ok(orders.iter().map(|o| {
-            let market = self.market_by_id(&o.symbol).ok();
-            self.parse_order(o, market.as_ref())
-        }).collect())
+        Ok(orders
+            .iter()
+            .map(|o| {
+                let market = self.market_by_id(&o.symbol).ok();
+                self.parse_order(o, market.as_ref())
+            })
+            .collect())
     }
 
     async fn fetch_closed_orders(
@@ -991,8 +1128,11 @@ impl Exchange for Alpaca {
         }
 
         if let Some(s) = since {
-            let dt = chrono::DateTime::from_timestamp(s / 1000, 0)
-                .ok_or_else(|| CcxtError::BadRequest { message: "Invalid timestamp".into() })?;
+            let dt = chrono::DateTime::from_timestamp(s / 1000, 0).ok_or_else(|| {
+                CcxtError::BadRequest {
+                    message: "Invalid timestamp".into(),
+                }
+            })?;
             params.insert("after".into(), dt.to_rfc3339());
         }
 
@@ -1000,12 +1140,17 @@ impl Exchange for Alpaca {
             params.insert("limit".into(), l.to_string());
         }
 
-        let orders: Vec<AlpacaOrder> = self.trader_private("GET", "/v2/orders", Some(params)).await?;
+        let orders: Vec<AlpacaOrder> = self
+            .trader_private("GET", "/v2/orders", Some(params))
+            .await?;
 
-        Ok(orders.iter().map(|o| {
-            let market = self.market_by_id(&o.symbol).ok();
-            self.parse_order(o, market.as_ref())
-        }).collect())
+        Ok(orders
+            .iter()
+            .map(|o| {
+                let market = self.market_by_id(&o.symbol).ok();
+                self.parse_order(o, market.as_ref())
+            })
+            .collect())
     }
 
     async fn fetch_my_trades(
@@ -1020,8 +1165,11 @@ impl Exchange for Alpaca {
         params.insert("activity_type".into(), "FILL".into());
 
         if let Some(s) = since {
-            let dt = chrono::DateTime::from_timestamp(s / 1000, 0)
-                .ok_or_else(|| CcxtError::BadRequest { message: "Invalid timestamp".into() })?;
+            let dt = chrono::DateTime::from_timestamp(s / 1000, 0).ok_or_else(|| {
+                CcxtError::BadRequest {
+                    message: "Invalid timestamp".into(),
+                }
+            })?;
             params.insert("after".into(), dt.to_rfc3339());
         }
 
@@ -1029,7 +1177,9 @@ impl Exchange for Alpaca {
             params.insert("page_size".into(), l.to_string());
         }
 
-        let trades: Vec<AlpacaTrade> = self.trader_private("GET", "/v2/account/activities/FILL", Some(params)).await?;
+        let trades: Vec<AlpacaTrade> = self
+            .trader_private("GET", "/v2/account/activities/FILL", Some(params))
+            .await?;
 
         let market = if let Some(sym) = symbol {
             Some(self.market(sym)?)
@@ -1037,7 +1187,8 @@ impl Exchange for Alpaca {
             None
         };
 
-        Ok(trades.iter()
+        Ok(trades
+            .iter()
             .filter(|t| {
                 if let Some(ref m) = market {
                     t.symbol.as_ref() == Some(&m.id)

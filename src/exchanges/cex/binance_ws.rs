@@ -18,9 +18,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent,
-    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -85,13 +85,18 @@ impl BinanceWs {
 
     /// listenKey 생성 또는 갱신
     async fn create_listen_key(&self) -> CcxtResult<String> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private WebSocket".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private WebSocket".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let url = format!("{REST_BASE_URL}/api/v3/userDataStream");
         let client = reqwest::Client::new();
@@ -127,19 +132,27 @@ impl BinanceWs {
     /// listenKey 갱신
     #[allow(dead_code)]
     async fn keep_alive_listen_key(&self) -> CcxtResult<()> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let listen_key = self.listen_key.read().await.clone().ok_or_else(|| {
-            CcxtError::AuthenticationError {
-                message: "No listen key available".into(),
-            }
-        })?;
+        let listen_key =
+            self.listen_key
+                .read()
+                .await
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "No listen key available".into(),
+                })?;
 
         let url = format!("{REST_BASE_URL}/api/v3/userDataStream");
         let client = reqwest::Client::new();
@@ -175,7 +188,10 @@ impl BinanceWs {
     }
 
     /// Private 스트림에 연결하고 이벤트 수신
-    async fn subscribe_private_stream(&mut self, channel: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_private_stream(
+        &mut self,
+        channel: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // listenKey 확인 또는 생성
         let listen_key = {
             let current_key = self.listen_key.read().await.clone();
@@ -200,6 +216,7 @@ impl BinanceWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -208,7 +225,10 @@ impl BinanceWs {
         // 구독 저장
         {
             let key = format!("private:{channel}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // listenKey 갱신 스케줄링
@@ -229,7 +249,8 @@ impl BinanceWs {
                                 .query(&[("listenKey", key)])
                                 .send()
                                 .await;
-                            *listen_key_timestamp_clone.write().await = Utc::now().timestamp_millis();
+                            *listen_key_timestamp_clone.write().await =
+                                Utc::now().timestamp_millis();
                         }
                     }
                 }
@@ -244,19 +265,19 @@ impl BinanceWs {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
                         let _ = tx.send(WsMessage::Authenticated);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -275,20 +296,20 @@ impl BinanceWs {
                 if let Ok(data) = serde_json::from_str::<BinanceExecutionReport>(msg) {
                     return Some(WsMessage::Order(Self::parse_execution_report(&data)));
                 }
-            }
+            },
             // 잔고 업데이트 (outboundAccountPosition)
             "outboundAccountPosition" => {
                 if let Ok(data) = serde_json::from_str::<BinanceAccountPosition>(msg) {
                     return Some(WsMessage::Balance(Self::parse_account_position(&data)));
                 }
-            }
+            },
             // 잔고 업데이트 (balanceUpdate) - 입출금 등
             "balanceUpdate" => {
                 if let Ok(data) = serde_json::from_str::<BinanceBalanceUpdate>(msg) {
                     return Some(WsMessage::Balance(Self::parse_balance_update(&data)));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -329,7 +350,11 @@ impl BinanceWs {
         let amount: Decimal = data.q.parse().unwrap_or_default();
         let filled: Decimal = data.z.parse().unwrap_or_default();
         let remaining = amount - filled;
-        let cost: Decimal = data.Z.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+        let cost: Decimal = data
+            .Z
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
 
         let order = Order {
             id: data.i.to_string(),
@@ -376,9 +401,9 @@ impl BinanceWs {
     fn parse_account_position(data: &BinanceAccountPosition) -> WsBalanceEvent {
         let mut balances = Balances::default();
         balances.timestamp = data.E;
-        balances.datetime = data.E.and_then(|t| {
-            chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-        });
+        balances.datetime = data
+            .E
+            .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339()));
 
         for b in &data.B {
             let currency = b.a.clone();
@@ -405,9 +430,9 @@ impl BinanceWs {
     fn parse_balance_update(data: &BinanceBalanceUpdate) -> WsBalanceEvent {
         let mut balances = Balances::default();
         balances.timestamp = data.E;
-        balances.datetime = data.E.and_then(|t| {
-            chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-        });
+        balances.datetime = data
+            .E
+            .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339()));
 
         let currency = data.a.clone();
         let delta: Decimal = data.d.parse().unwrap_or_default();
@@ -493,27 +518,35 @@ impl BinanceWs {
 
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &BinanceDepthUpdate, symbol: &str) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.b.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .b
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.a.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .a
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let timestamp = data.E.unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -528,6 +561,7 @@ impl BinanceWs {
             nonce: data.u,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -553,7 +587,11 @@ impl BinanceWs {
             ),
             symbol: symbol.clone(),
             trade_type: None,
-            side: if data.m { Some("sell".into()) } else { Some("buy".into()) },
+            side: if data.m {
+                Some("sell".into())
+            } else {
+                Some("buy".into())
+            },
             taker_or_maker: None,
             price: data.p.parse().unwrap_or_default(),
             amount: data.q.parse().unwrap_or_default(),
@@ -596,7 +634,9 @@ impl BinanceWs {
     /// Binance 심볼을 통합 심볼로 변환 (BTCUSDT -> BTC/USDT)
     fn to_unified_symbol(binance_symbol: &str) -> String {
         // 일반적인 quote 통화 목록
-        let quotes = ["USDT", "BUSD", "USDC", "BTC", "ETH", "BNB", "TUSD", "PAX", "DAI"];
+        let quotes = [
+            "USDT", "BUSD", "USDC", "BTC", "ETH", "BNB", "TUSD", "PAX", "DAI",
+        ];
 
         for quote in quotes {
             if let Some(base) = binance_symbol.strip_suffix(quote) {
@@ -670,7 +710,12 @@ impl BinanceWs {
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
-    async fn subscribe_stream(&mut self, stream: &str, channel: &str, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        stream: &str,
+        channel: &str,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -685,6 +730,7 @@ impl BinanceWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -693,7 +739,10 @@ impl BinanceWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, stream.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, stream.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -703,19 +752,19 @@ impl BinanceWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -749,10 +798,15 @@ impl WsExchange for BinanceWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let stream = format!("{}@miniTicker", Self::format_symbol(symbol));
-        client.subscribe_stream(&stream, "ticker", Some(symbol)).await
+        client
+            .subscribe_stream(&stream, "ticker", Some(symbol))
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let streams: Vec<String> = symbols
             .iter()
@@ -778,22 +832,24 @@ impl WsExchange for BinanceWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         // Combined stream format: {"stream":"btcusdt@miniTicker","data":{...}}
                         if let Ok(combined) = serde_json::from_str::<BinanceCombinedStream>(&msg) {
-                            if let Some(ws_msg) = Self::process_message(&serde_json::to_string(&combined.data).unwrap_or_default()) {
+                            if let Some(ws_msg) = Self::process_message(
+                                &serde_json::to_string(&combined.data).unwrap_or_default(),
+                            ) {
                                 let _ = tx.send(ws_msg);
                             }
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -801,24 +857,38 @@ impl WsExchange for BinanceWs {
         Ok(event_rx)
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let depth = limit.unwrap_or(10).min(20);
         let stream = format!("{}@depth{}@100ms", Self::format_symbol(symbol), depth);
-        client.subscribe_stream(&stream, "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream(&stream, "orderBook", Some(symbol))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let stream = format!("{}@trade", Self::format_symbol(symbol));
-        client.subscribe_stream(&stream, "trades", Some(symbol)).await
+        client
+            .subscribe_stream(&stream, "trades", Some(symbol))
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let interval = Self::format_interval(timeframe);
         let stream = format!("{}@kline_{}", Self::format_symbol(symbol), interval);
-        client.subscribe_stream(&stream, "ohlcv", Some(symbol)).await
+        client
+            .subscribe_stream(&stream, "ohlcv", Some(symbol))
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -849,12 +919,18 @@ impl WsExchange for BinanceWs {
         client.subscribe_private_stream("balance").await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("orders").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("myTrades").await
     }
@@ -927,12 +1003,12 @@ struct BinanceTradeMsg {
     #[serde(default)]
     E: Option<i64>, // Event time
     s: String, // Symbol
-    t: i64, // Trade ID
+    t: i64,    // Trade ID
     p: String, // Price
     q: String, // Quantity
     #[serde(default)]
     T: Option<i64>, // Trade time
-    m: bool, // Is buyer maker
+    m: bool,   // Is buyer maker
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -975,66 +1051,66 @@ struct ListenKeyResponse {
 #[derive(Debug, Deserialize, Serialize)]
 #[allow(non_snake_case)]
 struct BinanceExecutionReport {
-    e: String,          // Event type
+    e: String, // Event type
     #[serde(default)]
-    E: Option<i64>,     // Event time
-    s: String,          // Symbol
-    c: String,          // Client order ID
-    S: String,          // Side (BUY/SELL)
-    o: String,          // Order type
+    E: Option<i64>, // Event time
+    s: String, // Symbol
+    c: String, // Client order ID
+    S: String, // Side (BUY/SELL)
+    o: String, // Order type
     #[serde(default)]
-    f: Option<String>,  // Time in force
-    q: String,          // Order quantity
-    p: String,          // Order price
+    f: Option<String>, // Time in force
+    q: String, // Order quantity
+    p: String, // Order price
     #[serde(default)]
-    P: Option<String>,  // Stop price
+    P: Option<String>, // Stop price
     #[serde(default)]
-    F: Option<String>,  // Iceberg quantity
+    F: Option<String>, // Iceberg quantity
     #[serde(default)]
-    g: Option<i64>,     // OrderListId
+    g: Option<i64>, // OrderListId
     #[serde(default)]
-    C: Option<String>,  // Original client order ID (for cancel)
-    x: String,          // Current execution type
-    X: String,          // Current order status
+    C: Option<String>, // Original client order ID (for cancel)
+    x: String, // Current execution type
+    X: String, // Current order status
     #[serde(default)]
-    r: Option<String>,  // Order reject reason
-    i: i64,             // Order ID
-    l: String,          // Last executed quantity
-    z: String,          // Cumulative filled quantity
-    L: String,          // Last executed price
+    r: Option<String>, // Order reject reason
+    i: i64,    // Order ID
+    l: String, // Last executed quantity
+    z: String, // Cumulative filled quantity
+    L: String, // Last executed price
     #[serde(default)]
-    n: Option<String>,  // Commission amount
+    n: Option<String>, // Commission amount
     #[serde(default)]
-    N: Option<String>,  // Commission asset
+    N: Option<String>, // Commission asset
     #[serde(default)]
-    T: Option<i64>,     // Transaction time
+    T: Option<i64>, // Transaction time
     #[serde(default)]
-    t: Option<i64>,     // Trade ID
+    t: Option<i64>, // Trade ID
     #[serde(default)]
-    I: Option<i64>,     // Ignore
-    w: bool,            // Is working
-    m: bool,            // Is maker
+    I: Option<i64>, // Ignore
+    w: bool,   // Is working
+    m: bool,   // Is maker
     #[serde(default)]
-    M: Option<bool>,    // Ignore
+    M: Option<bool>, // Ignore
     #[serde(default)]
-    O: Option<i64>,     // Order creation time
+    O: Option<i64>, // Order creation time
     #[serde(default)]
-    Z: Option<String>,  // Cumulative quote asset transacted quantity
+    Z: Option<String>, // Cumulative quote asset transacted quantity
     #[serde(default)]
-    Y: Option<String>,  // Last quote asset transacted quantity
+    Y: Option<String>, // Last quote asset transacted quantity
     #[serde(default)]
-    Q: Option<String>,  // Quote order quantity
+    Q: Option<String>, // Quote order quantity
 }
 
 /// outboundAccountPosition - 계정 포지션 업데이트
 #[derive(Debug, Deserialize, Serialize)]
 #[allow(non_snake_case)]
 struct BinanceAccountPosition {
-    e: String,          // Event type
+    e: String, // Event type
     #[serde(default)]
-    E: Option<i64>,     // Event time
+    E: Option<i64>, // Event time
     #[serde(default)]
-    u: Option<i64>,     // Time of last account update
+    u: Option<i64>, // Time of last account update
     B: Vec<BinanceBalanceEntry>, // Balances
 }
 
@@ -1050,13 +1126,13 @@ struct BinanceBalanceEntry {
 #[derive(Debug, Deserialize, Serialize)]
 #[allow(non_snake_case)]
 struct BinanceBalanceUpdate {
-    e: String,          // Event type
+    e: String, // Event type
     #[serde(default)]
-    E: Option<i64>,     // Event time
-    a: String,          // Asset
-    d: String,          // Balance delta
+    E: Option<i64>, // Event time
+    a: String, // Asset
+    d: String, // Balance delta
     #[serde(default)]
-    T: Option<i64>,     // Clear time
+    T: Option<i64>, // Clear time
 }
 
 #[cfg(test)]

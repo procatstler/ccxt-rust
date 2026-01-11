@@ -17,8 +17,8 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, DepositAddress, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Transaction,
+    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Transaction,
     TransactionStatus, TransactionType, OHLCV,
 };
 
@@ -153,12 +153,18 @@ impl Xt {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -176,10 +182,17 @@ impl Xt {
         };
 
         // Create signature: timestamp + method + path + query/body
-        let sign_string = format!("{timestamp}#{method}#{path}#{}", if query_string.is_empty() { &body } else { &query_string });
+        let sign_string = format!(
+            "{timestamp}#{method}#{path}#{}",
+            if query_string.is_empty() {
+                &body
+            } else {
+                &query_string
+            }
+        );
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(sign_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -206,7 +219,7 @@ impl Xt {
                     Some(serde_json::from_str(&body).unwrap_or_default())
                 };
                 self.spot_client.post(&url, json_body, Some(headers)).await
-            }
+            },
             "DELETE" => self.spot_client.delete(&url, None, Some(headers)).await,
             "PUT" => {
                 let json_body: Option<serde_json::Value> = if body.is_empty() {
@@ -214,8 +227,10 @@ impl Xt {
                 } else {
                     Some(serde_json::from_str(&body).unwrap_or_default())
                 };
-                self.spot_client.put_json(&url, json_body, Some(headers)).await
-            }
+                self.spot_client
+                    .put_json(&url, json_body, Some(headers))
+                    .await
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -285,8 +300,16 @@ impl Xt {
         };
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.orig_qty.as_ref().and_then(|q| q.parse().ok()).unwrap_or_default();
-        let filled: Decimal = data.executed_qty.as_ref().and_then(|q| q.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .orig_qty
+            .as_ref()
+            .and_then(|q| q.parse().ok())
+            .unwrap_or_default();
+        let filled: Decimal = data
+            .executed_qty
+            .as_ref()
+            .and_then(|q| q.parse().ok())
+            .unwrap_or_default();
         let remaining = Some(amount - filled);
         let cost = data.cum_quote.as_ref().and_then(|c| c.parse().ok());
         let average = if filled > Decimal::ZERO {
@@ -355,12 +378,20 @@ impl Xt {
     /// 거래 내역 파싱
     fn parse_trade(&self, data: &XtTrade, symbol: Option<&str>) -> Trade {
         let timestamp = data.t.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price: Decimal = data.p.as_ref().and_then(|p| p.parse().ok()).unwrap_or_default();
-        let amount: Decimal = data.v.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+        let price: Decimal = data
+            .p
+            .as_ref()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or_default();
+        let amount: Decimal = data
+            .v
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
 
-        let symbol_str = symbol.map(|s| s.to_string()).unwrap_or_else(|| {
-            data.s.clone().unwrap_or_default()
-        });
+        let symbol_str = symbol
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| data.s.clone().unwrap_or_default());
 
         Trade {
             id: data.i.clone().unwrap_or_default(),
@@ -373,7 +404,10 @@ impl Xt {
             ),
             symbol: symbol_str,
             trade_type: None,
-            side: data.m.as_ref().map(|m| if *m { "sell" } else { "buy" }.into()),
+            side: data
+                .m
+                .as_ref()
+                .map(|m| if *m { "sell" } else { "buy" }.into()),
             taker_or_maker: None,
             price,
             amount,
@@ -392,7 +426,11 @@ impl Xt {
             _ => TransactionStatus::Pending,
         };
 
-        let amount: Decimal = data.amount.as_ref().and_then(|a| a.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .amount
+            .as_ref()
+            .and_then(|a| a.parse().ok())
+            .unwrap_or_default();
 
         Transaction {
             id: data.id.clone().unwrap_or_default(),
@@ -424,7 +462,11 @@ impl Xt {
             _ => TransactionStatus::Pending,
         };
 
-        let amount: Decimal = data.amount.as_ref().and_then(|a| a.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .amount
+            .as_ref()
+            .and_then(|a| a.parse().ok())
+            .unwrap_or_default();
         let fee_amount: Option<Decimal> = data.fee.as_ref().and_then(|f| f.parse().ok());
 
         Transaction {
@@ -598,7 +640,9 @@ impl Exchange for Xt {
         if let Some(result) = response.result.and_then(|r| r.first().cloned()) {
             Ok(self.parse_ticker(&result, symbol))
         } else {
-            Err(CcxtError::BadSymbol { symbol: symbol.into() })
+            Err(CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            })
         }
     }
 
@@ -636,12 +680,13 @@ impl Exchange for Xt {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: XtOrderBookResponse = self
-            .public_get("/v4/public/depth", Some(params))
-            .await?;
+        let response: XtOrderBookResponse =
+            self.public_get("/v4/public/depth", Some(params)).await?;
 
         if let Some(result) = response.result {
-            let bids: Vec<OrderBookEntry> = result.bids.iter()
+            let bids: Vec<OrderBookEntry> = result
+                .bids
+                .iter()
                 .filter_map(|b| {
                     if b.len() >= 2 {
                         Some(OrderBookEntry {
@@ -654,7 +699,9 @@ impl Exchange for Xt {
                 })
                 .collect();
 
-            let asks: Vec<OrderBookEntry> = result.asks.iter()
+            let asks: Vec<OrderBookEntry> = result
+                .asks
+                .iter()
                 .filter_map(|a| {
                     if a.len() >= 2 {
                         Some(OrderBookEntry {
@@ -676,9 +723,12 @@ impl Exchange for Xt {
                 nonce: None,
                 bids,
                 asks,
+                checksum: None,
             })
         } else {
-            Err(CcxtError::BadResponse { message: "Empty orderbook response".into() })
+            Err(CcxtError::BadResponse {
+                message: "Empty orderbook response".into(),
+            })
         }
     }
 
@@ -700,7 +750,8 @@ impl Exchange for Xt {
             .await?;
 
         if let Some(results) = response.result {
-            let trades: Vec<Trade> = results.iter()
+            let trades: Vec<Trade> = results
+                .iter()
                 .map(|t| self.parse_trade(t, Some(symbol)))
                 .collect();
             Ok(trades)
@@ -717,9 +768,12 @@ impl Exchange for Xt {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -731,12 +785,11 @@ impl Exchange for Xt {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: XtKlineResponse = self
-            .public_get("/v4/public/kline", Some(params))
-            .await?;
+        let response: XtKlineResponse = self.public_get("/v4/public/kline", Some(params)).await?;
 
         if let Some(results) = response.result {
-            let ohlcv: Vec<OHLCV> = results.iter()
+            let ohlcv: Vec<OHLCV> = results
+                .iter()
                 .filter_map(|c| {
                     if c.len() < 6 {
                         return None;
@@ -781,17 +834,27 @@ impl Exchange for Xt {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT",
-            OrderType::Market => "MARKET",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT",
+                OrderType::Market => "MARKET",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("quantity".into(), amount.to_string());
 
         if order_type == OrderType::Limit {
@@ -801,14 +864,14 @@ impl Exchange for Xt {
             params.insert("price".into(), price_val.to_string());
         }
 
-        let response: XtOrderResponse = self
-            .private_request("POST", "/v4/order", params)
-            .await?;
+        let response: XtOrderResponse = self.private_request("POST", "/v4/order", params).await?;
 
         if let Some(result) = response.result {
             Ok(self.parse_order(&result, symbol))
         } else {
-            Err(CcxtError::BadResponse { message: "Empty order response".into() })
+            Err(CcxtError::BadResponse {
+                message: "Empty order response".into(),
+            })
         }
     }
 
@@ -819,14 +882,14 @@ impl Exchange for Xt {
         params.insert("orderId".into(), id.to_string());
 
         let path = format!("/v4/order/{id}");
-        let response: XtOrderResponse = self
-            .private_request("DELETE", &path, params)
-            .await?;
+        let response: XtOrderResponse = self.private_request("DELETE", &path, params).await?;
 
         if let Some(result) = response.result {
             Ok(self.parse_order(&result, symbol))
         } else {
-            Err(CcxtError::BadResponse { message: "Empty cancel response".into() })
+            Err(CcxtError::BadResponse {
+                message: "Empty cancel response".into(),
+            })
         }
     }
 
@@ -837,14 +900,14 @@ impl Exchange for Xt {
         params.insert("orderId".into(), id.to_string());
 
         let path = format!("/v4/order/{id}");
-        let response: XtOrderResponse = self
-            .private_request("GET", &path, params)
-            .await?;
+        let response: XtOrderResponse = self.private_request("GET", &path, params).await?;
 
         if let Some(result) = response.result {
             Ok(self.parse_order(&result, symbol))
         } else {
-            Err(CcxtError::BadResponse { message: "Empty order response".into() })
+            Err(CcxtError::BadResponse {
+                message: "Empty order response".into(),
+            })
         }
     }
 
@@ -867,7 +930,8 @@ impl Exchange for Xt {
         let markets_by_id = self.markets_by_id.read().unwrap();
 
         if let Some(results) = response.result {
-            let orders: Vec<Order> = results.iter()
+            let orders: Vec<Order> = results
+                .iter()
                 .map(|o| {
                     let sym = markets_by_id
                         .get(&o.symbol.clone().unwrap_or_default())
@@ -897,12 +961,11 @@ impl Exchange for Xt {
             params.insert("limit".into(), l.min(100).to_string());
         }
 
-        let response: XtMyTradesResponse = self
-            .private_request("GET", "/v4/trade", params)
-            .await?;
+        let response: XtMyTradesResponse = self.private_request("GET", "/v4/trade", params).await?;
 
         if let Some(results) = response.result {
-            let trades: Vec<Trade> = results.iter()
+            let trades: Vec<Trade> = results
+                .iter()
                 .map(|t| self.parse_trade(t, symbol))
                 .collect();
             Ok(trades)
@@ -931,9 +994,8 @@ impl Exchange for Xt {
             .await?;
 
         if let Some(results) = response.result {
-            let transactions: Vec<Transaction> = results.iter()
-                .map(|d| self.parse_deposit(d))
-                .collect();
+            let transactions: Vec<Transaction> =
+                results.iter().map(|d| self.parse_deposit(d)).collect();
             Ok(transactions)
         } else {
             Ok(Vec::new())
@@ -960,9 +1022,8 @@ impl Exchange for Xt {
             .await?;
 
         if let Some(results) = response.result {
-            let transactions: Vec<Transaction> = results.iter()
-                .map(|w| self.parse_withdrawal(w))
-                .collect();
+            let transactions: Vec<Transaction> =
+                results.iter().map(|w| self.parse_withdrawal(w)).collect();
             Ok(transactions)
         } else {
             Ok(Vec::new())
@@ -989,9 +1050,8 @@ impl Exchange for Xt {
             params.insert("chain".into(), n.to_string());
         }
 
-        let response: XtWithdrawResponse = self
-            .private_request("POST", "/v4/withdraw", params)
-            .await?;
+        let response: XtWithdrawResponse =
+            self.private_request("POST", "/v4/withdraw", params).await?;
 
         Ok(Transaction {
             id: response.result.unwrap_or_default(),
@@ -1038,7 +1098,9 @@ impl Exchange for Xt {
                 info: serde_json::to_value(&result).unwrap_or_default(),
             })
         } else {
-            Err(CcxtError::BadResponse { message: "Empty deposit address response".into() })
+            Err(CcxtError::BadResponse {
+                message: "Empty deposit address response".into(),
+            })
         }
     }
 

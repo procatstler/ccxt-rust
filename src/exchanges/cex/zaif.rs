@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -96,10 +96,7 @@ impl Zaif {
     }
 
     /// 공개 API 호출
-    async fn public_get<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> CcxtResult<T> {
+    async fn public_get<T: serde::de::DeserializeOwned>(&self, path: &str) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
         self.client.get(path, None, None).await
     }
@@ -112,12 +109,18 @@ impl Zaif {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = (Utc::now().timestamp_millis() as f64 / 1000.0).to_string();
 
@@ -125,23 +128,32 @@ impl Zaif {
         post_params.insert("method".into(), method.to_string());
         post_params.insert("nonce".into(), nonce);
 
-        let query_string: String = post_params.iter()
+        let query_string: String = post_params
+            .iter()
             .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("&");
 
-        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(query_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
         let mut headers = HashMap::new();
         headers.insert("Key".into(), api_key.to_string());
         headers.insert("Sign".into(), signature);
-        headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+        headers.insert(
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
 
         let private_client = HttpClient::new(Self::PRIVATE_URL, &self.config)?;
-        let response: ZaifResponse<T> = private_client.post_form("", &post_params, Some(headers)).await?;
+        let response: ZaifResponse<T> = private_client
+            .post_form("", &post_params, Some(headers))
+            .await?;
 
         if response.success == 1 {
             response.return_data.ok_or_else(|| CcxtError::ParseError {
@@ -234,7 +246,8 @@ impl Exchange for Zaif {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: HashMap<String, ZaifCurrencyPair> = self.public_get("/currency_pairs/all").await?;
+        let response: HashMap<String, ZaifCurrencyPair> =
+            self.public_get("/currency_pairs/all").await?;
 
         let mut markets = Vec::new();
         for (id, info) in response {
@@ -381,18 +394,25 @@ impl Exchange for Zaif {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let path = format!("/trades/{market_id}");
         let response: Vec<ZaifTrade> = self.public_get(&path).await?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .take(limit)
             .map(|t| {
                 let timestamp = t.date * 1000;
@@ -444,7 +464,9 @@ impl Exchange for Zaif {
 
         if let Some(funds) = response.funds {
             for (currency, amount) in funds {
-                let deposit = response.deposit.as_ref()
+                let deposit = response
+                    .deposit
+                    .as_ref()
                     .and_then(|d| d.get(&currency))
                     .copied()
                     .unwrap_or_default();
@@ -485,10 +507,13 @@ impl Exchange for Zaif {
 
         let mut params = HashMap::new();
         params.insert("currency_pair".into(), market_id);
-        params.insert("action".into(), match side {
-            OrderSide::Buy => "bid".into(),
-            OrderSide::Sell => "ask".into(),
-        });
+        params.insert(
+            "action".into(),
+            match side {
+                OrderSide::Buy => "bid".into(),
+                OrderSide::Sell => "ask".into(),
+            },
+        );
         params.insert("amount".into(), amount.to_string());
         params.insert("price".into(), price.to_string());
 
@@ -532,7 +557,8 @@ impl Exchange for Zaif {
         let mut params = HashMap::new();
         params.insert("order_id".into(), id.to_string());
 
-        let _response: ZaifOrderResponse = self.private_request("cancel_order", Some(params)).await?;
+        let _response: ZaifOrderResponse =
+            self.private_request("cancel_order", Some(params)).await?;
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
@@ -571,7 +597,8 @@ impl Exchange for Zaif {
         // We need to check open orders
         let orders = self.fetch_open_orders(Some(symbol), None, None).await?;
 
-        orders.into_iter()
+        orders
+            .into_iter()
             .find(|o| o.id == id)
             .ok_or_else(|| CcxtError::OrderNotFound {
                 order_id: id.to_string(),
@@ -589,18 +616,25 @@ impl Exchange for Zaif {
             params.insert("currency_pair".into(), self.convert_to_market_id(s));
         }
 
-        let response: HashMap<String, ZaifOrderDetail> = self.private_request("active_orders", Some(params)).await?;
+        let response: HashMap<String, ZaifOrderDetail> =
+            self.private_request("active_orders", Some(params)).await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|(id, o)| {
-                let timestamp = o.timestamp.map(|t| t * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
+                let timestamp = o
+                    .timestamp
+                    .map(|t| t * 1000)
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
                 let side = match o.action.as_deref() {
                     Some("bid") => OrderSide::Buy,
                     Some("ask") => OrderSide::Sell,
                     _ => OrderSide::Buy,
                 };
 
-                let sym = o.currency_pair.as_ref()
+                let sym = o
+                    .currency_pair
+                    .as_ref()
                     .map(|cp| {
                         let parts: Vec<&str> = cp.split('_').collect();
                         if parts.len() == 2 {

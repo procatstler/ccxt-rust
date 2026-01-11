@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://indodax.com/ws/";
@@ -141,6 +141,7 @@ impl IndodaxWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         }
     }
 
@@ -184,7 +185,9 @@ impl IndodaxWs {
             match channel {
                 "ticker" => {
                     if let Some(data) = json.get("data") {
-                        if let Ok(ticker_data) = serde_json::from_value::<IndodaxWsTicker>(data.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<IndodaxWsTicker>(data.clone())
+                        {
                             let ticker = Self::parse_ticker(&ticker_data, &symbol);
                             let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent {
                                 symbol: symbol.clone(),
@@ -192,10 +195,12 @@ impl IndodaxWs {
                             }));
                         }
                     }
-                }
+                },
                 "depth" => {
                     if let Some(data) = json.get("data") {
-                        if let Ok(depth_data) = serde_json::from_value::<IndodaxWsOrderBook>(data.clone()) {
+                        if let Ok(depth_data) =
+                            serde_json::from_value::<IndodaxWsOrderBook>(data.clone())
+                        {
                             let order_book = Self::parse_order_book(&depth_data, &symbol);
                             let _ = event_tx.send(WsMessage::OrderBook(WsOrderBookEvent {
                                 symbol: symbol.clone(),
@@ -204,10 +209,12 @@ impl IndodaxWs {
                             }));
                         }
                     }
-                }
+                },
                 "trades" => {
                     if let Some(data) = json.get("data") {
-                        if let Ok(trades_data) = serde_json::from_value::<Vec<IndodaxWsTrade>>(data.clone()) {
+                        if let Ok(trades_data) =
+                            serde_json::from_value::<Vec<IndodaxWsTrade>>(data.clone())
+                        {
                             let trades: Vec<Trade> = trades_data
                                 .iter()
                                 .map(|t| Self::parse_trade(t, &symbol))
@@ -218,8 +225,8 @@ impl IndodaxWs {
                             }));
                         }
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -242,6 +249,7 @@ impl IndodaxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -267,18 +275,19 @@ impl IndodaxWs {
                 match event {
                     WsEvent::Message(msg) => {
                         let _ = Self::process_message(&msg, &event_tx);
-                    }
+                    },
                     WsEvent::Connected => {
                         let _ = event_tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = event_tx.send(WsMessage::Disconnected);
                         break;
-                    }
+                    },
                     WsEvent::Error(e) => {
                         let _ = event_tx.send(WsMessage::Error(e));
-                    }
-                    WsEvent::Ping | WsEvent::Pong => {}
+                    },
+                    WsEvent::Ping | WsEvent::Pong => {},
+                    _ => {},
                 }
             }
 
@@ -316,7 +325,11 @@ impl WsExchange for IndodaxWs {
         ws.subscribe_stream("ticker", &market_id).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let market_id = Self::format_symbol(symbol);
         ws.subscribe_stream("depth", &market_id).await
@@ -328,7 +341,11 @@ impl WsExchange for IndodaxWs {
         ws.subscribe_stream("trades", &market_id).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Indodax doesn't support OHLCV WebSocket natively
         Err(crate::errors::CcxtError::NotSupported {
             feature: format!("OHLCV WebSocket for {symbol}"),
@@ -344,6 +361,7 @@ impl WsExchange for IndodaxWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             ws_client.connect().await?;

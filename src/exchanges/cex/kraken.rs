@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -13,14 +14,13 @@ use sha2::{Digest, Sha256, Sha512};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::RwLock;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Fee, OHLCV,
+    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://api.kraken.com";
@@ -126,20 +126,34 @@ impl Kraken {
 
         // Known quote currencies with their Kraken formats
         let quote_mappings = [
-            ("ZUSD", "USD"), ("ZEUR", "EUR"), ("ZGBP", "GBP"), ("ZJPY", "JPY"),
-            ("ZCAD", "CAD"), ("ZAUD", "AUD"), ("USDT", "USDT"), ("USDC", "USDC"),
-            ("USD", "USD"), ("EUR", "EUR"), ("GBP", "GBP"), ("JPY", "JPY"),
-            ("XXBT", "BTC"), ("XETH", "ETH"), ("XBT", "BTC"), ("ETH", "ETH"),
+            ("ZUSD", "USD"),
+            ("ZEUR", "EUR"),
+            ("ZGBP", "GBP"),
+            ("ZJPY", "JPY"),
+            ("ZCAD", "CAD"),
+            ("ZAUD", "AUD"),
+            ("USDT", "USDT"),
+            ("USDC", "USDC"),
+            ("USD", "USD"),
+            ("EUR", "EUR"),
+            ("GBP", "GBP"),
+            ("JPY", "JPY"),
+            ("XXBT", "BTC"),
+            ("XETH", "ETH"),
+            ("XBT", "BTC"),
+            ("ETH", "ETH"),
         ];
 
         // Try to find a known quote currency at the end
         for (kraken_quote, unified_quote) in &quote_mappings {
             if let Some(base_part) = kraken_symbol.strip_suffix(kraken_quote) {
                 // Clean up base: remove X/Z prefix and convert XBT to BTC
-                let base = base_part
-                    .trim_start_matches('X')
-                    .trim_start_matches('Z');
-                let base = if base == "XBT" || base == "BT" { "BTC" } else { base };
+                let base = base_part.trim_start_matches('X').trim_start_matches('Z');
+                let base = if base == "XBT" || base == "BT" {
+                    "BTC"
+                } else {
+                    base
+                };
 
                 // Handle special case where base_part is XXBT -> after trim X -> XBT or BT
                 let base = if base_part == "XXBT" { "BTC" } else { base };
@@ -162,12 +176,16 @@ impl Kraken {
 
     /// 마켓 데이터 파싱
     fn parse_market(&self, id: &str, data: &KrakenAssetPair) -> Market {
-        let base = data.base.as_ref()
+        let base = data
+            .base
+            .as_ref()
             .map(|b| b.trim_start_matches('X').trim_start_matches('Z'))
             .map(|b| if b == "XBT" { "BTC" } else { b })
             .unwrap_or("")
             .to_string();
-        let quote = data.quote.as_ref()
+        let quote = data
+            .quote
+            .as_ref()
             .map(|q| q.trim_start_matches('X').trim_start_matches('Z'))
             .map(|q| if q == "XBT" { "BTC" } else { q })
             .unwrap_or("")
@@ -202,16 +220,24 @@ impl Kraken {
             expiry_datetime: None,
             strike: None,
             option_type: None,
-            taker: data.fees.as_ref()
+            taker: data
+                .fees
+                .as_ref()
                 .and_then(|f| f.first())
                 .and_then(|f| f.get(1))
                 .copied()
-                .map(|f| Decimal::from_str(&f.to_string()).unwrap_or_default() / Decimal::from(100)),
-            maker: data.fees_maker.as_ref()
+                .map(|f| {
+                    Decimal::from_str(&f.to_string()).unwrap_or_default() / Decimal::from(100)
+                }),
+            maker: data
+                .fees_maker
+                .as_ref()
                 .and_then(|f| f.first())
                 .and_then(|f| f.get(1))
                 .copied()
-                .map(|f| Decimal::from_str(&f.to_string()).unwrap_or_default() / Decimal::from(100)),
+                .map(|f| {
+                    Decimal::from_str(&f.to_string()).unwrap_or_default() / Decimal::from(100)
+                }),
             precision: MarketPrecision {
                 amount: Some(amount_precision),
                 price: Some(price_precision),
@@ -221,12 +247,16 @@ impl Kraken {
             },
             limits: MarketLimits {
                 amount: MinMax {
-                    min: data.ordermin.and_then(|v| Decimal::from_str(&v.to_string()).ok()),
+                    min: data
+                        .ordermin
+                        .and_then(|v| Decimal::from_str(&v.to_string()).ok()),
                     max: None,
                 },
                 price: MinMax::default(),
                 cost: MinMax {
-                    min: data.costmin.and_then(|v| Decimal::from_str(&v.to_string()).ok()),
+                    min: data
+                        .costmin
+                        .and_then(|v| Decimal::from_str(&v.to_string()).ok()),
                     max: None,
                 },
                 leverage: MinMax::default(),
@@ -249,21 +279,61 @@ impl Kraken {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
-            high: data.h.as_ref().and_then(|h| h.get(1)).and_then(|v| Decimal::from_str(v).ok()),
-            low: data.l.as_ref().and_then(|l| l.get(1)).and_then(|v| Decimal::from_str(v).ok()),
-            bid: data.b.as_ref().and_then(|b| b.first()).and_then(|v| Decimal::from_str(v).ok()),
-            bid_volume: data.b.as_ref().and_then(|b| b.get(2)).and_then(|v| Decimal::from_str(v).ok()),
-            ask: data.a.as_ref().and_then(|a| a.first()).and_then(|v| Decimal::from_str(v).ok()),
-            ask_volume: data.a.as_ref().and_then(|a| a.get(2)).and_then(|v| Decimal::from_str(v).ok()),
-            vwap: data.p.as_ref().and_then(|p| p.get(1)).and_then(|v| Decimal::from_str(v).ok()),
+            high: data
+                .h
+                .as_ref()
+                .and_then(|h| h.get(1))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            low: data
+                .l
+                .as_ref()
+                .and_then(|l| l.get(1))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            bid: data
+                .b
+                .as_ref()
+                .and_then(|b| b.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            bid_volume: data
+                .b
+                .as_ref()
+                .and_then(|b| b.get(2))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            ask: data
+                .a
+                .as_ref()
+                .and_then(|a| a.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            ask_volume: data
+                .a
+                .as_ref()
+                .and_then(|a| a.get(2))
+                .and_then(|v| Decimal::from_str(v).ok()),
+            vwap: data
+                .p
+                .as_ref()
+                .and_then(|p| p.get(1))
+                .and_then(|v| Decimal::from_str(v).ok()),
             open: data.o.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            close: data.c.as_ref().and_then(|c| c.first()).and_then(|v| Decimal::from_str(v).ok()),
-            last: data.c.as_ref().and_then(|c| c.first()).and_then(|v| Decimal::from_str(v).ok()),
+            close: data
+                .c
+                .as_ref()
+                .and_then(|c| c.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
+            last: data
+                .c
+                .as_ref()
+                .and_then(|c| c.first())
+                .and_then(|v| Decimal::from_str(v).ok()),
             previous_close: None,
             change: None,
             percentage: None,
             average: None,
-            base_volume: data.v.as_ref().and_then(|v| v.get(1)).and_then(|val| Decimal::from_str(val).ok()),
+            base_volume: data
+                .v
+                .as_ref()
+                .and_then(|v| v.get(1))
+                .and_then(|val| Decimal::from_str(val).ok()),
             quote_volume: None,
             index_price: None,
             mark_price: None,
@@ -283,7 +353,9 @@ impl Kraken {
             high: Decimal::from_str(data[2].as_str()?).ok()?,
             low: Decimal::from_str(data[3].as_str()?).ok()?,
             close: Decimal::from_str(data[4].as_str()?).ok()?,
-            volume: Decimal::from_str(data[6].as_str().unwrap_or("0")).ok().unwrap_or_default(),
+            volume: Decimal::from_str(data[6].as_str().unwrap_or("0"))
+                .ok()
+                .unwrap_or_default(),
         })
     }
 
@@ -342,11 +414,19 @@ impl Kraken {
             .map(|p| self.to_symbol(p))
             .unwrap_or_default();
 
-        let side = descr.and_then(|d| d.order_type.as_ref())
-            .map(|t| if t.contains("buy") { OrderSide::Buy } else { OrderSide::Sell })
+        let side = descr
+            .and_then(|d| d.order_type.as_ref())
+            .map(|t| {
+                if t.contains("buy") {
+                    OrderSide::Buy
+                } else {
+                    OrderSide::Sell
+                }
+            })
             .unwrap_or(OrderSide::Buy);
 
-        let order_type = descr.and_then(|d| d.ordertype.as_ref())
+        let order_type = descr
+            .and_then(|d| d.ordertype.as_ref())
             .map(|t| match t.as_str() {
                 "market" => OrderType::Market,
                 "limit" => OrderType::Limit,
@@ -362,11 +442,15 @@ impl Kraken {
             .and_then(|d| d.price.as_ref())
             .and_then(|p| Decimal::from_str(p).ok());
 
-        let amount = data.vol.as_ref()
+        let amount = data
+            .vol
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
-        let filled = data.vol_exec.as_ref()
+        let filled = data
+            .vol_exec
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
@@ -427,15 +511,22 @@ impl Kraken {
                 .trim_start_matches('X')
                 .trim_start_matches('Z')
                 .to_string();
-            let clean_currency = if clean_currency == "XBT" { "BTC".to_string() } else { clean_currency };
+            let clean_currency = if clean_currency == "XBT" {
+                "BTC".to_string()
+            } else {
+                clean_currency
+            };
 
             if let Ok(amount) = Decimal::from_str(amount_str) {
-                currencies.insert(clean_currency, Balance {
-                    free: Some(amount),
-                    used: Some(Decimal::ZERO),
-                    total: Some(amount),
-                    debt: None,
-                });
+                currencies.insert(
+                    clean_currency,
+                    Balance {
+                        free: Some(amount),
+                        used: Some(Decimal::ZERO),
+                        total: Some(amount),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -449,9 +540,12 @@ impl Kraken {
 
     /// API 서명 생성
     fn sign_request(&self, path: &str, nonce: u64, body: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         // SHA256(nonce + body)
         let mut sha256 = Sha256::new();
@@ -463,16 +557,18 @@ impl Kraken {
         message.extend_from_slice(&sha256_digest);
 
         // Decode secret from base64
-        let decoded_secret = BASE64.decode(secret)
+        let decoded_secret = BASE64
+            .decode(secret)
             .map_err(|e| CcxtError::AuthenticationError {
                 message: format!("Failed to decode secret: {e}"),
             })?;
 
         // HMAC-SHA512
-        let mut mac = Hmac::<Sha512>::new_from_slice(&decoded_secret)
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = Hmac::<Sha512>::new_from_slice(&decoded_secret).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(&message);
         let signature = mac.finalize().into_bytes();
 
@@ -506,9 +602,12 @@ impl Kraken {
     ) -> CcxtResult<KrakenResponse<T>> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis() as u64 * 1000;
         let mut body_params = params;
@@ -522,12 +621,18 @@ impl Kraken {
         let mut headers = HashMap::new();
         headers.insert("API-Key".to_string(), api_key.to_string());
         headers.insert("API-Sign".to_string(), signature);
-        headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        );
 
         let json_body: serde_json::Value = serde_json::json!({
             "_form_encoded": body
         });
-        let response: KrakenResponse<T> = self.client.post(&path, Some(json_body), Some(headers)).await?;
+        let response: KrakenResponse<T> = self
+            .client
+            .post(&path, Some(json_body), Some(headers))
+            .await?;
 
         if let Some(errors) = &response.error {
             if !errors.is_empty() {
@@ -581,7 +686,8 @@ impl Exchange for Kraken {
             }
         }
 
-        let response: KrakenResponse<HashMap<String, KrakenAssetPair>> = self.public_get("/0/public/AssetPairs", None).await?;
+        let response: KrakenResponse<HashMap<String, KrakenAssetPair>> =
+            self.public_get("/0/public/AssetPairs", None).await?;
 
         if let Some(errors) = &response.error {
             if !errors.is_empty() {
@@ -612,9 +718,12 @@ impl Exchange for Kraken {
             *m = markets_map.clone();
         }
         {
-            let mut m = self.markets_by_id.write().map_err(|_| CcxtError::ExchangeError {
-                message: "Failed to acquire write lock".into(),
-            })?;
+            let mut m = self
+                .markets_by_id
+                .write()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to acquire write lock".into(),
+                })?;
             *m = markets_by_id_map;
         }
 
@@ -631,7 +740,8 @@ impl Exchange for Kraken {
         let mut params = HashMap::new();
         params.insert("pair".to_string(), kraken_symbol.clone());
 
-        let response: KrakenResponse<HashMap<String, KrakenTickerData>> = self.public_get("/0/public/Ticker", Some(params)).await?;
+        let response: KrakenResponse<HashMap<String, KrakenTickerData>> =
+            self.public_get("/0/public/Ticker", Some(params)).await?;
 
         if let Some(errors) = &response.error {
             if !errors.is_empty() {
@@ -642,7 +752,8 @@ impl Exchange for Kraken {
         }
 
         let result = response.result.unwrap_or_default();
-        result.into_iter()
+        result
+            .into_iter()
             .next()
             .map(|(_, data)| self.parse_ticker(symbol, &data))
             .ok_or_else(|| CcxtError::BadResponse {
@@ -665,7 +776,8 @@ impl Exchange for Kraken {
         let mut params = HashMap::new();
         params.insert("pair".to_string(), pairs);
 
-        let response: KrakenResponse<HashMap<String, KrakenTickerData>> = self.public_get("/0/public/Ticker", Some(params)).await?;
+        let response: KrakenResponse<HashMap<String, KrakenTickerData>> =
+            self.public_get("/0/public/Ticker", Some(params)).await?;
 
         if let Some(errors) = &response.error {
             if !errors.is_empty() {
@@ -695,7 +807,8 @@ impl Exchange for Kraken {
             params.insert("count".to_string(), l.to_string());
         }
 
-        let response: KrakenResponse<HashMap<String, KrakenOrderBookData>> = self.public_get("/0/public/Depth", Some(params)).await?;
+        let response: KrakenResponse<HashMap<String, KrakenOrderBookData>> =
+            self.public_get("/0/public/Depth", Some(params)).await?;
 
         if let Some(errors) = &response.error {
             if !errors.is_empty() {
@@ -706,34 +819,44 @@ impl Exchange for Kraken {
         }
 
         let result = response.result.unwrap_or_default();
-        let (_, data) = result.into_iter().next()
+        let (_, data) = result
+            .into_iter()
+            .next()
             .ok_or_else(|| CcxtError::BadResponse {
                 message: "No order book data returned".into(),
             })?;
 
         let timestamp = Utc::now().timestamp_millis();
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(b[0].as_str()?).ok()?,
-                    amount: Decimal::from_str(b[1].as_str()?).ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(b[0].as_str()?).ok()?,
+                        amount: Decimal::from_str(b[1].as_str()?).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(a[0].as_str()?).ok()?,
-                    amount: Decimal::from_str(a[1].as_str()?).ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(a[0].as_str()?).ok()?,
+                        amount: Decimal::from_str(a[1].as_str()?).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
@@ -742,10 +865,16 @@ impl Exchange for Kraken {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let kraken_symbol = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("pair".to_string(), kraken_symbol);
@@ -756,7 +885,8 @@ impl Exchange for Kraken {
             params.insert("count".to_string(), l.to_string());
         }
 
-        let response: KrakenResponse<HashMap<String, serde_json::Value>> = self.public_get("/0/public/Trades", Some(params)).await?;
+        let response: KrakenResponse<HashMap<String, serde_json::Value>> =
+            self.public_get("/0/public/Trades", Some(params)).await?;
 
         if let Some(errors) = &response.error {
             if !errors.is_empty() {
@@ -795,7 +925,9 @@ impl Exchange for Kraken {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let kraken_symbol = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -807,7 +939,8 @@ impl Exchange for Kraken {
             params.insert("since".to_string(), (s / 1000).to_string());
         }
 
-        let response: KrakenResponse<HashMap<String, serde_json::Value>> = self.public_get("/0/public/OHLC", Some(params)).await?;
+        let response: KrakenResponse<HashMap<String, serde_json::Value>> =
+            self.public_get("/0/public/OHLC", Some(params)).await?;
 
         if let Some(errors) = &response.error {
             if !errors.is_empty() {
@@ -844,9 +977,8 @@ impl Exchange for Kraken {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: KrakenResponse<HashMap<String, String>> = self
-            .private_request("Balance", HashMap::new())
-            .await?;
+        let response: KrakenResponse<HashMap<String, String>> =
+            self.private_request("Balance", HashMap::new()).await?;
 
         let result = response.result.unwrap_or_default();
         Ok(self.parse_balance(&result))
@@ -869,9 +1001,11 @@ impl Exchange for Kraken {
             OrderType::TakeProfit => "take-profit",
             OrderType::StopLossLimit => "stop-loss-limit",
             OrderType::TakeProfitLimit => "take-profit-limit",
-            _ => return Err(CcxtError::BadRequest {
-                message: format!("Unsupported order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: format!("Unsupported order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -889,18 +1023,16 @@ impl Exchange for Kraken {
             request_params.insert("price".to_string(), p.to_string());
         }
 
-        let response: KrakenResponse<KrakenAddOrderResponse> = self
-            .private_request("AddOrder", request_params)
-            .await?;
+        let response: KrakenResponse<KrakenAddOrderResponse> =
+            self.private_request("AddOrder", request_params).await?;
 
         let result = response.result.ok_or_else(|| CcxtError::BadResponse {
             message: "No order response".into(),
         })?;
 
-        let order_id = result.txid.first()
-            .ok_or_else(|| CcxtError::BadResponse {
-                message: "No order ID returned".into(),
-            })?;
+        let order_id = result.txid.first().ok_or_else(|| CcxtError::BadResponse {
+            message: "No order ID returned".into(),
+        })?;
 
         Ok(Order {
             id: order_id.clone(),
@@ -937,9 +1069,8 @@ impl Exchange for Kraken {
         let mut params = HashMap::new();
         params.insert("txid".to_string(), id.to_string());
 
-        let _response: KrakenResponse<KrakenCancelOrderResponse> = self
-            .private_request("CancelOrder", params)
-            .await?;
+        let _response: KrakenResponse<KrakenCancelOrderResponse> =
+            self.private_request("CancelOrder", params).await?;
 
         Ok(Order {
             id: id.to_string(),
@@ -976,12 +1107,12 @@ impl Exchange for Kraken {
         let mut params = HashMap::new();
         params.insert("txid".to_string(), id.to_string());
 
-        let response: KrakenResponse<HashMap<String, KrakenOrderInfo>> = self
-            .private_request("QueryOrders", params)
-            .await?;
+        let response: KrakenResponse<HashMap<String, KrakenOrderInfo>> =
+            self.private_request("QueryOrders", params).await?;
 
         let result = response.result.unwrap_or_default();
-        result.into_iter()
+        result
+            .into_iter()
             .next()
             .map(|(order_id, data)| self.parse_order(&order_id, &data))
             .transpose()?
@@ -990,10 +1121,14 @@ impl Exchange for Kraken {
             })
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
-        let response: KrakenResponse<KrakenOpenOrdersResponse> = self
-            .private_request("OpenOrders", HashMap::new())
-            .await?;
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
+        let response: KrakenResponse<KrakenOpenOrdersResponse> =
+            self.private_request("OpenOrders", HashMap::new()).await?;
 
         let result = response.result.ok_or_else(|| CcxtError::BadResponse {
             message: "No open orders response".into(),
@@ -1002,7 +1137,9 @@ impl Exchange for Kraken {
         let mut orders = Vec::new();
         for (order_id, data) in result.open {
             if let Some(sym) = symbol {
-                let order_symbol = data.descr.as_ref()
+                let order_symbol = data
+                    .descr
+                    .as_ref()
                     .and_then(|d| d.pair.as_ref())
                     .map(|p| self.to_symbol(p));
                 if order_symbol.as_deref() != Some(sym) {
@@ -1015,15 +1152,19 @@ impl Exchange for Kraken {
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(s) = since {
             params.insert("start".to_string(), (s / 1000).to_string());
         }
 
-        let response: KrakenResponse<KrakenClosedOrdersResponse> = self
-            .private_request("ClosedOrders", params)
-            .await?;
+        let response: KrakenResponse<KrakenClosedOrdersResponse> =
+            self.private_request("ClosedOrders", params).await?;
 
         let result = response.result.ok_or_else(|| CcxtError::BadResponse {
             message: "No closed orders response".into(),
@@ -1032,7 +1173,9 @@ impl Exchange for Kraken {
         let mut orders = Vec::new();
         for (order_id, data) in result.closed {
             if let Some(sym) = symbol {
-                let order_symbol = data.descr.as_ref()
+                let order_symbol = data
+                    .descr
+                    .as_ref()
                     .and_then(|d| d.pair.as_ref())
                     .map(|p| self.to_symbol(p));
                 if order_symbol.as_deref() != Some(sym) {
@@ -1069,7 +1212,10 @@ impl Exchange for Kraken {
                 if let Some(api_key) = self.config.api_key() {
                     result_headers.insert("API-Key".to_string(), api_key.to_string());
                     result_headers.insert("API-Sign".to_string(), signature);
-                    result_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                    result_headers.insert(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    );
                 }
             }
         }

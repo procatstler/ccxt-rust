@@ -124,7 +124,9 @@ mod tests {
     fn test_keccak256_empty() {
         // keccak256("") = c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
         let hash = keccak256(b"");
-        let expected = hex::decode("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470").unwrap();
+        let expected =
+            hex::decode("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+                .unwrap();
         assert_eq!(&hash[..], &expected[..]);
     }
 
@@ -132,7 +134,9 @@ mod tests {
     fn test_keccak256_hello() {
         // keccak256("hello") = 1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8
         let hash = keccak256(b"hello");
-        let expected = hex::decode("1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8").unwrap();
+        let expected =
+            hex::decode("1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8")
+                .unwrap();
         assert_eq!(&hash[..], &expected[..]);
     }
 

@@ -16,10 +16,10 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    Transaction, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, Transaction,
+    OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -85,7 +85,10 @@ impl Bitrue {
         api_urls.insert("kline".into(), "https://www.bitrue.com/kline-api".into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/67abe346-1273-461a-bd7c-42fa32907c8e".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/67abe346-1273-461a-bd7c-42fa32907c8e"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.bitrue.com".into()),
             doc: vec![
@@ -150,12 +153,18 @@ impl Bitrue {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -170,8 +179,8 @@ impl Bitrue {
             .join("&");
 
         // Create HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -185,9 +194,14 @@ impl Bitrue {
         match method {
             "GET" => self.private_client.get(&url, None, Some(headers)).await,
             "POST" => {
-                headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
-                self.private_client.post_form(&format!("{path}?{signed_query}"), &params, Some(headers)).await
-            }
+                headers.insert(
+                    "Content-Type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
+                self.private_client
+                    .post_form(&format!("{path}?{signed_query}"), &params, Some(headers))
+                    .await
+            },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -208,7 +222,9 @@ impl Bitrue {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &BitrueTicker, symbol: &str) -> Ticker {
-        let timestamp = data.close_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .close_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -268,18 +284,24 @@ impl Bitrue {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
         let amount: Decimal = data.orig_qty.parse().unwrap_or_default();
         let filled: Decimal = data.executed_qty.parse().unwrap_or_default();
         let remaining = Some(amount - filled);
-        let cost = data.cummulative_quote_qty.as_ref().and_then(|c| c.parse().ok());
+        let cost = data
+            .cummulative_quote_qty
+            .as_ref()
+            .and_then(|c| c.parse().ok());
         let average = if filled > Decimal::ZERO {
             cost.map(|c| c / filled)
         } else {
@@ -391,13 +413,15 @@ impl Bitrue {
             _ => crate::types::TransactionStatus::Pending,
         };
 
-        let fee = data.transaction_fee.parse::<Decimal>().ok().map(|cost| {
-            crate::types::Fee {
+        let fee = data
+            .transaction_fee
+            .parse::<Decimal>()
+            .ok()
+            .map(|cost| crate::types::Fee {
                 cost: Some(cost),
                 currency: Some(data.coin.clone()),
                 rate: None,
-            }
-        });
+            });
 
         Transaction {
             id: data.id.clone(),
@@ -484,9 +508,7 @@ impl Exchange for Bitrue {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BitrueExchangeInfo = self
-            .public_get("/v1/exchangeInfo", None)
-            .await?;
+        let response: BitrueExchangeInfo = self.public_get("/v1/exchangeInfo", None).await?;
 
         let mut markets = Vec::new();
 
@@ -554,17 +576,13 @@ impl Exchange for Bitrue {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: BitrueTicker = self
-            .public_get("/v1/ticker/24hr", Some(params))
-            .await?;
+        let response: BitrueTicker = self.public_get("/v1/ticker/24hr", Some(params)).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: Vec<BitrueTicker> = self
-            .public_get("/v1/ticker/24hr", None)
-            .await?;
+        let response: Vec<BitrueTicker> = self.public_get("/v1/ticker/24hr", None).await?;
 
         let _markets = self.markets.read().unwrap().clone();
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
@@ -595,9 +613,7 @@ impl Exchange for Bitrue {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: BitrueOrderBook = self
-            .public_get("/v1/depth", Some(params))
-            .await?;
+        let response: BitrueOrderBook = self.public_get("/v1/depth", Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .bids
@@ -624,6 +640,7 @@ impl Exchange for Bitrue {
             nonce: Some(response.last_update_id),
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -640,9 +657,7 @@ impl Exchange for Bitrue {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<BitrueTrade> = self
-            .public_get("/v1/trades", Some(params))
-            .await?;
+        let response: Vec<BitrueTrade> = self.public_get("/v1/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -690,9 +705,12 @@ impl Exchange for Bitrue {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -704,9 +722,8 @@ impl Exchange for Bitrue {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self
-            .public_get("/v1/market/kline", Some(params))
-            .await?;
+        let response: Vec<Vec<serde_json::Value>> =
+            self.public_get("/v1/market/kline", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
@@ -731,9 +748,8 @@ impl Exchange for Bitrue {
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let params = HashMap::new();
 
-        let response: BitrueAccountInfo = self
-            .private_request("GET", "/v1/account", params)
-            .await?;
+        let response: BitrueAccountInfo =
+            self.private_request("GET", "/v1/account", params).await?;
 
         Ok(self.parse_balance(&response.balances))
     }
@@ -750,22 +766,32 @@ impl Exchange for Bitrue {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT",
-            OrderType::Market => "MARKET",
-            OrderType::LimitMaker => "LIMIT_MAKER",
-            OrderType::StopLoss => "STOP_LOSS",
-            OrderType::StopLossLimit => "STOP_LOSS_LIMIT",
-            OrderType::TakeProfit => "TAKE_PROFIT",
-            OrderType::TakeProfitLimit => "TAKE_PROFIT_LIMIT",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT",
+                OrderType::Market => "MARKET",
+                OrderType::LimitMaker => "LIMIT_MAKER",
+                OrderType::StopLoss => "STOP_LOSS",
+                OrderType::StopLossLimit => "STOP_LOSS_LIMIT",
+                OrderType::TakeProfit => "TAKE_PROFIT",
+                OrderType::TakeProfitLimit => "TAKE_PROFIT_LIMIT",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("quantity".into(), amount.to_string());
 
         if order_type == OrderType::Limit || order_type == OrderType::LimitMaker {
@@ -776,9 +802,7 @@ impl Exchange for Bitrue {
             params.insert("timeInForce".into(), "GTC".into());
         }
 
-        let response: BitrueOrder = self
-            .private_request("POST", "/v1/order", params)
-            .await?;
+        let response: BitrueOrder = self.private_request("POST", "/v1/order", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -790,9 +814,7 @@ impl Exchange for Bitrue {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: BitrueOrder = self
-            .private_request("DELETE", "/v1/order", params)
-            .await?;
+        let response: BitrueOrder = self.private_request("DELETE", "/v1/order", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -804,9 +826,7 @@ impl Exchange for Bitrue {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: BitrueOrder = self
-            .private_request("GET", "/v1/order", params)
-            .await?;
+        let response: BitrueOrder = self.private_request("GET", "/v1/order", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -864,9 +884,8 @@ impl Exchange for Bitrue {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<BitrueMyTrade> = self
-            .private_request("GET", "/v2/myTrades", params)
-            .await?;
+        let response: Vec<BitrueMyTrade> =
+            self.private_request("GET", "/v2/myTrades", params).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -934,14 +953,18 @@ impl Exchange for Bitrue {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<BitrueOrder> = self
-            .private_request("GET", "/v1/allOrders", params)
-            .await?;
+        let response: Vec<BitrueOrder> =
+            self.private_request("GET", "/v1/allOrders", params).await?;
 
         // Filter to only closed orders
         let orders: Vec<Order> = response
             .iter()
-            .filter(|o| o.status == "FILLED" || o.status == "CANCELED" || o.status == "EXPIRED" || o.status == "REJECTED")
+            .filter(|o| {
+                o.status == "FILLED"
+                    || o.status == "CANCELED"
+                    || o.status == "EXPIRED"
+                    || o.status == "REJECTED"
+            })
             .map(|o| self.parse_order(o, symbol))
             .collect();
 
@@ -970,10 +993,8 @@ impl Exchange for Bitrue {
             .private_request("GET", "/v1/deposit/history", params)
             .await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|d| self.parse_deposit(d))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|d| self.parse_deposit(d)).collect();
 
         Ok(transactions)
     }
@@ -1000,10 +1021,8 @@ impl Exchange for Bitrue {
             .private_request("GET", "/v1/withdraw/history", params)
             .await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|w| self.parse_withdrawal(w))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|w| self.parse_withdrawal(w)).collect();
 
         Ok(transactions)
     }

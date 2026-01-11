@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha512 = Hmac<Sha512>;
@@ -85,9 +85,15 @@ impl Zonda {
 
         let mut api_urls = HashMap::new();
         api_urls.insert("public".into(), format!("https://{hostname}/API/Public"));
-        api_urls.insert("private".into(), format!("https://{hostname}/API/Trading/tradingApi.php"));
+        api_urls.insert(
+            "private".into(),
+            format!("https://{hostname}/API/Trading/tradingApi.php"),
+        );
         api_urls.insert("v1_01Public".into(), format!("https://api.{hostname}/rest"));
-        api_urls.insert("v1_01Private".into(), format!("https://api.{hostname}/rest"));
+        api_urls.insert(
+            "v1_01Private".into(),
+            format!("https://api.{hostname}/rest"),
+        );
 
         let urls = ExchangeUrls {
             logo: Some("https://user-images.githubusercontent.com/1294454/159202310-a0e38007-5e7c-4ba9-a32f-c8263a0291fe.jpg".into()),
@@ -162,12 +168,18 @@ impl Zonda {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let base_url = format!("https://api.{}/rest", self.hostname);
         let nonce = Utc::now().timestamp_millis().to_string();
@@ -181,8 +193,8 @@ impl Zonda {
         // Create HMAC-SHA512 signature: API-Key + nonce + payload
         let payload_string = serde_json::to_string(&payload_json).unwrap_or_default();
         let sign_string = format!("{api_key}{nonce}{payload_string}");
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha512::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(sign_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -228,7 +240,9 @@ impl Zonda {
 
         // Determine fee tier based on fiat currencies
         let fiat_currencies = ["EUR", "USD", "GBP", "PLN"];
-        let (maker_fee, taker_fee) = if fiat_currencies.contains(&base.as_str()) || fiat_currencies.contains(&quote.as_str()) {
+        let (maker_fee, taker_fee) = if fiat_currencies.contains(&base.as_str())
+            || fiat_currencies.contains(&quote.as_str())
+        {
             (Decimal::new(30, 4), Decimal::new(43, 4)) // 0.0030, 0.0043
         } else {
             (Decimal::ZERO, Decimal::new(1, 3)) // 0.0, 0.001
@@ -347,7 +361,9 @@ impl Zonda {
     /// 주문 파싱
     fn parse_order(&self, order: &ZondaOrder, market: Option<&Market>) -> Order {
         let market_id = &order.market;
-        let symbol = market.map(|m| m.symbol.clone()).unwrap_or_else(|| self.to_symbol(market_id));
+        let symbol = market
+            .map(|m| m.symbol.clone())
+            .unwrap_or_else(|| self.to_symbol(market_id));
         let timestamp = order.time.parse::<i64>().ok();
 
         let side = match order.offer_type.to_lowercase().as_str() {
@@ -403,7 +419,9 @@ impl Zonda {
     /// 거래 파싱
     fn parse_trade(&self, trade: &ZondaTrade, market: Option<&Market>) -> Trade {
         let market_id = &trade.market;
-        let symbol = market.map(|m| m.symbol.clone()).unwrap_or_else(|| self.to_symbol(market_id));
+        let symbol = market
+            .map(|m| m.symbol.clone())
+            .unwrap_or_else(|| self.to_symbol(market_id));
         let timestamp = trade.time.parse::<i64>().ok();
 
         let price = trade.rate.parse().unwrap_or_default();
@@ -540,9 +558,7 @@ impl Exchange for Zonda {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: ZondaTickerResponse = self
-            .v1_01_public_get("/trading/ticker", None)
-            .await?;
+        let response: ZondaTickerResponse = self.v1_01_public_get("/trading/ticker", None).await?;
 
         let mut markets = Vec::new();
         for (_key, item) in response.items {
@@ -561,9 +577,12 @@ impl Exchange for Zonda {
             .v1_01_public_get(&format!("/trading/ticker/{market_id}"), None)
             .await?;
 
-        let ticker = response.items.get(&market_id).ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("Ticker not found for {symbol}"),
-        })?;
+        let ticker = response
+            .items
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("Ticker not found for {symbol}"),
+            })?;
 
         let markets = self.markets.read().unwrap();
         let market = markets.get(symbol);
@@ -574,9 +593,7 @@ impl Exchange for Zonda {
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
         let _ = self.load_markets(false).await?;
 
-        let response: ZondaTickerResponse = self
-            .v1_01_public_get("/trading/ticker", None)
-            .await?;
+        let response: ZondaTickerResponse = self.v1_01_public_get("/trading/ticker", None).await?;
 
         let markets = self.markets.read().unwrap();
         let markets_by_id = self.markets_by_id.read().unwrap();
@@ -636,6 +653,7 @@ impl Exchange for Zonda {
             nonce: response.seq_no.parse().ok(),
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -678,9 +696,12 @@ impl Exchange for Zonda {
     ) -> CcxtResult<Vec<OHLCV>> {
         let _ = self.load_markets(false).await?;
         let market_id = self.to_market_id(symbol);
-        let resolution = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let resolution = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         if let Some(s) = since {
@@ -742,9 +763,11 @@ impl Exchange for Zonda {
         let mode = match order_type {
             OrderType::Limit => "limit",
             OrderType::Market => "market",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
 
         let mut params = HashMap::new();
@@ -846,9 +869,10 @@ impl Exchange for Zonda {
             request.insert("markets".into(), serde_json::json!([market_id]).to_string());
         }
 
-        let query = HashMap::from([
-            ("query".into(), serde_json::to_string(&request).unwrap_or_default())
-        ]);
+        let query = HashMap::from([(
+            "query".into(),
+            serde_json::to_string(&request).unwrap_or_default(),
+        )]);
 
         let response: ZondaMyTradesResponse = self
             .v1_01_private_request("GET", "/trading/history/transactions", query)

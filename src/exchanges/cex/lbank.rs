@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -119,12 +119,18 @@ impl Lbank {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -144,17 +150,25 @@ impl Lbank {
 
         let sign_str = format!("{sign_str}&secret_key={api_secret}");
 
-        let mut mac = HmacSha256::new_from_slice(sign_str.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(sign_str.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(sign_str.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes()).to_uppercase();
 
         request_params.insert("sign".into(), signature);
 
         let mut headers = HashMap::new();
-        headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+        headers.insert(
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
 
-        self.client.post_form(path, &request_params, Some(headers)).await
+        self.client
+            .post_form(path, &request_params, Some(headers))
+            .await
     }
 
     /// Convert symbol to market ID (BTC/USD -> btc_usd)
@@ -236,11 +250,15 @@ impl Exchange for Lbank {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: LbankResponse<Vec<LbankMarket>> = self.public_get("/accuracy.do", None).await?;
+        let response: LbankResponse<Vec<LbankMarket>> =
+            self.public_get("/accuracy.do", None).await?;
 
         if response.result != Some(true) {
             return Err(CcxtError::ExchangeError {
-                message: response.error_code.map(|c| c.to_string()).unwrap_or_else(|| "Failed to fetch markets".into()),
+                message: response
+                    .error_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "Failed to fetch markets".into()),
             });
         }
 
@@ -296,7 +314,10 @@ impl Exchange for Lbank {
                 },
                 limits: MarketLimits {
                     amount: crate::types::MinMax {
-                        min: market_data.min_tran_qty.as_ref().and_then(|s| s.parse().ok()),
+                        min: market_data
+                            .min_tran_qty
+                            .as_ref()
+                            .and_then(|s| s.parse().ok()),
                         max: None,
                     },
                     price: crate::types::MinMax::default(),
@@ -328,7 +349,8 @@ impl Exchange for Lbank {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: LbankResponse<Vec<LbankTicker>> = self.public_get("/ticker/24hr.do", Some(params)).await?;
+        let response: LbankResponse<Vec<LbankTicker>> =
+            self.public_get("/ticker/24hr.do", Some(params)).await?;
 
         if response.result != Some(true) {
             return Err(CcxtError::ExchangeError {
@@ -341,7 +363,9 @@ impl Exchange for Lbank {
             symbol: symbol.to_string(),
         })?;
 
-        let timestamp = ticker_data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = ticker_data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Ticker {
             symbol: symbol.to_string(),
@@ -379,7 +403,8 @@ impl Exchange for Lbank {
         params.insert("symbol".into(), market_id);
         params.insert("size".into(), limit.unwrap_or(60).to_string());
 
-        let response: LbankResponse<LbankOrderBook> = self.public_get("/depth.do", Some(params)).await?;
+        let response: LbankResponse<LbankOrderBook> =
+            self.public_get("/depth.do", Some(params)).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ParseError {
             data_type: "OrderBook".to_string(),
@@ -411,27 +436,43 @@ impl Exchange for Lbank {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&data.bids),
             asks: parse_entries(&data.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
         params.insert("size".into(), limit.unwrap_or(100).to_string());
 
-        let response: LbankResponse<Vec<LbankTrade>> = self.public_get("/trades.do", Some(params)).await?;
+        let response: LbankResponse<Vec<LbankTrade>> =
+            self.public_get("/trades.do", Some(params)).await?;
 
         let data = response.data.unwrap_or_default();
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = data.iter()
+        let trades: Vec<Trade> = data
+            .iter()
             .take(limit)
             .map(|t| {
                 let timestamp = t.date_ms.unwrap_or_else(|| Utc::now().timestamp_millis());
-                let price: Decimal = t.price.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-                let amount: Decimal = t.amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+                let price: Decimal = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
+                let amount: Decimal = t
+                    .amount
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
 
                 Trade {
                     id: t.tid.clone().unwrap_or_default(),
@@ -467,9 +508,13 @@ impl Exchange for Lbank {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).cloned().ok_or_else(|| CcxtError::NotSupported {
-            feature: format!("Timeframe {timeframe:?}"),
-        })?;
+        let interval =
+            self.timeframes
+                .get(&timeframe)
+                .cloned()
+                .ok_or_else(|| CcxtError::NotSupported {
+                    feature: format!("Timeframe {timeframe:?}"),
+                })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -479,18 +524,40 @@ impl Exchange for Lbank {
             params.insert("time".into(), (s / 1000).to_string());
         }
 
-        let response: LbankResponse<Vec<Vec<serde_json::Value>>> = self.public_get("/kline.do", Some(params)).await?;
+        let response: LbankResponse<Vec<Vec<serde_json::Value>>> =
+            self.public_get("/kline.do", Some(params)).await?;
 
         let data = response.data.unwrap_or_default();
-        let ohlcv: Vec<OHLCV> = data.iter()
+        let ohlcv: Vec<OHLCV> = data
+            .iter()
             .filter_map(|c| {
                 Some(OHLCV {
                     timestamp: c.first()?.as_i64()? * 1000,
-                    open: c.get(1)?.as_f64().map(Decimal::try_from).and_then(|r| r.ok())?,
-                    high: c.get(2)?.as_f64().map(Decimal::try_from).and_then(|r| r.ok())?,
-                    low: c.get(3)?.as_f64().map(Decimal::try_from).and_then(|r| r.ok())?,
-                    close: c.get(4)?.as_f64().map(Decimal::try_from).and_then(|r| r.ok())?,
-                    volume: c.get(5)?.as_f64().map(Decimal::try_from).and_then(|r| r.ok())?,
+                    open: c
+                        .get(1)?
+                        .as_f64()
+                        .map(Decimal::try_from)
+                        .and_then(|r| r.ok())?,
+                    high: c
+                        .get(2)?
+                        .as_f64()
+                        .map(Decimal::try_from)
+                        .and_then(|r| r.ok())?,
+                    low: c
+                        .get(3)?
+                        .as_f64()
+                        .map(Decimal::try_from)
+                        .and_then(|r| r.ok())?,
+                    close: c
+                        .get(4)?
+                        .as_f64()
+                        .map(Decimal::try_from)
+                        .and_then(|r| r.ok())?,
+                    volume: c
+                        .get(5)?
+                        .as_f64()
+                        .map(Decimal::try_from)
+                        .and_then(|r| r.ok())?,
                 })
             })
             .collect();
@@ -499,11 +566,14 @@ impl Exchange for Lbank {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: LbankResponse<LbankBalanceData> = self.private_request("/user_info.do", None).await?;
+        let response: LbankResponse<LbankBalanceData> =
+            self.private_request("/user_info.do", None).await?;
 
-        let data = response.data.ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Failed to fetch balance".into(),
-        })?;
+        let data = response
+            .data
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Failed to fetch balance".into(),
+            })?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -512,7 +582,9 @@ impl Exchange for Lbank {
 
         for (currency, amount) in &data.free {
             let free: Decimal = amount.parse().unwrap_or_default();
-            let used: Decimal = data.freeze.get(currency)
+            let used: Decimal = data
+                .freeze
+                .get(currency)
                 .and_then(|s| s.parse().ok())
                 .unwrap_or_default();
 
@@ -555,11 +627,16 @@ impl Exchange for Lbank {
             params.insert("price".into(), p.to_string());
         }
 
-        let response: LbankResponse<LbankOrderResult> = self.private_request("/create_order.do", Some(params)).await?;
+        let response: LbankResponse<LbankOrderResult> = self
+            .private_request("/create_order.do", Some(params))
+            .await?;
 
         if response.result != Some(true) {
             return Err(CcxtError::ExchangeError {
-                message: response.error_code.map(|c| c.to_string()).unwrap_or_else(|| "Failed to create order".into()),
+                message: response
+                    .error_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "Failed to create order".into()),
             });
         }
 
@@ -607,11 +684,16 @@ impl Exchange for Lbank {
         params.insert("symbol".into(), market_id);
         params.insert("order_id".into(), id.to_string());
 
-        let response: LbankResponse<serde_json::Value> = self.private_request("/cancel_order.do", Some(params)).await?;
+        let response: LbankResponse<serde_json::Value> = self
+            .private_request("/cancel_order.do", Some(params))
+            .await?;
 
         if response.result != Some(true) {
             return Err(CcxtError::ExchangeError {
-                message: response.error_code.map(|c| c.to_string()).unwrap_or_else(|| "Failed to cancel order".into()),
+                message: response
+                    .error_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "Failed to cancel order".into()),
             });
         }
 
@@ -654,7 +736,9 @@ impl Exchange for Lbank {
         params.insert("symbol".into(), market_id);
         params.insert("order_id".into(), id.to_string());
 
-        let response: LbankResponse<LbankOrder> = self.private_request("/orders_info.do", Some(params)).await?;
+        let response: LbankResponse<LbankOrder> = self
+            .private_request("/orders_info.do", Some(params))
+            .await?;
 
         if response.result != Some(true) {
             return Err(CcxtError::OrderNotFound {
@@ -666,7 +750,9 @@ impl Exchange for Lbank {
             order_id: id.to_string(),
         })?;
 
-        let timestamp = data.create_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .create_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let status = match data.status.as_deref() {
             Some("0") | Some("-1") => OrderStatus::Open,
@@ -681,7 +767,12 @@ impl Exchange for Lbank {
             _ => OrderSide::Buy,
         };
 
-        let order_type = if data.order_type.as_ref().map(|s| s.contains("market")).unwrap_or(false) {
+        let order_type = if data
+            .order_type
+            .as_ref()
+            .map(|s| s.contains("market"))
+            .unwrap_or(false)
+        {
             OrderType::Market
         } else {
             OrderType::Limit
@@ -705,8 +796,16 @@ impl Exchange for Lbank {
             side,
             price: data.price.as_ref().and_then(|s| s.parse().ok()),
             average: data.avg_price.as_ref().and_then(|s| s.parse().ok()),
-            amount: data.amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
-            filled: data.deal_amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+            amount: data
+                .amount
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            filled: data
+                .deal_amount
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
             remaining: None,
             cost: None,
             trades: Vec::new(),
@@ -728,22 +827,30 @@ impl Exchange for Lbank {
         _since: Option<i64>,
         limit: Option<u32>,
     ) -> CcxtResult<Vec<Order>> {
-        let market_id = symbol.map(|s| self.convert_to_market_id(s)).unwrap_or_default();
+        let market_id = symbol
+            .map(|s| self.convert_to_market_id(s))
+            .unwrap_or_default();
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
         params.insert("current_page".into(), "1".to_string());
         params.insert("page_length".into(), limit.unwrap_or(100).to_string());
 
-        let response: LbankResponse<LbankOrdersData> = self.private_request("/orders_info_no_deal.do", Some(params)).await?;
+        let response: LbankResponse<LbankOrdersData> = self
+            .private_request("/orders_info_no_deal.do", Some(params))
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data".into(),
         })?;
 
-        let orders: Vec<Order> = data.orders.iter()
+        let orders: Vec<Order> = data
+            .orders
+            .iter()
             .map(|o| {
-                let timestamp = o.create_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+                let timestamp = o
+                    .create_time
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
                 let status = match o.status.as_deref() {
                     Some("0") | Some("-1") => OrderStatus::Open,
@@ -758,7 +865,12 @@ impl Exchange for Lbank {
                     _ => OrderSide::Buy,
                 };
 
-                let order_type = if o.order_type.as_ref().map(|s| s.contains("market")).unwrap_or(false) {
+                let order_type = if o
+                    .order_type
+                    .as_ref()
+                    .map(|s| s.contains("market"))
+                    .unwrap_or(false)
+                {
                     OrderType::Market
                 } else {
                     OrderType::Limit
@@ -790,8 +902,16 @@ impl Exchange for Lbank {
                     side,
                     price: o.price.as_ref().and_then(|s| s.parse().ok()),
                     average: o.avg_price.as_ref().and_then(|s| s.parse().ok()),
-                    amount: o.amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
-                    filled: o.deal_amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+                    amount: o
+                        .amount
+                        .as_ref()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
+                    filled: o
+                        .deal_amount
+                        .as_ref()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
                     remaining: None,
                     cost: None,
                     trades: Vec::new(),

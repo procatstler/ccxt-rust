@@ -14,16 +14,16 @@ use chrono::Utc;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, TimeInForce, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent,
-    WsOrderEvent, WsOhlcvEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    TimeInForce, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent,
+    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_PUBLIC_URL: &str = "wss://api.hitbtc.com/api/3/ws/public";
@@ -83,7 +83,9 @@ impl HitbtcWs {
     /// HitBTC 심볼을 통합 심볼로 변환 (BTCUSDT -> BTC/USDT)
     fn to_unified_symbol(hitbtc_symbol: &str) -> String {
         // 일반적인 quote 통화 목록
-        let quotes = ["USDT", "BUSD", "USDC", "BTC", "ETH", "BNB", "TUSD", "EUR", "USD"];
+        let quotes = [
+            "USDT", "BUSD", "USDC", "BTC", "ETH", "BNB", "TUSD", "EUR", "USD",
+        ];
 
         for quote in quotes {
             if let Some(base) = hitbtc_symbol.strip_suffix(quote) {
@@ -115,7 +117,9 @@ impl HitbtcWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &HitbtcTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -150,21 +154,31 @@ impl HitbtcWs {
 
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &HitbtcOrderBookData, symbol: &str) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bid.iter().filter_map(|b| {
-            Some(OrderBookEntry {
-                price: b.price.parse().ok()?,
-                amount: b.size.parse().ok()?,
+        let bids: Vec<OrderBookEntry> = data
+            .bid
+            .iter()
+            .filter_map(|b| {
+                Some(OrderBookEntry {
+                    price: b.price.parse().ok()?,
+                    amount: b.size.parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.ask.iter().filter_map(|a| {
-            Some(OrderBookEntry {
-                price: a.price.parse().ok()?,
-                amount: a.size.parse().ok()?,
+        let asks: Vec<OrderBookEntry> = data
+            .ask
+            .iter()
+            .filter_map(|a| {
+                Some(OrderBookEntry {
+                    price: a.price.parse().ok()?,
+                    amount: a.size.parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -176,6 +190,7 @@ impl HitbtcWs {
             nonce: data.sequence,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -188,7 +203,9 @@ impl HitbtcWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &HitbtcTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -222,7 +239,9 @@ impl HitbtcWs {
     /// OHLCV 메시지 파싱
     fn parse_candle(data: &HitbtcCandleData, timeframe: Timeframe) -> Option<WsOhlcvEvent> {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())?;
 
@@ -232,7 +251,10 @@ impl HitbtcWs {
             data.max.parse().ok()?,
             data.min.parse().ok()?,
             data.close.parse().ok()?,
-            data.volume.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
+            data.volume
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
         );
 
         Some(WsOhlcvEvent {
@@ -248,22 +270,26 @@ impl HitbtcWs {
         if let Ok(response) = serde_json::from_str::<HitbtcWsResponse>(msg) {
             // 에러 처리
             if let Some(error) = response.error {
-                return Some(WsMessage::Error(
-                    format!("{}: {}", error.code, error.message)
-                ));
+                return Some(WsMessage::Error(format!(
+                    "{}: {}",
+                    error.code, error.message
+                )));
             }
 
             // 결과 처리
             if let Some(result) = response.result {
                 // Ticker
-                if let Ok(ticker_data) = serde_json::from_value::<HitbtcTickerData>(result.clone()) {
+                if let Ok(ticker_data) = serde_json::from_value::<HitbtcTickerData>(result.clone())
+                {
                     return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                 }
 
                 // OrderBook
                 if let Ok(ob_data) = serde_json::from_value::<HitbtcOrderBookData>(result.clone()) {
                     let symbol = Self::to_unified_symbol(&ob_data.symbol);
-                    return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol)));
+                    return Some(WsMessage::OrderBook(Self::parse_order_book(
+                        &ob_data, &symbol,
+                    )));
                 }
 
                 // Trade
@@ -272,7 +298,8 @@ impl HitbtcWs {
                 }
 
                 // Candle
-                if let Ok(candle_data) = serde_json::from_value::<HitbtcCandleData>(result.clone()) {
+                if let Ok(candle_data) = serde_json::from_value::<HitbtcCandleData>(result.clone())
+                {
                     // 기본 timeframe (실제로는 구독 시 저장한 값 사용)
                     let timeframe = Timeframe::Minute1;
                     if let Some(event) = Self::parse_candle(&candle_data, timeframe) {
@@ -286,29 +313,39 @@ impl HitbtcWs {
                 if let Some(data) = response.data {
                     // Ticker update
                     if ch.starts_with("ticker/") {
-                        if let Ok(ticker_data) = serde_json::from_value::<HitbtcTickerData>(data.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<HitbtcTickerData>(data.clone())
+                        {
                             return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                         }
                     }
 
                     // Trades update
                     if ch == "trades" {
-                        if let Ok(trade_data) = serde_json::from_value::<HitbtcTradeData>(data.clone()) {
+                        if let Ok(trade_data) =
+                            serde_json::from_value::<HitbtcTradeData>(data.clone())
+                        {
                             return Some(WsMessage::Trade(Self::parse_trade(&trade_data)));
                         }
                     }
 
                     // OrderBook update
                     if ch.starts_with("orderbook/") {
-                        if let Ok(ob_data) = serde_json::from_value::<HitbtcOrderBookData>(data.clone()) {
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<HitbtcOrderBookData>(data.clone())
+                        {
                             let symbol = Self::to_unified_symbol(&ob_data.symbol);
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol)));
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data, &symbol,
+                            )));
                         }
                     }
 
                     // Candles update
                     if ch.starts_with("candles/") {
-                        if let Ok(candle_data) = serde_json::from_value::<HitbtcCandleData>(data.clone()) {
+                        if let Ok(candle_data) =
+                            serde_json::from_value::<HitbtcCandleData>(data.clone())
+                        {
                             // Extract timeframe from channel name
                             let timeframe = if let Some(period) = ch.strip_prefix("candles/") {
                                 match period {
@@ -358,6 +395,7 @@ impl HitbtcWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -373,8 +411,8 @@ impl HitbtcWs {
             id: self.next_id(),
         };
 
-        let subscribe_json = serde_json::to_string(&subscribe_msg)
-            .map_err(|e| CcxtError::ParseError {
+        let subscribe_json =
+            serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                 data_type: "HitbtcSubscribe".to_string(),
                 message: e.to_string(),
             })?;
@@ -382,7 +420,10 @@ impl HitbtcWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel_name, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // WebSocket으로 구독 메시지 전송
@@ -397,19 +438,19 @@ impl HitbtcWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -423,12 +464,18 @@ impl HitbtcWs {
         channel: &str,
         symbol: Option<&str>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".to_string(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channels".to_string(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".to_string(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for private channels".to_string(),
+                })?;
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -440,6 +487,7 @@ impl HitbtcWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -459,11 +507,10 @@ impl HitbtcWs {
             "id": self.next_id()
         });
 
-        let login_json = serde_json::to_string(&login_msg)
-            .map_err(|e| CcxtError::ParseError {
-                data_type: "HitbtcLogin".to_string(),
-                message: e.to_string(),
-            })?;
+        let login_json = serde_json::to_string(&login_msg).map_err(|e| CcxtError::ParseError {
+            data_type: "HitbtcLogin".to_string(),
+            message: e.to_string(),
+        })?;
 
         if let Some(ws) = &self.ws_client {
             ws.send(&login_json)?;
@@ -489,8 +536,8 @@ impl HitbtcWs {
             })
         };
 
-        let subscribe_json = serde_json::to_string(&subscribe_msg)
-            .map_err(|e| CcxtError::ParseError {
+        let subscribe_json =
+            serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                 data_type: "HitbtcPrivateSubscribe".to_string(),
                 message: e.to_string(),
             })?;
@@ -498,7 +545,10 @@ impl HitbtcWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // WebSocket으로 구독 메시지 전송
@@ -513,10 +563,10 @@ impl HitbtcWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         // Try private message processing first, then public
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
@@ -524,11 +574,11 @@ impl HitbtcWs {
                         } else if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -543,7 +593,10 @@ impl HitbtcWs {
         // Error check
         if let Some(error) = response.get("error") {
             let code = error.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
-            let message = error.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+            let message = error
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
             return Some(WsMessage::Error(format!("{code}: {message}")));
         }
 
@@ -553,29 +606,37 @@ impl HitbtcWs {
         match channel {
             "spot/order" => {
                 // Order update
-                if let Ok(order_data) = serde_json::from_value::<HitbtcOrderUpdateData>(data.clone()) {
+                if let Ok(order_data) =
+                    serde_json::from_value::<HitbtcOrderUpdateData>(data.clone())
+                {
                     let order = Self::parse_order(&order_data);
                     return Some(WsMessage::Order(WsOrderEvent { order }));
                 }
-            }
+            },
             "spot/balance" => {
                 // Balance update
-                if let Ok(balance_data) = serde_json::from_value::<Vec<HitbtcBalanceUpdateData>>(data.clone()) {
+                if let Ok(balance_data) =
+                    serde_json::from_value::<Vec<HitbtcBalanceUpdateData>>(data.clone())
+                {
                     let balances = Self::parse_balances(&balance_data);
                     return Some(WsMessage::Balance(WsBalanceEvent { balances }));
-                } else if let Ok(balance_data) = serde_json::from_value::<HitbtcBalanceUpdateData>(data.clone()) {
+                } else if let Ok(balance_data) =
+                    serde_json::from_value::<HitbtcBalanceUpdateData>(data.clone())
+                {
                     let balances = Self::parse_balances(&[balance_data]);
                     return Some(WsMessage::Balance(WsBalanceEvent { balances }));
                 }
-            }
+            },
             "reports" => {
                 // Trade report (my trades)
-                if let Ok(order_data) = serde_json::from_value::<HitbtcOrderUpdateData>(data.clone()) {
+                if let Ok(order_data) =
+                    serde_json::from_value::<HitbtcOrderUpdateData>(data.clone())
+                {
                     let order = Self::parse_order(&order_data);
                     return Some(WsMessage::Order(WsOrderEvent { order }));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -583,11 +644,15 @@ impl HitbtcWs {
 
     /// Order 파싱
     fn parse_order(data: &HitbtcOrderUpdateData) -> Order {
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -616,24 +681,31 @@ impl HitbtcWs {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| {
-            match tif.as_str() {
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
                 "GTC" => Some(TimeInForce::GTC),
                 "IOC" => Some(TimeInForce::IOC),
                 "FOK" => Some(TimeInForce::FOK),
                 "GTT" => Some(TimeInForce::GTT),
                 "PO" => Some(TimeInForce::PO),
                 _ => None,
-            }
-        });
+            });
 
-        let price: Decimal = data.price.as_ref()
+        let price: Decimal = data
+            .price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.quantity.as_ref()
+        let amount: Decimal = data
+            .quantity
+            .as_ref()
             .and_then(|q| q.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.cumulative_quantity.as_ref()
+        let filled: Decimal = data
+            .cumulative_quantity
+            .as_ref()
             .and_then(|q| q.parse().ok())
             .unwrap_or_default();
         let remaining = amount - filled;
@@ -644,10 +716,14 @@ impl HitbtcWs {
             client_order_id: data.client_order_id.clone(),
             timestamp: Some(timestamp),
             datetime: data.created_at.clone(),
-            last_trade_timestamp: data.updated_at.as_ref()
+            last_trade_timestamp: data
+                .updated_at
+                .as_ref()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.timestamp_millis()),
-            last_update_timestamp: data.updated_at.as_ref()
+            last_update_timestamp: data
+                .updated_at
+                .as_ref()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.timestamp_millis()),
             status,
@@ -680,10 +756,14 @@ impl HitbtcWs {
 
         for item in data {
             if let Some(currency) = &item.currency {
-                let free: Decimal = item.available.as_ref()
+                let free: Decimal = item
+                    .available
+                    .as_ref()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or_default();
-                let used: Decimal = item.reserved.as_ref()
+                let used: Decimal = item
+                    .reserved
+                    .as_ref()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or_default();
                 let total = free + used;
@@ -726,36 +806,59 @@ impl WsExchange for HitbtcWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_symbol = Self::format_symbol(symbol);
-        client.subscribe_stream("ticker/1s", vec![market_symbol], "ticker", Some(symbol)).await
+        client
+            .subscribe_stream("ticker/1s", vec![market_symbol], "ticker", Some(symbol))
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let market_symbols: Vec<String> = symbols
-            .iter()
-            .map(|s| Self::format_symbol(s))
-            .collect();
-        client.subscribe_stream("ticker/1s", market_symbols, "tickers", None).await
+        let market_symbols: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
+        client
+            .subscribe_stream("ticker/1s", market_symbols, "tickers", None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_symbol = Self::format_symbol(symbol);
-        client.subscribe_stream("orderbook/full", vec![market_symbol], "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream(
+                "orderbook/full",
+                vec![market_symbol],
+                "orderBook",
+                Some(symbol),
+            )
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_symbol = Self::format_symbol(symbol);
-        client.subscribe_stream("trades", vec![market_symbol], "trades", Some(symbol)).await
+        client
+            .subscribe_stream("trades", vec![market_symbol], "trades", Some(symbol))
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_symbol = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
         let channel = format!("candles/{interval}");
-        client.subscribe_stream(&channel, vec![market_symbol], "ohlcv", Some(symbol)).await
+        client
+            .subscribe_stream(&channel, vec![market_symbol], "ohlcv", Some(symbol))
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -780,12 +883,18 @@ impl WsExchange for HitbtcWs {
     }
 
     async fn ws_authenticate(&mut self) -> CcxtResult<()> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for authentication".to_string(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for authentication".to_string(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for authentication".to_string(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for authentication".to_string(),
+                })?;
 
         // Basic authentication: Base64(api_key:api_secret)
         let auth_string = format!("{api_key}:{api_secret}");
@@ -801,11 +910,10 @@ impl WsExchange for HitbtcWs {
             "id": self.next_id()
         });
 
-        let login_json = serde_json::to_string(&login_msg)
-            .map_err(|e| CcxtError::ParseError {
-                data_type: "HitbtcLogin".to_string(),
-                message: e.to_string(),
-            })?;
+        let login_json = serde_json::to_string(&login_msg).map_err(|e| CcxtError::ParseError {
+            data_type: "HitbtcLogin".to_string(),
+            message: e.to_string(),
+        })?;
 
         if let Some(ws) = &self.ws_client {
             ws.send(&login_json)?;
@@ -826,7 +934,10 @@ impl WsExchange for HitbtcWs {
         client.subscribe_private_stream("spot/balance", None).await
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self {
             ws_client: None,
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
@@ -838,7 +949,10 @@ impl WsExchange for HitbtcWs {
         client.subscribe_private_stream("spot/order", symbol).await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self {
             ws_client: None,
             subscriptions: Arc::new(RwLock::new(HashMap::new())),

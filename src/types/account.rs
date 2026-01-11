@@ -202,11 +202,7 @@ impl TransferEntry {
     }
 
     /// Set accounts
-    pub fn with_accounts(
-        mut self,
-        from: impl Into<String>,
-        to: impl Into<String>,
-    ) -> Self {
+    pub fn with_accounts(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.from_account = Some(from.into());
         self.to_account = Some(to.into());
         self
@@ -227,8 +223,8 @@ impl TransferEntry {
     /// Set timestamp
     pub fn with_timestamp(mut self, timestamp: i64) -> Self {
         self.timestamp = Some(timestamp);
-        self.datetime = chrono::DateTime::from_timestamp_millis(timestamp)
-            .map(|dt| dt.to_rfc3339());
+        self.datetime =
+            chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339());
         self
     }
 
@@ -372,9 +368,7 @@ mod tests {
 
     #[test]
     fn test_account() {
-        let account = Account::new()
-            .with_id("12345")
-            .with_type("spot");
+        let account = Account::new().with_id("12345").with_type("spot");
 
         assert_eq!(account.id, Some("12345".to_string()));
         assert_eq!(account.account_type, Some("spot".to_string()));
@@ -382,8 +376,7 @@ mod tests {
 
     #[test]
     fn test_deposit_address() {
-        let address = DepositAddress::new("ETH", "0x123...")
-            .with_network("ERC20");
+        let address = DepositAddress::new("ETH", "0x123...").with_network("ERC20");
 
         assert_eq!(address.currency, "ETH");
         assert_eq!(address.address, "0x123...");

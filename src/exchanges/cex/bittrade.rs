@@ -18,9 +18,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -273,7 +273,10 @@ impl Bittrade {
     /// Convert market ID to symbol (btcjpy -> BTC/JPY)
     fn to_symbol(&self, market_id: &str) -> String {
         let markets_by_id = self.markets_by_id.read().unwrap();
-        markets_by_id.get(market_id).cloned().unwrap_or_else(|| market_id.to_uppercase())
+        markets_by_id
+            .get(market_id)
+            .cloned()
+            .unwrap_or_else(|| market_id.to_uppercase())
     }
 
     /// Public API call
@@ -295,12 +298,18 @@ impl Bittrade {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
 
@@ -323,8 +332,8 @@ impl Bittrade {
         let host = "api-cloud.bittrade.co.jp";
         let payload = format!("{method}\n{host}\n{path}\n{query_string}");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(payload.as_bytes());
         let signature = base64::Engine::encode(
             &base64::engine::general_purpose::STANDARD,
@@ -333,8 +342,11 @@ impl Bittrade {
 
         sign_params.insert("Signature".to_string(), signature);
 
-        let url = format!("{}?{}", path,
-            sign_params.iter()
+        let url = format!(
+            "{}?{}",
+            path,
+            sign_params
+                .iter()
                 .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
                 .collect::<Vec<_>>()
                 .join("&")
@@ -360,17 +372,16 @@ impl Bittrade {
             }
         }
 
-        let response: BittradeResponse<Vec<BittradeAccount>> = self.private_request(
-            "GET",
-            "/v1/account/accounts",
-            HashMap::new(),
-        ).await?;
+        let response: BittradeResponse<Vec<BittradeAccount>> = self
+            .private_request("GET", "/v1/account/accounts", HashMap::new())
+            .await?;
 
         let accounts = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Failed to get accounts".into(),
         })?;
 
-        let account = accounts.into_iter()
+        let account = accounts
+            .into_iter()
             .find(|a| a.account_type == "spot")
             .ok_or_else(|| CcxtError::ExchangeError {
                 message: "Spot account not found".into(),
@@ -465,7 +476,8 @@ impl Exchange for Bittrade {
     }
 
     async fn load_markets(&self, _reload: bool) -> CcxtResult<HashMap<String, Market>> {
-        let response: BittradeResponse<Vec<BittradeSymbol>> = self.public_get("/v1/common/symbols", None).await?;
+        let response: BittradeResponse<Vec<BittradeSymbol>> =
+            self.public_get("/v1/common/symbols", None).await?;
 
         let symbols = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Failed to load markets".into(),
@@ -524,15 +536,24 @@ impl Exchange for Bittrade {
                 },
                 limits: MarketLimits {
                     amount: crate::types::MinMax {
-                        min: symbol_data.min_order_amt.as_ref().and_then(|v| v.parse().ok()),
-                        max: symbol_data.max_order_amt.as_ref().and_then(|v| v.parse().ok()),
+                        min: symbol_data
+                            .min_order_amt
+                            .as_ref()
+                            .and_then(|v| v.parse().ok()),
+                        max: symbol_data
+                            .max_order_amt
+                            .as_ref()
+                            .and_then(|v| v.parse().ok()),
                     },
                     price: crate::types::MinMax {
                         min: None,
                         max: None,
                     },
                     cost: crate::types::MinMax {
-                        min: symbol_data.min_order_value.as_ref().and_then(|v| v.parse().ok()),
+                        min: symbol_data
+                            .min_order_value
+                            .as_ref()
+                            .and_then(|v| v.parse().ok()),
                         max: None,
                     },
                     leverage: crate::types::MinMax {
@@ -565,7 +586,9 @@ impl Exchange for Bittrade {
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
 
-        let response: BittradeResponse<BittradeTickerWrapper> = self.public_get("/market/detail/merged", Some(params)).await?;
+        let response: BittradeResponse<BittradeTickerWrapper> = self
+            .public_get("/market/detail/merged", Some(params))
+            .await?;
 
         let ticker_data = response.tick.ok_or_else(|| CcxtError::ExchangeError {
             message: "Ticker data not found".into(),
@@ -604,7 +627,8 @@ impl Exchange for Bittrade {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: BittradeResponse<Vec<BittradeAllTicker>> = self.public_get("/market/tickers", None).await?;
+        let response: BittradeResponse<Vec<BittradeAllTicker>> =
+            self.public_get("/market/tickers", None).await?;
 
         let tickers_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Tickers data not found".into(),
@@ -660,13 +684,20 @@ impl Exchange for Bittrade {
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
         let market_id = self.to_market_id(symbol);
         let depth = limit.unwrap_or(20).min(150);
-        let depth_type = if depth <= 5 { "step0" } else if depth <= 20 { "step1" } else { "step2" };
+        let depth_type = if depth <= 5 {
+            "step0"
+        } else if depth <= 20 {
+            "step1"
+        } else {
+            "step2"
+        };
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
         params.insert("type".to_string(), depth_type.to_string());
 
-        let response: BittradeResponse<BittradeOrderBook> = self.public_get("/market/depth", Some(params)).await?;
+        let response: BittradeResponse<BittradeOrderBook> =
+            self.public_get("/market/depth", Some(params)).await?;
 
         let ob_data = response.tick.ok_or_else(|| CcxtError::ExchangeError {
             message: "Order book data not found".into(),
@@ -674,27 +705,35 @@ impl Exchange for Bittrade {
 
         let timestamp = response.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = ob_data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0],
-                    amount: b[1],
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = ob_data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0],
+                        amount: b[1],
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = ob_data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0],
-                    amount: a[1],
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = ob_data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0],
+                        amount: a[1],
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
@@ -707,10 +746,16 @@ impl Exchange for Bittrade {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.to_market_id(symbol);
         let size = limit.unwrap_or(100).min(2000);
 
@@ -718,7 +763,9 @@ impl Exchange for Bittrade {
         params.insert("symbol".to_string(), market_id);
         params.insert("size".to_string(), size.to_string());
 
-        let response: BittradeResponse<Vec<BittradeTradeWrapper>> = self.public_get("/market/history/trade", Some(params)).await?;
+        let response: BittradeResponse<Vec<BittradeTradeWrapper>> = self
+            .public_get("/market/history/trade", Some(params))
+            .await?;
 
         let trade_wrappers = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Trade data not found".into(),
@@ -748,7 +795,13 @@ impl Exchange for Bittrade {
                     ),
                     symbol: symbol.to_string(),
                     trade_type: None,
-                    side: Some(match side { OrderSide::Buy => "buy", OrderSide::Sell => "sell" }.to_string()),
+                    side: Some(
+                        match side {
+                            OrderSide::Buy => "buy",
+                            OrderSide::Sell => "sell",
+                        }
+                        .to_string(),
+                    ),
                     taker_or_maker: None,
                     price,
                     amount,
@@ -771,9 +824,12 @@ impl Exchange for Bittrade {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let period = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let period = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
         let size = limit.unwrap_or(300).min(2000);
 
         let mut params = HashMap::new();
@@ -781,22 +837,25 @@ impl Exchange for Bittrade {
         params.insert("period".to_string(), period.clone());
         params.insert("size".to_string(), size.to_string());
 
-        let response: BittradeResponse<Vec<BittradeKline>> = self.public_get("/market/history/kline", Some(params)).await?;
+        let response: BittradeResponse<Vec<BittradeKline>> = self
+            .public_get("/market/history/kline", Some(params))
+            .await?;
 
         let klines = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Kline data not found".into(),
         })?;
 
-        let mut ohlcv_list: Vec<OHLCV> = klines.iter().map(|k| {
-            OHLCV {
+        let mut ohlcv_list: Vec<OHLCV> = klines
+            .iter()
+            .map(|k| OHLCV {
                 timestamp: k.id * 1000,
                 open: k.open,
                 high: k.high,
                 low: k.low,
                 close: k.close,
                 volume: k.amount,
-            }
-        }).collect();
+            })
+            .collect();
 
         // Sort by timestamp
         ohlcv_list.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
@@ -813,11 +872,8 @@ impl Exchange for Bittrade {
         let account_id = self.get_account_id().await?;
         let path = format!("/v1/account/accounts/{account_id}/balance");
 
-        let response: BittradeResponse<BittradeBalanceData> = self.private_request(
-            "GET",
-            &path,
-            HashMap::new(),
-        ).await?;
+        let response: BittradeResponse<BittradeBalanceData> =
+            self.private_request("GET", &path, HashMap::new()).await?;
 
         let balance_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Balance data not found".into(),
@@ -832,7 +888,9 @@ impl Exchange for Bittrade {
             let currency = item.currency.to_uppercase();
             let balance = Decimal::from_str(&item.balance).unwrap_or(Decimal::ZERO);
 
-            let entry = currency_balances.entry(currency).or_insert((Decimal::ZERO, Decimal::ZERO));
+            let entry = currency_balances
+                .entry(currency)
+                .or_insert((Decimal::ZERO, Decimal::ZERO));
             if item.balance_type == "trade" {
                 entry.0 = balance; // free
             } else if item.balance_type == "frozen" {
@@ -843,12 +901,15 @@ impl Exchange for Bittrade {
         for (currency, (free, used)) in currency_balances {
             let total = free + used;
             if total > Decimal::ZERO {
-                currencies.insert(currency, Balance {
-                    free: Some(free),
-                    used: Some(used),
-                    total: Some(total),
-                    debt: None,
-                });
+                currencies.insert(
+                    currency,
+                    Balance {
+                        free: Some(free),
+                        used: Some(used),
+                        total: Some(total),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -882,9 +943,11 @@ impl Exchange for Bittrade {
             (OrderType::Market, OrderSide::Sell) => "sell-market",
             (OrderType::Limit, OrderSide::Buy) => "buy-limit",
             (OrderType::Limit, OrderSide::Sell) => "sell-limit",
-            _ => return Err(CcxtError::BadRequest {
-                message: "Unsupported order type".into(),
-            }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: "Unsupported order type".into(),
+                })
+            },
         };
 
         let mut params = HashMap::new();
@@ -897,11 +960,9 @@ impl Exchange for Bittrade {
             params.insert("price".to_string(), p.to_string());
         }
 
-        let response: BittradeResponse<String> = self.private_request(
-            "POST",
-            "/v1/order/orders/place",
-            params,
-        ).await?;
+        let response: BittradeResponse<String> = self
+            .private_request("POST", "/v1/order/orders/place", params)
+            .await?;
 
         let order_id = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Order creation failed".into(),
@@ -947,11 +1008,8 @@ impl Exchange for Bittrade {
     async fn cancel_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let path = format!("/v1/order/orders/{id}/submitcancel");
 
-        let response: BittradeResponse<String> = self.private_request(
-            "POST",
-            &path,
-            HashMap::new(),
-        ).await?;
+        let response: BittradeResponse<String> =
+            self.private_request("POST", &path, HashMap::new()).await?;
 
         let timestamp = Utc::now().timestamp_millis();
 
@@ -993,11 +1051,8 @@ impl Exchange for Bittrade {
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let path = format!("/v1/order/orders/{id}");
 
-        let response: BittradeResponse<BittradeOrderData> = self.private_request(
-            "GET",
-            &path,
-            HashMap::new(),
-        ).await?;
+        let response: BittradeResponse<BittradeOrderData> =
+            self.private_request("GET", &path, HashMap::new()).await?;
 
         let order_data = response.data.ok_or_else(|| CcxtError::OrderNotFound {
             order_id: id.to_string(),
@@ -1009,10 +1064,24 @@ impl Exchange for Bittrade {
         let order_type = self.parse_order_type(&order_data.order_type);
 
         let amount = Decimal::from_str(&order_data.amount).unwrap_or(Decimal::ZERO);
-        let price = order_data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let filled = order_data.field_amount.as_ref().and_then(|f| Decimal::from_str(f).ok()).unwrap_or(Decimal::ZERO);
-        let cost = order_data.field_cash_amount.as_ref().and_then(|c| Decimal::from_str(c).ok());
-        let remaining = if amount > filled { Some(amount - filled) } else { None };
+        let price = order_data
+            .price
+            .as_ref()
+            .and_then(|p| Decimal::from_str(p).ok());
+        let filled = order_data
+            .field_amount
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok())
+            .unwrap_or(Decimal::ZERO);
+        let cost = order_data
+            .field_cash_amount
+            .as_ref()
+            .and_then(|c| Decimal::from_str(c).ok());
+        let remaining = if amount > filled {
+            Some(amount - filled)
+        } else {
+            None
+        };
         let average = if filled > Decimal::ZERO {
             cost.map(|c| c / filled)
         } else {
@@ -1054,9 +1123,17 @@ impl Exchange for Bittrade {
         })
     }
 
-    async fn fetch_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
-        params.insert("states".to_string(), "submitted,partial-filled,filled,partial-canceled,canceled".to_string());
+        params.insert(
+            "states".to_string(),
+            "submitted,partial-filled,filled,partial-canceled,canceled".to_string(),
+        );
 
         if let Some(sym) = symbol {
             params.insert("symbol".to_string(), self.to_market_id(sym));
@@ -1066,11 +1143,9 @@ impl Exchange for Bittrade {
             params.insert("size".to_string(), lim.to_string());
         }
 
-        let response: BittradeResponse<Vec<BittradeOrderData>> = self.private_request(
-            "GET",
-            "/v1/order/orders",
-            params,
-        ).await?;
+        let response: BittradeResponse<Vec<BittradeOrderData>> = self
+            .private_request("GET", "/v1/order/orders", params)
+            .await?;
 
         let orders_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Orders data not found".into(),
@@ -1085,10 +1160,24 @@ impl Exchange for Bittrade {
             let order_type = self.parse_order_type(&order_data.order_type);
 
             let amount = Decimal::from_str(&order_data.amount).unwrap_or(Decimal::ZERO);
-            let price = order_data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-            let filled = order_data.field_amount.as_ref().and_then(|f| Decimal::from_str(f).ok()).unwrap_or(Decimal::ZERO);
-            let cost = order_data.field_cash_amount.as_ref().and_then(|c| Decimal::from_str(c).ok());
-            let remaining = if amount > filled { Some(amount - filled) } else { None };
+            let price = order_data
+                .price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok());
+            let filled = order_data
+                .field_amount
+                .as_ref()
+                .and_then(|f| Decimal::from_str(f).ok())
+                .unwrap_or(Decimal::ZERO);
+            let cost = order_data
+                .field_cash_amount
+                .as_ref()
+                .and_then(|c| Decimal::from_str(c).ok());
+            let remaining = if amount > filled {
+                Some(amount - filled)
+            } else {
+                None
+            };
 
             orders.push(Order {
                 id: order_data.id.to_string(),
@@ -1128,7 +1217,12 @@ impl Exchange for Bittrade {
         Ok(orders)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
 
         if let Some(sym) = symbol {
@@ -1139,11 +1233,9 @@ impl Exchange for Bittrade {
             params.insert("size".to_string(), lim.to_string());
         }
 
-        let response: BittradeResponse<Vec<BittradeOrderData>> = self.private_request(
-            "GET",
-            "/v1/order/openOrders",
-            params,
-        ).await?;
+        let response: BittradeResponse<Vec<BittradeOrderData>> = self
+            .private_request("GET", "/v1/order/openOrders", params)
+            .await?;
 
         let orders_data = response.data.unwrap_or_default();
 
@@ -1155,9 +1247,20 @@ impl Exchange for Bittrade {
             let order_type = self.parse_order_type(&order_data.order_type);
 
             let amount = Decimal::from_str(&order_data.amount).unwrap_or(Decimal::ZERO);
-            let price = order_data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-            let filled = order_data.field_amount.as_ref().and_then(|f| Decimal::from_str(f).ok()).unwrap_or(Decimal::ZERO);
-            let remaining = if amount > filled { Some(amount - filled) } else { None };
+            let price = order_data
+                .price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok());
+            let filled = order_data
+                .field_amount
+                .as_ref()
+                .and_then(|f| Decimal::from_str(f).ok())
+                .unwrap_or(Decimal::ZERO);
+            let remaining = if amount > filled {
+                Some(amount - filled)
+            } else {
+                None
+            };
 
             orders.push(Order {
                 id: order_data.id.to_string(),
@@ -1197,7 +1300,12 @@ impl Exchange for Bittrade {
         Ok(orders)
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut params = HashMap::new();
 
         if let Some(sym) = symbol {
@@ -1208,11 +1316,9 @@ impl Exchange for Bittrade {
             params.insert("size".to_string(), lim.to_string());
         }
 
-        let response: BittradeResponse<Vec<BittradeMyTrade>> = self.private_request(
-            "GET",
-            "/v1/order/matchresults",
-            params,
-        ).await?;
+        let response: BittradeResponse<Vec<BittradeMyTrade>> = self
+            .private_request("GET", "/v1/order/matchresults", params)
+            .await?;
 
         let trades_data = response.data.unwrap_or_default();
 
@@ -1236,7 +1342,13 @@ impl Exchange for Bittrade {
                 ),
                 symbol,
                 trade_type: None,
-                side: Some(match side { OrderSide::Buy => "buy", OrderSide::Sell => "sell" }.to_string()),
+                side: Some(
+                    match side {
+                        OrderSide::Buy => "buy",
+                        OrderSide::Sell => "sell",
+                    }
+                    .to_string(),
+                ),
                 taker_or_maker: Some(if trade_data.role == "taker" {
                     crate::types::TakerOrMaker::Taker
                 } else {
@@ -1326,7 +1438,10 @@ mod tests {
         let exchange = Bittrade::new(config).unwrap();
         assert_eq!(exchange.parse_order_status("submitted"), OrderStatus::Open);
         assert_eq!(exchange.parse_order_status("filled"), OrderStatus::Closed);
-        assert_eq!(exchange.parse_order_status("canceled"), OrderStatus::Canceled);
+        assert_eq!(
+            exchange.parse_order_status("canceled"),
+            OrderStatus::Canceled
+        );
     }
 
     #[test]

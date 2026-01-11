@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -125,24 +125,32 @@ impl Bitfinex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
-        let body_str = body.as_ref()
+        let body_str = body
+            .as_ref()
             .map(|b| serde_json::to_string(b).unwrap_or_default())
             .unwrap_or_default();
 
         let signature_payload = format!("/api{path}{nonce}{body_str}");
 
-        let mut mac = HmacSha384::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha384::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".into(),
-            })?;
+            }
+        })?;
         mac.update(signature_payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -266,7 +274,9 @@ impl Exchange for Bitfinex {
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
         // Fetch trading symbols
-        let symbols_response: Vec<String> = self.public_get("/conf/pub:list:pair:exchange", None).await?;
+        let symbols_response: Vec<String> = self
+            .public_get("/conf/pub:list:pair:exchange", None)
+            .await?;
 
         let mut markets = Vec::new();
 
@@ -282,7 +292,11 @@ impl Exchange for Bitfinex {
                     quote: quote.clone(),
                     base_id: base.clone(),
                     quote_id: quote.clone(),
-                    market_type: if is_derivative { MarketType::Swap } else { MarketType::Spot },
+                    market_type: if is_derivative {
+                        MarketType::Swap
+                    } else {
+                        MarketType::Spot
+                    },
                     spot: !is_derivative,
                     margin: true,
                     swap: is_derivative,
@@ -296,7 +310,11 @@ impl Exchange for Bitfinex {
                     sub_type: None,
                     taker: Some(Decimal::new(2, 3)), // 0.2%
                     maker: Some(Decimal::new(1, 3)), // 0.1%
-                    contract_size: if is_derivative { Some(Decimal::ONE) } else { None },
+                    contract_size: if is_derivative {
+                        Some(Decimal::ONE)
+                    } else {
+                        None
+                    },
                     expiry: None,
                     expiry_datetime: None,
                     strike: None,
@@ -408,10 +426,16 @@ impl Exchange for Bitfinex {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let path = format!("/trades/{market_id}/hist");
 
@@ -420,9 +444,14 @@ impl Exchange for Bitfinex {
 
         let response: Vec<BitfinexTrade> = self.public_get(&path, Some(params)).await?;
 
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .map(|t| {
-                let side = if t.amount > Decimal::ZERO { "buy" } else { "sell" };
+                let side = if t.amount > Decimal::ZERO {
+                    "buy"
+                } else {
+                    "sell"
+                };
                 let amount_abs = t.amount.abs();
 
                 Trade {
@@ -459,7 +488,9 @@ impl Exchange for Bitfinex {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let tf = self.timeframes.get(&timeframe)
+        let tf = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::NotSupported {
                 feature: format!("Timeframe {timeframe:?}"),
             })?;
@@ -470,7 +501,8 @@ impl Exchange for Bitfinex {
 
         let response: Vec<Vec<Decimal>> = self.public_get(&path, Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.iter()
+        let ohlcv: Vec<OHLCV> = response
+            .iter()
             .filter_map(|c| {
                 if c.len() >= 6 {
                     Some(OHLCV {
@@ -550,7 +582,9 @@ impl Exchange for Bitfinex {
             body["price"] = serde_json::json!(p.to_string());
         }
 
-        let response: BitfinexOrderResponse = self.private_post("/auth/w/order/submit", Some(body)).await?;
+        let response: BitfinexOrderResponse = self
+            .private_post("/auth/w/order/submit", Some(body))
+            .await?;
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
@@ -589,7 +623,9 @@ impl Exchange for Bitfinex {
             "id": id.parse::<i64>().unwrap_or(0),
         });
 
-        let _response: serde_json::Value = self.private_post("/auth/w/order/cancel", Some(body)).await?;
+        let _response: serde_json::Value = self
+            .private_post("/auth/w/order/cancel", Some(body))
+            .await?;
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
@@ -628,7 +664,8 @@ impl Exchange for Bitfinex {
             "id": [id.parse::<i64>().unwrap_or(0)],
         });
 
-        let response: Vec<BitfinexOrderDetail> = self.private_post("/auth/r/orders", Some(body)).await?;
+        let response: Vec<BitfinexOrderDetail> =
+            self.private_post("/auth/r/orders", Some(body)).await?;
 
         if let Some(order) = response.first() {
             let amount_abs = order.amount_orig.abs();
@@ -647,8 +684,7 @@ impl Exchange for Bitfinex {
                 client_order_id: order.cid.clone(),
                 timestamp: order.mts_create,
                 datetime: order.mts_create.and_then(|ts| {
-                    chrono::DateTime::from_timestamp_millis(ts)
-                        .map(|dt| dt.to_rfc3339())
+                    chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
                 }),
                 last_trade_timestamp: None,
                 last_update_timestamp: order.mts_update,
@@ -656,7 +692,11 @@ impl Exchange for Bitfinex {
                 symbol: order.symbol.clone().unwrap_or_default(),
                 order_type: OrderType::Limit,
                 time_in_force: None,
-                side: if order.amount_orig > Decimal::ZERO { OrderSide::Buy } else { OrderSide::Sell },
+                side: if order.amount_orig > Decimal::ZERO {
+                    OrderSide::Buy
+                } else {
+                    OrderSide::Sell
+                },
                 price: order.price,
                 average: order.price_avg,
                 amount: amount_abs,
@@ -689,7 +729,8 @@ impl Exchange for Bitfinex {
     ) -> CcxtResult<Vec<Order>> {
         let response: Vec<BitfinexOrderDetail> = self.private_post("/auth/r/orders", None).await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|order| {
                 let amount_abs = order.amount_orig.abs();
                 let remaining_abs = order.amount.abs();
@@ -700,8 +741,7 @@ impl Exchange for Bitfinex {
                     client_order_id: order.cid.clone(),
                     timestamp: order.mts_create,
                     datetime: order.mts_create.and_then(|ts| {
-                        chrono::DateTime::from_timestamp_millis(ts)
-                            .map(|dt| dt.to_rfc3339())
+                        chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
                     }),
                     last_trade_timestamp: None,
                     last_update_timestamp: order.mts_update,
@@ -709,7 +749,11 @@ impl Exchange for Bitfinex {
                     symbol: order.symbol.clone().unwrap_or_default(),
                     order_type: OrderType::Limit,
                     time_in_force: None,
-                    side: if order.amount_orig > Decimal::ZERO { OrderSide::Buy } else { OrderSide::Sell },
+                    side: if order.amount_orig > Decimal::ZERO {
+                        OrderSide::Buy
+                    } else {
+                        OrderSide::Sell
+                    },
                     price: order.price,
                     average: order.price_avg,
                     amount: amount_abs,

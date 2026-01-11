@@ -19,12 +19,12 @@ use tokio::sync::RwLock as TokioRwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, FundingRate,
-    FundingRateHistory, Leverage, Liquidation, Market, MarketLimits, MarketPrecision,
-    MarketType, MarginMode, MarginModeInfo, OpenInterest, Order, OrderBook, OrderBookEntry,
-    OrderRequest, OrderSide, OrderStatus, OrderType, Position, PositionSide, SignedRequest,
-    Ticker, Timeframe, TimeInForce, Trade, Transaction, TransactionStatus, TransactionType,
-    TransferEntry, WsExchange, WsMessage, OHLCV,
+    Balance, Balances, ConvertCurrencyPair, ConvertQuote, ConvertTrade, Exchange, ExchangeFeatures,
+    ExchangeId, ExchangeUrls, FundingRate, FundingRateHistory, Leverage, Liquidation, MarginMode,
+    MarginModeInfo, Market, MarketLimits, MarketPrecision, MarketType, OpenInterest, Order,
+    OrderBook, OrderBookEntry, OrderRequest, OrderSide, OrderStatus, OrderType, Position,
+    PositionSide, SignedRequest, Ticker, TimeInForce, Timeframe, Trade, Transaction,
+    TransactionStatus, TransactionType, TransferEntry, WsExchange, WsMessage, OHLCV,
 };
 
 use super::okx_ws::OkxWs;
@@ -175,7 +175,9 @@ impl Okx {
 
         if response.code != "0" {
             return Err(CcxtError::ExchangeError {
-                message: response.msg.unwrap_or_else(|| format!("OKX error code: {}", response.code)),
+                message: response
+                    .msg
+                    .unwrap_or_else(|| format!("OKX error code: {}", response.code)),
             });
         }
 
@@ -193,15 +195,24 @@ impl Okx {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
-        let passphrase = self.passphrase.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required for OKX".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
+        let passphrase =
+            self.passphrase
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Passphrase required for OKX".into(),
+                })?;
 
         let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         let body_str = body.unwrap_or("");
@@ -209,8 +220,8 @@ impl Okx {
         // Create signature: timestamp + method + path + body
         let prehash = format!("{}{}{}{}", timestamp, method.to_uppercase(), path, body_str);
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(prehash.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
@@ -224,17 +235,22 @@ impl Okx {
         let response: OkxResponse<T> = match method.to_uppercase().as_str() {
             "GET" => self.client.get(path, None, Some(headers)).await?,
             "POST" => {
-                let json_body: Option<serde_json::Value> = body.map(|b| serde_json::from_str(b).unwrap_or_default());
+                let json_body: Option<serde_json::Value> =
+                    body.map(|b| serde_json::from_str(b).unwrap_or_default());
                 self.client.post(path, json_body, Some(headers)).await?
-            }
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("HTTP method: {method}"),
-            }),
+            },
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("HTTP method: {method}"),
+                })
+            },
         };
 
         if response.code != "0" {
             return Err(CcxtError::ExchangeError {
-                message: response.msg.unwrap_or_else(|| format!("OKX error code: {}", response.code)),
+                message: response
+                    .msg
+                    .unwrap_or_else(|| format!("OKX error code: {}", response.code)),
             });
         }
 
@@ -256,7 +272,10 @@ impl Okx {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &OkxTicker) -> Ticker {
-        let timestamp = data.ts.parse::<i64>().unwrap_or_else(|_| Utc::now().timestamp_millis());
+        let timestamp = data
+            .ts
+            .parse::<i64>()
+            .unwrap_or_else(|_| Utc::now().timestamp_millis());
         let symbol = data.inst_id.replace("-", "/");
 
         Ticker {
@@ -323,7 +342,11 @@ impl Okx {
 
         let price: Option<Decimal> = data.px.as_ref().and_then(|p| p.parse().ok());
         let amount: Decimal = data.sz.parse().unwrap_or_default();
-        let filled: Decimal = data.acc_fill_sz.as_ref().and_then(|f| f.parse().ok()).unwrap_or_default();
+        let filled: Decimal = data
+            .acc_fill_sz
+            .as_ref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
         let remaining = Some(amount - filled);
         let average = data.avg_px.as_ref().and_then(|a| a.parse().ok());
         let cost = average.map(|avg: Decimal| avg * filled);
@@ -480,7 +503,11 @@ impl Okx {
             Some("short") => Some(PositionSide::Short),
             Some("net") => {
                 // Determine side based on position amount
-                let pos: Decimal = data.pos.as_ref().and_then(|p| p.parse().ok()).unwrap_or_default();
+                let pos: Decimal = data
+                    .pos
+                    .as_ref()
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or_default();
                 if pos > Decimal::ZERO {
                     Some(PositionSide::Long)
                 } else if pos < Decimal::ZERO {
@@ -488,11 +515,15 @@ impl Okx {
                 } else {
                     None
                 }
-            }
+            },
             _ => None,
         };
 
-        let contracts: Option<Decimal> = data.pos.as_ref().and_then(|p| p.parse().ok()).map(|p: Decimal| p.abs());
+        let contracts: Option<Decimal> = data
+            .pos
+            .as_ref()
+            .and_then(|p| p.parse().ok())
+            .map(|p: Decimal| p.abs());
         let entry_price: Option<Decimal> = data.avg_px.as_ref().and_then(|p| p.parse().ok());
         let mark_price: Option<Decimal> = data.mark_px.as_ref().and_then(|p| p.parse().ok());
         let notional: Option<Decimal> = data.notional_usd.as_ref().and_then(|n| n.parse().ok());
@@ -500,7 +531,11 @@ impl Okx {
         let unrealized_pnl: Option<Decimal> = data.upl.as_ref().and_then(|u| u.parse().ok());
         let liquidation_price: Option<Decimal> = data.liq_px.as_ref().and_then(|l| {
             let val: Decimal = l.parse().ok()?;
-            if val == Decimal::ZERO { None } else { Some(val) }
+            if val == Decimal::ZERO {
+                None
+            } else {
+                Some(val)
+            }
         });
         let margin: Option<Decimal> = data.margin.as_ref().and_then(|m| m.parse().ok());
 
@@ -575,9 +610,14 @@ impl Okx {
 
     /// 펀딩 레이트 기록 파싱
     fn parse_funding_rate_history(&self, data: &OkxFundingRateHistoryData) -> FundingRateHistory {
-        let timestamp = data.funding_time.as_ref().and_then(|t| t.parse::<i64>().ok());
+        let timestamp = data
+            .funding_time
+            .as_ref()
+            .and_then(|t| t.parse::<i64>().ok());
         let symbol = data.inst_id.replace("-", "/");
-        let funding_rate: Decimal = data.funding_rate.as_ref()
+        let funding_rate: Decimal = data
+            .funding_rate
+            .as_ref()
             .and_then(|r| r.parse().ok())
             .unwrap_or_default();
 
@@ -848,6 +888,7 @@ impl Exchange for Okx {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -907,9 +948,12 @@ impl Exchange for Okx {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let bar = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let bar = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("instId".into(), market_id);
@@ -971,9 +1015,11 @@ impl Exchange for Okx {
             OrderType::Limit => "limit",
             OrderType::Market => "market",
             OrderType::LimitMaker => "post_only",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -1007,7 +1053,10 @@ impl Exchange for Okx {
 
         if order_resp.s_code != "0" {
             return Err(CcxtError::ExchangeError {
-                message: order_resp.s_msg.clone().unwrap_or_else(|| "Order failed".into()),
+                message: order_resp
+                    .s_msg
+                    .clone()
+                    .unwrap_or_else(|| "Order failed".into()),
             });
         }
 
@@ -1034,7 +1083,10 @@ impl Exchange for Okx {
 
         if order_resp.s_code != "0" {
             return Err(CcxtError::ExchangeError {
-                message: order_resp.s_msg.clone().unwrap_or_else(|| "Cancel failed".into()),
+                message: order_resp
+                    .s_msg
+                    .clone()
+                    .unwrap_or_else(|| "Cancel failed".into()),
             });
         }
 
@@ -1076,7 +1128,10 @@ impl Exchange for Okx {
 
         if order_resp.s_code != "0" {
             return Err(CcxtError::ExchangeError {
-                message: order_resp.s_msg.clone().unwrap_or_else(|| "Amend failed".into()),
+                message: order_resp
+                    .s_msg
+                    .clone()
+                    .unwrap_or_else(|| "Amend failed".into()),
             });
         }
 
@@ -1087,9 +1142,7 @@ impl Exchange for Okx {
         let market_id = self.to_market_id(symbol);
 
         let path = format!("/api/v5/trade/order?instId={market_id}&ordId={id}");
-        let response: Vec<OkxOrder> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxOrder> = self.private_request("GET", &path, None).await?;
 
         let order_data = response.first().ok_or_else(|| CcxtError::OrderNotFound {
             order_id: id.into(),
@@ -1111,9 +1164,7 @@ impl Exchange for Okx {
             "/api/v5/trade/orders-pending".into()
         };
 
-        let response: Vec<OkxOrder> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxOrder> = self.private_request("GET", &path, None).await?;
 
         let orders: Vec<Order> = response.iter().map(|o| self.parse_order(o)).collect();
 
@@ -1137,9 +1188,7 @@ impl Exchange for Okx {
             path = format!("{}&limit={}", path, l.min(100));
         }
 
-        let response: Vec<OkxOrder> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxOrder> = self.private_request("GET", &path, None).await?;
 
         let orders: Vec<Order> = response
             .iter()
@@ -1167,9 +1216,7 @@ impl Exchange for Okx {
             path = format!("{}&limit={}", path, l.min(100));
         }
 
-        let response: Vec<OkxFill> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxFill> = self.private_request("GET", &path, None).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -1237,16 +1284,24 @@ impl Exchange for Okx {
             let mut params = serde_json::Map::new();
             params.insert("instId".into(), market_id.into());
             params.insert("tdMode".into(), "cross".into());
-            params.insert("side".into(), match order.side {
-                OrderSide::Buy => "buy",
-                OrderSide::Sell => "sell",
-            }.into());
-            params.insert("ordType".into(), match order.order_type {
-                OrderType::Limit => "limit",
-                OrderType::Market => "market",
-                OrderType::StopLimit => "conditional",
-                _ => "limit",
-            }.into());
+            params.insert(
+                "side".into(),
+                match order.side {
+                    OrderSide::Buy => "buy",
+                    OrderSide::Sell => "sell",
+                }
+                .into(),
+            );
+            params.insert(
+                "ordType".into(),
+                match order.order_type {
+                    OrderType::Limit => "limit",
+                    OrderType::Market => "market",
+                    OrderType::StopLimit => "conditional",
+                    _ => "limit",
+                }
+                .into(),
+            );
             params.insert("sz".into(), order.amount.to_string().into());
 
             if let Some(price) = order.price {
@@ -1327,14 +1382,9 @@ impl Exchange for Okx {
             path = format!("{}?{}", path, query_parts.join("&"));
         }
 
-        let response: Vec<OkxOrder> = self
-            .private_request("GET", &path, None::<&str>)
-            .await?;
+        let response: Vec<OkxOrder> = self.private_request("GET", &path, None::<&str>).await?;
 
-        let orders: Vec<Order> = response
-            .iter()
-            .map(|o| self.parse_order(o))
-            .collect();
+        let orders: Vec<Order> = response.iter().map(|o| self.parse_order(o)).collect();
 
         Ok(orders)
     }
@@ -1359,14 +1409,10 @@ impl Exchange for Okx {
             path = format!("{}?{}", path, query_parts.join("&"));
         }
 
-        let response: Vec<OkxDeposit> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxDeposit> = self.private_request("GET", &path, None).await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|d| self.parse_deposit(d))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|d| self.parse_deposit(d)).collect();
 
         Ok(transactions)
     }
@@ -1391,14 +1437,10 @@ impl Exchange for Okx {
             path = format!("{}?{}", path, query_parts.join("&"));
         }
 
-        let response: Vec<OkxWithdrawal> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxWithdrawal> = self.private_request("GET", &path, None).await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|w| self.parse_withdrawal(w))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|w| self.parse_withdrawal(w)).collect();
 
         Ok(transactions)
     }
@@ -1410,9 +1452,7 @@ impl Exchange for Okx {
     ) -> CcxtResult<crate::types::DepositAddress> {
         let path = format!("/api/v5/asset/deposit-address?ccy={code}");
 
-        let response: Vec<OkxDepositAddress> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxDepositAddress> = self.private_request("GET", &path, None).await?;
 
         let addr = response.first().ok_or_else(|| CcxtError::ExchangeError {
             message: "No deposit address found".into(),
@@ -1535,45 +1575,57 @@ impl Exchange for Okx {
 
     // === WebSocket Methods ===
 
-    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ticker(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ticker(symbol).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_tickers(symbols).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_order_book(symbol, limit).await
     }
 
-    async fn watch_trades(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_trades(symbol).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ohlcv(symbol, timeframe).await
     }
 
     // === Futures Methods ===
 
-    async fn fetch_positions(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
+    async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         let response: Vec<OkxPosition> = self
             .private_request("GET", "/api/v5/account/positions", None)
             .await?;
 
-        let mut positions: Vec<Position> = response
-            .iter()
-            .map(|p| self.parse_position(p))
-            .collect();
+        let mut positions: Vec<Position> =
+            response.iter().map(|p| self.parse_position(p)).collect();
 
         // Filter by symbols if provided
         if let Some(filter_symbols) = symbols {
@@ -1583,11 +1635,7 @@ impl Exchange for Okx {
         Ok(positions)
     }
 
-    async fn set_leverage(
-        &self,
-        leverage: Decimal,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn set_leverage(&self, leverage: Decimal, symbol: &str) -> CcxtResult<Leverage> {
         let market_id = self.to_swap_market_id(symbol);
 
         let body = serde_json::json!({
@@ -1605,7 +1653,9 @@ impl Exchange for Okx {
             message: "Empty leverage response".into(),
         })?;
 
-        let lever: Decimal = resp.lever.as_ref()
+        let lever: Decimal = resp
+            .lever
+            .as_ref()
             .and_then(|l| l.parse().ok())
             .unwrap_or(leverage);
 
@@ -1618,22 +1668,19 @@ impl Exchange for Okx {
         Ok(Leverage::new(symbol, margin_mode, lever, lever))
     }
 
-    async fn fetch_leverage(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn fetch_leverage(&self, symbol: &str) -> CcxtResult<Leverage> {
         let market_id = self.to_swap_market_id(symbol);
         let path = format!("/api/v5/account/leverage-info?instId={market_id}&mgnMode=cross");
 
-        let response: Vec<OkxLeverageResponse> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxLeverageResponse> = self.private_request("GET", &path, None).await?;
 
         let resp = response.first().ok_or_else(|| CcxtError::ExchangeError {
             message: "Empty leverage response".into(),
         })?;
 
-        let lever: Decimal = resp.lever.as_ref()
+        let lever: Decimal = resp
+            .lever
+            .as_ref()
             .and_then(|l| l.parse().ok())
             .unwrap_or_default();
 
@@ -1656,9 +1703,11 @@ impl Exchange for Okx {
         let mode_str = match margin_mode {
             MarginMode::Cross => "cross",
             MarginMode::Isolated => "isolated",
-            MarginMode::Unknown => return Err(CcxtError::BadRequest {
-                message: "Unknown margin mode is not supported".into(),
-            }),
+            MarginMode::Unknown => {
+                return Err(CcxtError::BadRequest {
+                    message: "Unknown margin mode is not supported".into(),
+                })
+            },
         };
 
         let body = serde_json::json!({
@@ -1674,10 +1723,7 @@ impl Exchange for Okx {
         Ok(MarginModeInfo::new(symbol, margin_mode))
     }
 
-    async fn fetch_funding_rate(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<FundingRate> {
+    async fn fetch_funding_rate(&self, symbol: &str) -> CcxtResult<FundingRate> {
         let market_id = self.to_swap_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("instId".into(), market_id);
@@ -1943,7 +1989,12 @@ impl Exchange for Okx {
 
         for data in &response {
             let inst_id = &data.inst_id;
-            let symbol = match self.markets_by_id.read().ok().and_then(|m| m.get(inst_id).cloned()) {
+            let symbol = match self
+                .markets_by_id
+                .read()
+                .ok()
+                .and_then(|m| m.get(inst_id).cloned())
+            {
                 Some(s) => s,
                 None => continue,
             };
@@ -1960,18 +2011,21 @@ impl Exchange for Okx {
             };
             let timestamp: i64 = data.ts.parse().unwrap_or_default();
 
-            tickers.insert(symbol.clone(), Ticker {
-                symbol,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                mark_price: Some(mark_price),
-                info: serde_json::to_value(data).unwrap_or_default(),
-                ..Default::default()
-            });
+            tickers.insert(
+                symbol.clone(),
+                Ticker {
+                    symbol,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    mark_price: Some(mark_price),
+                    info: serde_json::to_value(data).unwrap_or_default(),
+                    ..Default::default()
+                },
+            );
         }
 
         Ok(tickers)
@@ -1985,9 +2039,12 @@ impl Exchange for Okx {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_swap_market_id(symbol);
-        let bar = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let bar = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("instId".into(), market_id);
@@ -2032,9 +2089,12 @@ impl Exchange for Okx {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_swap_market_id(symbol);
-        let bar = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let bar = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("instId".into(), market_id);
@@ -2080,7 +2140,7 @@ impl Exchange for Okx {
     ) -> CcxtResult<TransferEntry> {
         // OKX account types: 1=spot, 5=margin, 6=funding, 18=unified
         let from_type = match from_account.to_lowercase().as_str() {
-            "spot" | "trading" => "18",      // unified account
+            "spot" | "trading" => "18", // unified account
             "funding" => "6",
             "margin" => "5",
             _ => "18",
@@ -2138,15 +2198,14 @@ impl Exchange for Okx {
 
         let path = format!(
             "/api/v5/asset/transfer-state?{}",
-            params.iter()
+            params
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&")
         );
 
-        let response: Vec<OkxTransferHistory> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxTransferHistory> = self.private_request("GET", &path, None).await?;
 
         let transfers: Vec<TransferEntry> = response
             .iter()
@@ -2242,18 +2301,207 @@ impl Exchange for Okx {
     ) -> CcxtResult<crate::types::CrossBorrowRate> {
         let path = format!("/api/v5/account/interest-rate?ccy={}", code.to_uppercase());
 
-        let response: Vec<OkxInterestRate> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: Vec<OkxInterestRate> = self.private_request("GET", &path, None).await?;
 
         let rate_data = response.first().ok_or_else(|| CcxtError::ExchangeError {
             message: format!("No borrow rate data for {code}"),
         })?;
 
-        let rate = rate_data.interest_rate.parse::<Decimal>().unwrap_or_default();
+        let rate = rate_data
+            .interest_rate
+            .parse::<Decimal>()
+            .unwrap_or_default();
 
-        Ok(crate::types::CrossBorrowRate::new(rate)
-            .with_currency(code))
+        Ok(crate::types::CrossBorrowRate::new(rate).with_currency(code))
+    }
+
+    // === Convert API ===
+
+    /// Fetch available convert currency pairs
+    async fn fetch_convert_currencies(&self) -> CcxtResult<Vec<ConvertCurrencyPair>> {
+        let response: Vec<OkxConvertCurrency> = self
+            .private_request("GET", "/api/v5/asset/convert/currencies", None)
+            .await?;
+
+        let mut pairs = Vec::new();
+        for currency in &response {
+            for to_ccy in &currency.to_ccys {
+                let mut pair = ConvertCurrencyPair::new(&currency.ccy, to_ccy);
+                pair.min_amount = currency.min.parse().ok();
+                pair.max_amount = currency.max.parse().ok();
+                pair.info = serde_json::json!({
+                    "fromCcy": &currency.ccy,
+                    "toCcy": to_ccy,
+                    "min": &currency.min,
+                    "max": &currency.max,
+                });
+                pairs.push(pair);
+            }
+        }
+
+        Ok(pairs)
+    }
+
+    /// Get a convert quote
+    async fn fetch_convert_quote(
+        &self,
+        from_code: &str,
+        to_code: &str,
+        amount: Decimal,
+    ) -> CcxtResult<ConvertQuote> {
+        let body = serde_json::json!({
+            "baseCcy": from_code.to_uppercase(),
+            "quoteCcy": to_code.to_uppercase(),
+            "side": "sell",
+            "rfqSz": amount.to_string(),
+            "rfqSzCcy": from_code.to_uppercase(),
+        });
+        let body_str = serde_json::to_string(&body)?;
+
+        let response: Vec<OkxConvertQuote> = self
+            .private_request(
+                "POST",
+                "/api/v5/asset/convert/estimate-quote",
+                Some(&body_str),
+            )
+            .await?;
+
+        let quote_data = response.first().ok_or_else(|| CcxtError::ExchangeError {
+            message: "No quote data received".to_string(),
+        })?;
+
+        let base_sz: Decimal = quote_data.base_sz.parse().unwrap_or_default();
+        let quote_sz: Decimal = quote_data.quote_sz.parse().unwrap_or_default();
+        let cnv_px: Decimal = quote_data.cnv_px.parse().unwrap_or_default();
+
+        let mut quote =
+            ConvertQuote::new(&quote_data.quote_id, from_code, to_code, base_sz, cnv_px);
+        quote.to_amount = Some(quote_sz);
+        quote.timestamp = quote_data
+            .quote_time
+            .as_ref()
+            .map(|t| t.parse::<i64>().unwrap_or_default());
+        quote.datetime = quote.timestamp.map(|t| {
+            chrono::DateTime::from_timestamp_millis(t)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+        });
+        quote.expire_timestamp = quote_data
+            .ttl_ms
+            .as_ref()
+            .map(|t| Utc::now().timestamp_millis() + t.parse::<i64>().unwrap_or(0));
+        quote.info = serde_json::to_value(quote_data).unwrap_or_default();
+
+        Ok(quote)
+    }
+
+    /// Accept a convert quote and execute the trade
+    async fn create_convert_trade(&self, quote_id: &str) -> CcxtResult<ConvertTrade> {
+        let body = serde_json::json!({
+            "quoteId": quote_id,
+        });
+        let body_str = serde_json::to_string(&body)?;
+
+        let response: Vec<OkxConvertTrade> = self
+            .private_request("POST", "/api/v5/asset/convert/trade", Some(&body_str))
+            .await?;
+
+        let trade_data = response.first().ok_or_else(|| CcxtError::ExchangeError {
+            message: "No trade data received".to_string(),
+        })?;
+
+        let base_sz: Decimal = trade_data.base_sz.parse().unwrap_or_default();
+        let quote_sz: Decimal = trade_data.quote_sz.parse().unwrap_or_default();
+        let cnv_px: Decimal = trade_data.fill_px.parse().unwrap_or_default();
+
+        let mut trade = ConvertTrade::new(
+            &trade_data.trade_id,
+            &trade_data.base_ccy,
+            &trade_data.quote_ccy,
+            base_sz,
+            quote_sz,
+            cnv_px,
+        );
+        trade.timestamp = trade_data
+            .ts
+            .as_ref()
+            .map(|t| t.parse::<i64>().unwrap_or_default());
+        trade.datetime = trade.timestamp.map(|t| {
+            chrono::DateTime::from_timestamp_millis(t)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+        });
+        trade.status = trade_data.state.clone();
+        trade.info = serde_json::to_value(trade_data).unwrap_or_default();
+
+        Ok(trade)
+    }
+
+    /// Fetch a convert trade by ID
+    async fn fetch_convert_trade(&self, id: &str) -> CcxtResult<ConvertTrade> {
+        // OKX doesn't have a direct endpoint for single trade lookup
+        // Use history with filter
+        let history = self.fetch_convert_trade_history(None, Some(100)).await?;
+
+        history
+            .into_iter()
+            .find(|t| t.id == id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("Convert trade {id} not found"),
+            })
+    }
+
+    /// Fetch convert trade history
+    async fn fetch_convert_trade_history(
+        &self,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<ConvertTrade>> {
+        let mut path = "/api/v5/asset/convert/history".to_string();
+        let mut query_parts = Vec::new();
+
+        if let Some(since_ts) = since {
+            query_parts.push(format!("after={since_ts}"));
+        }
+        if let Some(l) = limit {
+            query_parts.push(format!("limit={}", l.min(100)));
+        }
+
+        if !query_parts.is_empty() {
+            path.push('?');
+            path.push_str(&query_parts.join("&"));
+        }
+
+        let response: Vec<OkxConvertHistory> = self.private_request("GET", &path, None).await?;
+
+        let trades = response
+            .into_iter()
+            .map(|h| {
+                let base_sz: Decimal = h.base_sz.parse().unwrap_or_default();
+                let quote_sz: Decimal = h.quote_sz.parse().unwrap_or_default();
+                let fill_px: Decimal = h.fill_px.parse().unwrap_or_default();
+
+                let mut trade = ConvertTrade::new(
+                    &h.trade_id,
+                    &h.base_ccy,
+                    &h.quote_ccy,
+                    base_sz,
+                    quote_sz,
+                    fill_px,
+                );
+                trade.timestamp = h.ts.as_ref().map(|t| t.parse::<i64>().unwrap_or_default());
+                trade.datetime = trade.timestamp.map(|t| {
+                    chrono::DateTime::from_timestamp_millis(t)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                });
+                trade.status = h.state.clone();
+                trade.info = serde_json::to_value(&h).unwrap_or_default();
+                trade
+            })
+            .collect();
+
+        Ok(trades)
     }
 }
 
@@ -2634,6 +2882,84 @@ struct OkxInterestRate {
     ccy: String,
     #[serde(default)]
     interest_rate: String,
+}
+
+// === OKX Convert API Response Types ===
+
+/// Convert currency info from /api/v5/asset/convert/currencies
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OkxConvertCurrency {
+    ccy: String,
+    #[serde(default)]
+    to_ccys: Vec<String>,
+    #[serde(default)]
+    min: String,
+    #[serde(default)]
+    max: String,
+}
+
+/// Convert quote from /api/v5/asset/convert/estimate-quote
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OkxConvertQuote {
+    quote_id: String,
+    #[serde(default)]
+    base_ccy: String,
+    #[serde(default)]
+    quote_ccy: String,
+    #[serde(default)]
+    base_sz: String,
+    #[serde(default)]
+    quote_sz: String,
+    #[serde(default)]
+    cnv_px: String,
+    #[serde(default)]
+    quote_time: Option<String>,
+    #[serde(default)]
+    ttl_ms: Option<String>,
+}
+
+/// Convert trade from /api/v5/asset/convert/trade
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OkxConvertTrade {
+    trade_id: String,
+    #[serde(default)]
+    base_ccy: String,
+    #[serde(default)]
+    quote_ccy: String,
+    #[serde(default)]
+    base_sz: String,
+    #[serde(default)]
+    quote_sz: String,
+    #[serde(default)]
+    fill_px: String,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    ts: Option<String>,
+}
+
+/// Convert history from /api/v5/asset/convert/history
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OkxConvertHistory {
+    trade_id: String,
+    #[serde(default)]
+    base_ccy: String,
+    #[serde(default)]
+    quote_ccy: String,
+    #[serde(default)]
+    base_sz: String,
+    #[serde(default)]
+    quote_sz: String,
+    #[serde(default)]
+    fill_px: String,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    ts: Option<String>,
 }
 
 #[cfg(test)]

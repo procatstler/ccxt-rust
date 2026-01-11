@@ -17,8 +17,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, TakerOrMaker,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, TakerOrMaker, Ticker, Timeframe, Trade, WsExchange, WsMessage,
+    WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://stream.toobit.com/quote/ws/v1";
@@ -36,16 +36,16 @@ pub struct ToobitWs {
 /// Toobit ticker data from WebSocket
 #[derive(Debug, Deserialize, Serialize)]
 struct ToobitWsTicker {
-    t: Option<i64>,       // timestamp
-    s: Option<String>,    // symbol
-    o: Option<String>,    // open
-    h: Option<String>,    // high
-    l: Option<String>,    // low
-    c: Option<String>,    // close (last)
-    v: Option<String>,    // volume
-    qv: Option<String>,   // quote volume
-    m: Option<String>,    // change
-    e: Option<i64>,       // event type (integer, not string)
+    t: Option<i64>,     // timestamp
+    s: Option<String>,  // symbol
+    o: Option<String>,  // open
+    h: Option<String>,  // high
+    l: Option<String>,  // low
+    c: Option<String>,  // close (last)
+    v: Option<String>,  // volume
+    qv: Option<String>, // quote volume
+    m: Option<String>,  // change
+    e: Option<i64>,     // event type (integer, not string)
 }
 
 /// Toobit order book data from WebSocket
@@ -62,23 +62,23 @@ struct ToobitWsOrderBook {
 /// Note: symbol is NOT in the trade data item, it's in the outer wrapper
 #[derive(Debug, Deserialize, Serialize)]
 struct ToobitWsTrade {
-    v: Option<String>,    // trade id
-    t: Option<i64>,       // timestamp
-    p: Option<String>,    // price
-    q: Option<String>,    // quantity
-    m: Option<bool>,      // is buyer maker (true = sell, false = buy)
+    v: Option<String>, // trade id
+    t: Option<i64>,    // timestamp
+    p: Option<String>, // price
+    q: Option<String>, // quantity
+    m: Option<bool>,   // is buyer maker (true = sell, false = buy)
 }
 
 /// WebSocket message wrapper
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
 struct ToobitWsMessage {
-    symbol: Option<String>,    // symbol from wrapper (e.g., "BTCUSDT")
+    symbol: Option<String>, // symbol from wrapper (e.g., "BTCUSDT")
     topic: Option<String>,
     event: Option<String>,
     params: Option<ToobitWsParams>,
     data: Option<serde_json::Value>,
-    f: Option<bool>,      // first update
+    f: Option<bool>, // first update
     sendTime: Option<i64>,
     shared: Option<bool>,
 }
@@ -194,10 +194,9 @@ impl ToobitWs {
         if let Some(ref bid_data) = data.b {
             for entry in bid_data {
                 if entry.len() >= 2 {
-                    if let (Ok(price), Ok(amount)) = (
-                        Decimal::from_str(&entry[0]),
-                        Decimal::from_str(&entry[1]),
-                    ) {
+                    if let (Ok(price), Ok(amount)) =
+                        (Decimal::from_str(&entry[0]), Decimal::from_str(&entry[1]))
+                    {
                         bids.push(OrderBookEntry { price, amount });
                     }
                 }
@@ -207,10 +206,9 @@ impl ToobitWs {
         if let Some(ref ask_data) = data.a {
             for entry in ask_data {
                 if entry.len() >= 2 {
-                    if let (Ok(price), Ok(amount)) = (
-                        Decimal::from_str(&entry[0]),
-                        Decimal::from_str(&entry[1]),
-                    ) {
+                    if let (Ok(price), Ok(amount)) =
+                        (Decimal::from_str(&entry[0]), Decimal::from_str(&entry[1]))
+                    {
                         asks.push(OrderBookEntry { price, amount });
                     }
                 }
@@ -221,6 +219,7 @@ impl ToobitWs {
             symbol: symbol.clone(),
             bids,
             asks,
+            checksum: None,
             timestamp: Some(timestamp),
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
@@ -243,10 +242,14 @@ impl ToobitWs {
         let symbol = Self::to_unified_symbol(symbol_raw);
         let timestamp = data.t.unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let price = data.p.as_ref()
+        let price = data
+            .p
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
-        let amount = data.q.as_ref()
+        let amount = data
+            .q
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
@@ -306,7 +309,9 @@ impl ToobitWs {
             if let Some(ref data_arr) = wrapper.data {
                 if let Some(arr) = data_arr.as_array() {
                     for item in arr {
-                        if let Ok(ticker_data) = serde_json::from_value::<ToobitWsTicker>(item.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<ToobitWsTicker>(item.clone())
+                        {
                             if let Some(event) = Self::parse_ticker(&ticker_data) {
                                 return Some(WsMessage::Ticker(event));
                             }
@@ -319,7 +324,9 @@ impl ToobitWs {
             if let Some(ref data_arr) = wrapper.data {
                 if let Some(arr) = data_arr.as_array() {
                     for item in arr {
-                        if let Ok(book_data) = serde_json::from_value::<ToobitWsOrderBook>(item.clone()) {
+                        if let Ok(book_data) =
+                            serde_json::from_value::<ToobitWsOrderBook>(item.clone())
+                        {
                             if let Some(event) = Self::parse_order_book(&book_data) {
                                 // Store in cache
                                 let symbol = event.symbol.clone();
@@ -337,7 +344,9 @@ impl ToobitWs {
                 if let Some(ref data_arr) = wrapper.data {
                     if let Some(arr) = data_arr.as_array() {
                         for item in arr {
-                            if let Ok(trade_data) = serde_json::from_value::<ToobitWsTrade>(item.clone()) {
+                            if let Ok(trade_data) =
+                                serde_json::from_value::<ToobitWsTrade>(item.clone())
+                            {
                                 if let Some(event) = Self::parse_trade(&trade_data, symbol_raw) {
                                     return Some(WsMessage::Trade(event));
                                 }
@@ -366,6 +375,7 @@ impl ToobitWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 300, // Long interval to avoid issues
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -389,19 +399,19 @@ impl ToobitWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg, &order_books).await {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -434,10 +444,14 @@ impl WsExchange for ToobitWs {
         client.subscribe_stream(vec![sub_msg]).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
 
-        let topics: Vec<serde_json::Value> = symbols.iter()
+        let topics: Vec<serde_json::Value> = symbols
+            .iter()
             .map(|s| {
                 let market_id = Self::to_market_id(s);
                 serde_json::json!({
@@ -454,7 +468,11 @@ impl WsExchange for ToobitWs {
         client.subscribe_stream(topics).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         let market_id = Self::to_market_id(symbol);
 
@@ -486,7 +504,11 @@ impl WsExchange for ToobitWs {
         client.subscribe_stream(vec![sub_msg]).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         let market_id = Self::to_market_id(symbol);
 

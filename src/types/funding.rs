@@ -256,8 +256,7 @@ mod tests {
 
     #[test]
     fn test_annual_rate() {
-        let rate = FundingRate::new("BTC/USDT:USDT")
-            .with_funding_rate(dec!(0.0001));
+        let rate = FundingRate::new("BTC/USDT:USDT").with_funding_rate(dec!(0.0001));
 
         // 0.0001 * 1095 = 0.1095 = 10.95% annual
         assert_eq!(rate.annual_rate(), Some(dec!(0.1095)));
@@ -265,8 +264,8 @@ mod tests {
 
     #[test]
     fn test_funding_rate_history() {
-        let history = FundingRateHistory::new("BTC/USDT:USDT", dec!(0.00015))
-            .with_timestamp(1700000000000);
+        let history =
+            FundingRateHistory::new("BTC/USDT:USDT", dec!(0.00015)).with_timestamp(1700000000000);
 
         assert_eq!(history.symbol, "BTC/USDT:USDT");
         assert_eq!(history.funding_rate, dec!(0.00015));

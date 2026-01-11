@@ -8,8 +8,8 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -18,9 +18,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -266,12 +266,18 @@ impl Zebpay {
 
     /// Sign request with HMAC-SHA256
     fn sign_payload(&self, payload: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(payload.as_bytes());
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
@@ -297,9 +303,12 @@ impl Zebpay {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let url = format!("/api/v2{path}");
 
@@ -309,7 +318,8 @@ impl Zebpay {
         } else if let Some(ref p) = params {
             let mut sorted: Vec<_> = p.iter().collect();
             sorted.sort_by_key(|&(k, _)| k);
-            sorted.iter()
+            sorted
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&")
@@ -327,12 +337,14 @@ impl Zebpay {
         match method {
             "GET" => self.client.get(&url, params, Some(headers)).await,
             "POST" => {
-                let body_value: Option<serde_json::Value> = body
-                    .map(|b| serde_json::from_str(b).unwrap_or(serde_json::json!({})));
+                let body_value: Option<serde_json::Value> =
+                    body.map(|b| serde_json::from_str(b).unwrap_or(serde_json::json!({})));
                 self.client.post(&url, body_value, Some(headers)).await
             },
             "DELETE" => self.client.delete(&url, params, Some(headers)).await,
-            _ => Err(CcxtError::ExchangeError { message: format!("Unknown method: {method}") }),
+            _ => Err(CcxtError::ExchangeError {
+                message: format!("Unknown method: {method}"),
+            }),
         }
     }
 
@@ -410,10 +422,14 @@ impl Zebpay {
     /// Parse order from response
     fn parse_order(&self, order: &ZebpayOrder) -> Order {
         let symbol = self.parse_symbol(&order.symbol);
-        let amount = order.orig_qty.as_ref()
+        let amount = order
+            .orig_qty
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let filled = order.executed_qty.as_ref()
+        let filled = order
+            .executed_qty
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
         let remaining = amount - filled;
@@ -534,13 +550,21 @@ impl Exchange for Zebpay {
         let mut markets_by_id_map = HashMap::new();
 
         for m in response.data {
-            let symbol = format!("{}/{}", m.base_asset.to_uppercase(), m.quote_asset.to_uppercase());
+            let symbol = format!(
+                "{}/{}",
+                m.base_asset.to_uppercase(),
+                m.quote_asset.to_uppercase()
+            );
             let market_id = m.trade_pair.clone();
 
-            let tick_size = m.tick_size.as_ref()
+            let tick_size = m
+                .tick_size
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::new(1, 8));
-            let step_size = m.step_size.as_ref()
+            let step_size = m
+                .step_size
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::new(1, 8));
 
@@ -588,12 +612,27 @@ impl Exchange for Zebpay {
                 },
                 limits: MarketLimits {
                     amount: crate::types::MinMax {
-                        min: m.min_trade_amount.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                        max: m.max_trade_amount.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+                        min: m
+                            .min_trade_amount
+                            .as_ref()
+                            .and_then(|s| Decimal::from_str(s).ok()),
+                        max: m
+                            .max_trade_amount
+                            .as_ref()
+                            .and_then(|s| Decimal::from_str(s).ok()),
                     },
-                    price: crate::types::MinMax { min: None, max: None },
-                    cost: crate::types::MinMax { min: None, max: None },
-                    leverage: crate::types::MinMax { min: None, max: None },
+                    price: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    cost: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    leverage: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
                 },
                 created: None,
                 info: serde_json::json!(m),
@@ -633,7 +672,10 @@ impl Exchange for Zebpay {
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default()
             }),
-            high: t.high_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            high: t
+                .high_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             low: t.low_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             bid: t.bid_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             bid_volume: None,
@@ -641,14 +683,29 @@ impl Exchange for Zebpay {
             ask_volume: None,
             vwap: None,
             open: None,
-            close: t.last_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            last: t.last_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            close: t
+                .last_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            last: t
+                .last_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             previous_close: None,
-            change: t.price_change.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            percentage: t.price_change_percent.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            change: t
+                .price_change
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            percentage: t
+                .price_change_percent
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             average: None,
             base_volume: t.volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            quote_volume: t.quote_volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            quote_volume: t
+                .quote_volume
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             index_price: None,
             mark_price: None,
             info: serde_json::json!(t),
@@ -658,38 +715,60 @@ impl Exchange for Zebpay {
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
         let response: ZebpayTickersResponse = self.public_get("/ticker/24hr", None).await?;
 
-        let mut tickers: HashMap<String, Ticker> = response.data.iter().map(|t| {
-            let symbol = self.parse_symbol(&t.trade_pair);
-            let ticker = Ticker {
-                symbol: symbol.clone(),
-                timestamp: t.timestamp,
-                datetime: t.timestamp.map(|ts| {
-                    chrono::DateTime::from_timestamp_millis(ts)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                }),
-                high: t.high_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                low: t.low_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                bid: t.bid_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                bid_volume: None,
-                ask: t.ask_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                ask_volume: None,
-                vwap: None,
-                open: None,
-                close: t.last_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                last: t.last_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                previous_close: None,
-                change: t.price_change.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                percentage: t.price_change_percent.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                average: None,
-                base_volume: t.volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                quote_volume: t.quote_volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                index_price: None,
-                mark_price: None,
-                info: serde_json::json!(t),
-            };
-            (symbol, ticker)
-        }).collect();
+        let mut tickers: HashMap<String, Ticker> = response
+            .data
+            .iter()
+            .map(|t| {
+                let symbol = self.parse_symbol(&t.trade_pair);
+                let ticker = Ticker {
+                    symbol: symbol.clone(),
+                    timestamp: t.timestamp,
+                    datetime: t.timestamp.map(|ts| {
+                        chrono::DateTime::from_timestamp_millis(ts)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    }),
+                    high: t
+                        .high_price
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok()),
+                    low: t.low_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+                    bid: t.bid_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+                    bid_volume: None,
+                    ask: t.ask_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+                    ask_volume: None,
+                    vwap: None,
+                    open: None,
+                    close: t
+                        .last_price
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok()),
+                    last: t
+                        .last_price
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok()),
+                    previous_close: None,
+                    change: t
+                        .price_change
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok()),
+                    percentage: t
+                        .price_change_percent
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok()),
+                    average: None,
+                    base_volume: t.volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+                    quote_volume: t
+                        .quote_volume
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok()),
+                    index_price: None,
+                    mark_price: None,
+                    info: serde_json::json!(t),
+                };
+                (symbol, ticker)
+            })
+            .collect();
 
         if let Some(syms) = symbols {
             let sym_set: std::collections::HashSet<&str> = syms.iter().copied().collect();
@@ -727,6 +806,7 @@ impl Exchange for Zebpay {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: data.timestamp,
             datetime: data.timestamp.map(|ts| {
                 chrono::DateTime::from_timestamp_millis(ts)
@@ -737,7 +817,12 @@ impl Exchange for Zebpay {
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.format_symbol(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -747,33 +832,41 @@ impl Exchange for Zebpay {
 
         let response: ZebpayTradeResponse = self.public_get("/trades", Some(params)).await?;
 
-        let mut trades: Vec<Trade> = response.data.iter().map(|t| {
-            let price = Decimal::from_str(&t.price).unwrap_or(Decimal::ZERO);
-            let amount = Decimal::from_str(&t.quantity).unwrap_or(Decimal::ZERO);
-            let cost = price * amount;
-            let timestamp = t.time;
+        let mut trades: Vec<Trade> = response
+            .data
+            .iter()
+            .map(|t| {
+                let price = Decimal::from_str(&t.price).unwrap_or(Decimal::ZERO);
+                let amount = Decimal::from_str(&t.quantity).unwrap_or(Decimal::ZERO);
+                let cost = price * amount;
+                let timestamp = t.time;
 
-            Trade {
-                id: t.id.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                symbol: symbol.to_string(),
-                trade_type: None,
-                side: Some(if t.is_buyer_maker.unwrap_or(false) { "sell".to_string() } else { "buy".to_string() }),
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(cost),
-                fee: None,
-                fees: Vec::new(),
-                info: serde_json::json!(t),
-            }
-        }).collect();
+                Trade {
+                    id: t.id.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.to_string(),
+                    trade_type: None,
+                    side: Some(if t.is_buyer_maker.unwrap_or(false) {
+                        "sell".to_string()
+                    } else {
+                        "buy".to_string()
+                    }),
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(cost),
+                    fee: None,
+                    fees: Vec::new(),
+                    info: serde_json::json!(t),
+                }
+            })
+            .collect();
 
         if let Some(s) = since {
             trades.retain(|t| t.timestamp.unwrap_or(0) >= s);
@@ -790,8 +883,12 @@ impl Exchange for Zebpay {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.format_symbol(symbol);
-        let interval = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: format!("Unsupported timeframe: {timeframe:?}") })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -802,26 +899,31 @@ impl Exchange for Zebpay {
 
         let response: ZebpayOhlcvResponse = self.public_get("/klines", Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.data.iter().filter_map(|candle| {
-            if candle.len() >= 6 {
-                Some(OHLCV {
-                    timestamp: candle[0].as_i64()?,
-                    open: candle[1].as_str().and_then(|s| Decimal::from_str(s).ok())?,
-                    high: candle[2].as_str().and_then(|s| Decimal::from_str(s).ok())?,
-                    low: candle[3].as_str().and_then(|s| Decimal::from_str(s).ok())?,
-                    close: candle[4].as_str().and_then(|s| Decimal::from_str(s).ok())?,
-                    volume: candle[5].as_str().and_then(|s| Decimal::from_str(s).ok())?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let ohlcv: Vec<OHLCV> = response
+            .data
+            .iter()
+            .filter_map(|candle| {
+                if candle.len() >= 6 {
+                    Some(OHLCV {
+                        timestamp: candle[0].as_i64()?,
+                        open: candle[1].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+                        high: candle[2].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+                        low: candle[3].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+                        close: candle[4].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+                        volume: candle[5].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(ohlcv)
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: ZebpayBalanceResponse = self.private_request("GET", "/account", None, None).await?;
+        let response: ZebpayBalanceResponse =
+            self.private_request("GET", "/account", None, None).await?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -830,21 +932,28 @@ impl Exchange for Zebpay {
         balances.info = serde_json::json!(response);
 
         for (currency, bal) in response.data {
-            let free = bal.free.as_ref()
+            let free = bal
+                .free
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
-            let used = bal.locked.as_ref()
+            let used = bal
+                .locked
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
             let total = free + used;
 
             if total > Decimal::ZERO {
-                balances.currencies.insert(currency.to_uppercase(), Balance {
-                    free: Some(free),
-                    used: Some(used),
-                    total: Some(total),
-                    debt: None,
-                });
+                balances.currencies.insert(
+                    currency.to_uppercase(),
+                    Balance {
+                        free: Some(free),
+                        used: Some(used),
+                        total: Some(total),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -869,7 +978,11 @@ impl Exchange for Zebpay {
         let type_str = match order_type {
             OrderType::Limit => "LIMIT",
             OrderType::Market => "MARKET",
-            _ => return Err(CcxtError::NotSupported { feature: format!("{order_type:?} orders") }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("{order_type:?} orders"),
+                })
+            },
         };
 
         let request = ZebpayOrderRequest {
@@ -881,10 +994,13 @@ impl Exchange for Zebpay {
             quote_order_qty: None,
         };
 
-        let body = serde_json::to_string(&request)
-            .map_err(|e| CcxtError::ExchangeError { message: e.to_string() })?;
+        let body = serde_json::to_string(&request).map_err(|e| CcxtError::ExchangeError {
+            message: e.to_string(),
+        })?;
 
-        let response: ZebpayOrderResponse = self.private_request("POST", "/order", None, Some(&body)).await?;
+        let response: ZebpayOrderResponse = self
+            .private_request("POST", "/order", None, Some(&body))
+            .await?;
 
         Ok(self.parse_order(&response.data))
     }
@@ -895,7 +1011,9 @@ impl Exchange for Zebpay {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: ZebpayOrderResponse = self.private_request("DELETE", "/order", Some(params), None).await?;
+        let response: ZebpayOrderResponse = self
+            .private_request("DELETE", "/order", Some(params), None)
+            .await?;
 
         Ok(self.parse_order(&response.data))
     }
@@ -906,23 +1024,37 @@ impl Exchange for Zebpay {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: ZebpayOrderResponse = self.private_request("GET", "/order", Some(params), None).await?;
+        let response: ZebpayOrderResponse = self
+            .private_request("GET", "/order", Some(params), None)
+            .await?;
 
         Ok(self.parse_order(&response.data))
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(sym) = symbol {
             params.insert("symbol".into(), self.format_symbol(sym));
         }
 
-        let response: ZebpayOrdersResponse = self.private_request("GET", "/openOrders", Some(params), None).await?;
+        let response: ZebpayOrdersResponse = self
+            .private_request("GET", "/openOrders", Some(params), None)
+            .await?;
 
         Ok(response.data.iter().map(|o| self.parse_order(o)).collect())
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(sym) = symbol {
             params.insert("symbol".into(), self.format_symbol(sym));
@@ -934,9 +1066,13 @@ impl Exchange for Zebpay {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: ZebpayOrdersResponse = self.private_request("GET", "/allOrders", Some(params), None).await?;
+        let response: ZebpayOrdersResponse = self
+            .private_request("GET", "/allOrders", Some(params), None)
+            .await?;
 
-        Ok(response.data.iter()
+        Ok(response
+            .data
+            .iter()
             .filter(|o| o.status == "FILLED" || o.status == "CANCELED")
             .map(|o| self.parse_order(o))
             .collect())
@@ -987,9 +1123,15 @@ mod tests {
         let exchange = Zebpay::new(config).unwrap();
 
         assert_eq!(exchange.parse_order_status("NEW"), OrderStatus::Open);
-        assert_eq!(exchange.parse_order_status("PARTIALLY_FILLED"), OrderStatus::Open);
+        assert_eq!(
+            exchange.parse_order_status("PARTIALLY_FILLED"),
+            OrderStatus::Open
+        );
         assert_eq!(exchange.parse_order_status("FILLED"), OrderStatus::Closed);
-        assert_eq!(exchange.parse_order_status("CANCELED"), OrderStatus::Canceled);
+        assert_eq!(
+            exchange.parse_order_status("CANCELED"),
+            OrderStatus::Canceled
+        );
     }
 
     #[test]

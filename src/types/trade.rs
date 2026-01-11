@@ -124,14 +124,9 @@ mod tests {
 
     #[test]
     fn test_trade() {
-        let trade = Trade::new(
-            "12345".into(),
-            "BTC/KRW".into(),
-            dec!(50000000),
-            dec!(0.1),
-        )
-        .with_side("buy")
-        .with_timestamp(1700000000000);
+        let trade = Trade::new("12345".into(), "BTC/KRW".into(), dec!(50000000), dec!(0.1))
+            .with_side("buy")
+            .with_timestamp(1700000000000);
 
         assert_eq!(trade.calculate_cost(), dec!(5000000));
         assert!(trade.is_buy());

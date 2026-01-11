@@ -18,9 +18,9 @@ use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
     Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
-    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
+    OrderType, Position, PositionSide, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade,
     WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent,
-    WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -82,7 +82,10 @@ impl OkxWs {
         let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
             .expect("HMAC can take key of any size");
         mac.update(sign_str.as_bytes());
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, mac.finalize().into_bytes())
+        base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            mac.finalize().into_bytes(),
+        )
     }
 
     /// 심볼을 OKX 형식으로 변환 (BTC/USDT -> BTC-USDT)
@@ -113,7 +116,9 @@ impl OkxWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &OkxTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.ts.as_ref()
+        let timestamp = data
+            .ts
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -150,30 +155,44 @@ impl OkxWs {
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &OkxOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+    fn parse_order_book(
+        data: &OkxOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.ts.as_ref()
+        let timestamp = data
+            .ts
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -188,6 +207,7 @@ impl OkxWs {
             nonce: data.seq_id,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -200,7 +220,9 @@ impl OkxWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &OkxTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.ts.as_ref()
+        let timestamp = data
+            .ts
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.px.parse().unwrap_or_default();
@@ -261,7 +283,9 @@ impl OkxWs {
     /// 주문 메시지 파싱
     fn parse_order(data: &OkxOrderData) -> WsOrderEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.u_time.as_ref()
+        let timestamp = data
+            .u_time
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -370,7 +394,9 @@ impl OkxWs {
     /// 체결 내역 파싱 (fills channel)
     fn parse_fill(data: &OkxFillData) -> WsMyTradeEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.fill_time.as_ref()
+        let timestamp = data
+            .fill_time
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -403,7 +429,11 @@ impl OkxWs {
             trade_type: None,
             side: Some(data.side.to_lowercase()),
             taker_or_maker: data.exec_type.as_ref().map(|e| {
-                if e == "T" { TakerOrMaker::Taker } else { TakerOrMaker::Maker }
+                if e == "T" {
+                    TakerOrMaker::Taker
+                } else {
+                    TakerOrMaker::Maker
+                }
             }),
             price,
             amount,
@@ -422,7 +452,9 @@ impl OkxWs {
     /// 포지션 메시지 파싱
     fn parse_position(data: &OkxPositionData) -> WsPositionEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.u_time.as_ref()
+        let timestamp = data
+            .u_time
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -432,7 +464,13 @@ impl OkxWs {
             _ => PositionSide::Unknown,
         };
 
-        let margin_mode = match data.mgn_mode.as_deref().unwrap_or("").to_lowercase().as_str() {
+        let margin_mode = match data
+            .mgn_mode
+            .as_deref()
+            .unwrap_or("")
+            .to_lowercase()
+            .as_str()
+        {
             "isolated" => MarginMode::Isolated,
             "cross" => MarginMode::Cross,
             _ => MarginMode::Unknown,
@@ -488,27 +526,36 @@ impl OkxWs {
 
     /// 계정 잔고 메시지 파싱
     fn parse_account(data: &OkxAccountData) -> WsBalanceEvent {
-        let timestamp = data.u_time.as_ref()
+        let timestamp = data
+            .u_time
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let mut currencies: HashMap<String, Balance> = HashMap::new();
 
         for detail in &data.details {
-            let free: Decimal = detail.avail_bal.as_ref()
+            let free: Decimal = detail
+                .avail_bal
+                .as_ref()
                 .and_then(|a| a.parse().ok())
                 .unwrap_or_default();
-            let used: Decimal = detail.frozen_bal.as_ref()
+            let used: Decimal = detail
+                .frozen_bal
+                .as_ref()
                 .and_then(|f| f.parse().ok())
                 .unwrap_or_default();
             let total = free + used;
 
-            currencies.insert(detail.ccy.clone(), Balance {
-                free: Some(free),
-                used: Some(used),
-                total: Some(total),
-                debt: None,
-            });
+            currencies.insert(
+                detail.ccy.clone(),
+                Balance {
+                    free: Some(free),
+                    used: Some(used),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         let balances = Balances {
@@ -534,9 +581,10 @@ impl OkxWs {
                     if response.code.as_ref().map(|c| c == "0").unwrap_or(false) {
                         return Some(WsMessage::Authenticated);
                     } else {
-                        return Some(WsMessage::Error(
-                            format!("Auth failed: {}", response.msg.as_deref().unwrap_or("Unknown error"))
-                        ));
+                        return Some(WsMessage::Error(format!(
+                            "Auth failed: {}",
+                            response.msg.as_deref().unwrap_or("Unknown error")
+                        )));
                     }
                 }
             }
@@ -550,7 +598,9 @@ impl OkxWs {
             if let Some(event) = &response.event {
                 if event == "subscribe" {
                     return Some(WsMessage::Subscribed {
-                        channel: response.arg.as_ref()
+                        channel: response
+                            .arg
+                            .as_ref()
                             .and_then(|a| a.channel.clone())
                             .unwrap_or_default(),
                         symbol: response.arg.as_ref().and_then(|a| a.inst_id.clone()),
@@ -567,7 +617,9 @@ impl OkxWs {
                 // Ticker
                 if channel == "tickers" {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(ticker_data) = serde_json::from_value::<OkxTickerData>(first.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<OkxTickerData>(first.clone())
+                        {
                             return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                         }
                     }
@@ -576,12 +628,20 @@ impl OkxWs {
                 // OrderBook
                 if channel.starts_with("books") {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(ob_data) = serde_json::from_value::<OkxOrderBookData>(first.clone()) {
-                            let symbol = arg.inst_id.as_ref()
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<OkxOrderBookData>(first.clone())
+                        {
+                            let symbol = arg
+                                .inst_id
+                                .as_ref()
                                 .map(|s| Self::to_unified_symbol(s))
                                 .unwrap_or_default();
                             let is_snapshot = response.action.as_deref() == Some("snapshot");
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol, is_snapshot)));
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data,
+                                &symbol,
+                                is_snapshot,
+                            )));
                         }
                     }
                 }
@@ -589,7 +649,9 @@ impl OkxWs {
                 // Trade
                 if channel == "trades" {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(trade_data) = serde_json::from_value::<OkxTradeData>(first.clone()) {
+                        if let Ok(trade_data) =
+                            serde_json::from_value::<OkxTradeData>(first.clone())
+                        {
                             return Some(WsMessage::Trade(Self::parse_trade(&trade_data)));
                         }
                     }
@@ -598,8 +660,11 @@ impl OkxWs {
                 // Candle
                 if channel.starts_with("candle") {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(candle_arr) = serde_json::from_value::<Vec<String>>(first.clone()) {
-                            let symbol = arg.inst_id.as_ref()
+                        if let Ok(candle_arr) = serde_json::from_value::<Vec<String>>(first.clone())
+                        {
+                            let symbol = arg
+                                .inst_id
+                                .as_ref()
                                 .map(|s| Self::to_unified_symbol(s))
                                 .unwrap_or_default();
                             // Extract timeframe from channel (e.g., "candle1m")
@@ -619,7 +684,8 @@ impl OkxWs {
                                 "1M" => Timeframe::Month1,
                                 _ => Timeframe::Minute1,
                             };
-                            if let Some(event) = Self::parse_candle(&candle_arr, &symbol, timeframe) {
+                            if let Some(event) = Self::parse_candle(&candle_arr, &symbol, timeframe)
+                            {
                                 return Some(WsMessage::Ohlcv(event));
                             }
                         }
@@ -631,7 +697,9 @@ impl OkxWs {
                 // Orders
                 if channel == "orders" {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(order_data) = serde_json::from_value::<OkxOrderData>(first.clone()) {
+                        if let Ok(order_data) =
+                            serde_json::from_value::<OkxOrderData>(first.clone())
+                        {
                             return Some(WsMessage::Order(Self::parse_order(&order_data)));
                         }
                     }
@@ -640,7 +708,8 @@ impl OkxWs {
                 // Fills (My Trades)
                 if channel == "fills" {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(fill_data) = serde_json::from_value::<OkxFillData>(first.clone()) {
+                        if let Ok(fill_data) = serde_json::from_value::<OkxFillData>(first.clone())
+                        {
                             return Some(WsMessage::MyTrade(Self::parse_fill(&fill_data)));
                         }
                     }
@@ -649,7 +718,9 @@ impl OkxWs {
                 // Positions
                 if channel == "positions" {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(pos_data) = serde_json::from_value::<OkxPositionData>(first.clone()) {
+                        if let Ok(pos_data) =
+                            serde_json::from_value::<OkxPositionData>(first.clone())
+                        {
                             return Some(WsMessage::Position(Self::parse_position(&pos_data)));
                         }
                     }
@@ -658,7 +729,9 @@ impl OkxWs {
                 // Account (Balance)
                 if channel == "account" {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(account_data) = serde_json::from_value::<OkxAccountData>(first.clone()) {
+                        if let Ok(account_data) =
+                            serde_json::from_value::<OkxAccountData>(first.clone())
+                        {
                             return Some(WsMessage::Balance(Self::parse_account(&account_data)));
                         }
                     }
@@ -670,7 +743,12 @@ impl OkxWs {
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
-    async fn subscribe_stream(&mut self, args: Vec<serde_json::Value>, channel: &str, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        args: Vec<serde_json::Value>,
+        channel: &str,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -681,6 +759,7 @@ impl OkxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -697,7 +776,10 @@ impl OkxWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -707,19 +789,19 @@ impl OkxWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -734,11 +816,12 @@ impl OkxWs {
         channel: &str,
         symbol: Option<&str>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.clone().ok_or_else(|| {
-            crate::errors::CcxtError::AuthenticationError {
-                message: "API key required for private channels".into(),
-            }
-        })?;
+        let api_key =
+            self.api_key
+                .clone()
+                .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
+                    message: "API key required for private channels".into(),
+                })?;
         let api_secret = self.api_secret.clone().ok_or_else(|| {
             crate::errors::CcxtError::AuthenticationError {
                 message: "API secret required for private channels".into(),
@@ -760,6 +843,7 @@ impl OkxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -791,7 +875,10 @@ impl OkxWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -802,19 +889,19 @@ impl OkxWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -840,19 +927,28 @@ impl WsExchange for OkxWs {
         client.subscribe_stream(args, "ticker", Some(symbol)).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let args: Vec<serde_json::Value> = symbols
             .iter()
-            .map(|s| serde_json::json!({
-                "channel": "tickers",
-                "instId": Self::format_symbol(s)
-            }))
+            .map(|s| {
+                serde_json::json!({
+                    "channel": "tickers",
+                    "instId": Self::format_symbol(s)
+                })
+            })
             .collect();
         client.subscribe_stream(args, "tickers", None).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let channel = match limit.unwrap_or(400) {
             1 => "bbo-tbt",
@@ -863,7 +959,9 @@ impl WsExchange for OkxWs {
             "channel": channel,
             "instId": Self::format_symbol(symbol)
         })];
-        client.subscribe_stream(args, "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream(args, "orderBook", Some(symbol))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -875,7 +973,11 @@ impl WsExchange for OkxWs {
         client.subscribe_stream(args, "trades", Some(symbol)).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let interval = Self::format_interval(timeframe);
         let args = vec![serde_json::json!({
@@ -907,7 +1009,10 @@ impl WsExchange for OkxWs {
 
     // === Private Channels ===
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = OkxWs {
             ws_client: None,
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
@@ -928,10 +1033,15 @@ impl WsExchange for OkxWs {
                 "instType": "ANY"
             })],
         };
-        client.subscribe_private_stream(args, "orders", symbol).await
+        client
+            .subscribe_private_stream(args, "orders", symbol)
+            .await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = OkxWs {
             ws_client: None,
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
@@ -955,7 +1065,10 @@ impl WsExchange for OkxWs {
         client.subscribe_private_stream(args, "fills", symbol).await
     }
 
-    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = OkxWs {
             ws_client: None,
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
@@ -966,19 +1079,24 @@ impl WsExchange for OkxWs {
         };
 
         let args = match symbols {
-            Some(syms) if !syms.is_empty() => {
-                syms.iter().map(|s| serde_json::json!({
-                    "channel": "positions",
-                    "instType": "ANY",
-                    "instId": Self::format_symbol(s)
-                })).collect()
-            }
+            Some(syms) if !syms.is_empty() => syms
+                .iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "channel": "positions",
+                        "instType": "ANY",
+                        "instId": Self::format_symbol(s)
+                    })
+                })
+                .collect(),
             _ => vec![serde_json::json!({
                 "channel": "positions",
                 "instType": "ANY"
             })],
         };
-        client.subscribe_private_stream(args, "positions", None).await
+        client
+            .subscribe_private_stream(args, "positions", None)
+            .await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -998,11 +1116,12 @@ impl WsExchange for OkxWs {
     }
 
     async fn ws_authenticate(&mut self) -> CcxtResult<()> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| {
-            crate::errors::CcxtError::AuthenticationError {
-                message: "API key required for authentication".into(),
-            }
-        })?;
+        let api_key =
+            self.api_key
+                .as_ref()
+                .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
+                    message: "API key required for authentication".into(),
+                })?;
         let api_secret = self.api_secret.as_ref().ok_or_else(|| {
             crate::errors::CcxtError::AuthenticationError {
                 message: "API secret required for authentication".into(),
@@ -1272,7 +1391,9 @@ mod tests {
         let sign = OkxWs::generate_auth_signature(secret, timestamp);
         assert!(!sign.is_empty());
         // Base64 encoded signature
-        assert!(sign.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='));
+        assert!(sign
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='));
     }
 
     #[test]

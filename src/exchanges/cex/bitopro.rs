@@ -18,9 +18,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -272,12 +272,18 @@ impl Bitopro {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis();
 
@@ -285,10 +291,13 @@ impl Bitopro {
         let (payload_json, post_body) = if method == "GET" || method == "DELETE" {
             // For GET/DELETE, use identity-based payload
             let email = self.config.uid().unwrap_or("user@bitopro.com");
-            (serde_json::json!({
-                "identity": email,
-                "nonce": nonce
-            }), None)
+            (
+                serde_json::json!({
+                    "identity": email,
+                    "nonce": nonce
+                }),
+                None,
+            )
         } else {
             // For POST/PUT, use body with nonce
             let mut payload = body.clone().unwrap_or(serde_json::json!({}));
@@ -298,13 +307,18 @@ impl Bitopro {
             (payload.clone(), Some(payload))
         };
 
-        let payload_str = serde_json::to_string(&payload_json)
-            .map_err(|e| CcxtError::ExchangeError { message: e.to_string() })?;
+        let payload_str =
+            serde_json::to_string(&payload_json).map_err(|e| CcxtError::ExchangeError {
+                message: e.to_string(),
+            })?;
         let payload_base64 = BASE64.encode(payload_str.as_bytes());
 
         // Generate signature
-        let mut mac = HmacSha384::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha384::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(payload_base64.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -318,7 +332,9 @@ impl Bitopro {
             "GET" => self.client.get(path, None, Some(headers)).await,
             "POST" => self.client.post(path, post_body, Some(headers)).await,
             "DELETE" => self.client.delete(path, None, Some(headers)).await,
-            _ => Err(CcxtError::ExchangeError { message: format!("Unsupported method: {method}") }),
+            _ => Err(CcxtError::ExchangeError {
+                message: format!("Unsupported method: {method}"),
+            }),
         }
     }
 
@@ -352,10 +368,10 @@ impl Bitopro {
         match status {
             -1 => OrderStatus::Canceled,
             0 => OrderStatus::Open,
-            1 => OrderStatus::Open,        // Partially filled
-            2 => OrderStatus::Closed,      // Fully filled
-            3 => OrderStatus::Canceled,    // Partially filled then canceled
-            _ => OrderStatus::Open,        // Default to Open for unknown status
+            1 => OrderStatus::Open,     // Partially filled
+            2 => OrderStatus::Closed,   // Fully filled
+            3 => OrderStatus::Canceled, // Partially filled then canceled
+            _ => OrderStatus::Open,     // Default to Open for unknown status
         }
     }
 
@@ -409,7 +425,8 @@ impl Exchange for Bitopro {
             }
         }
 
-        let response: BitoproTradingPairsResponse = self.public_get("/provisioning/trading-pairs", None).await?;
+        let response: BitoproTradingPairsResponse =
+            self.public_get("/provisioning/trading-pairs", None).await?;
         let mut markets = HashMap::new();
         let mut markets_by_id = HashMap::new();
 
@@ -461,10 +478,22 @@ impl Exchange for Bitopro {
                     quote: Some(pair.quote_precision),
                 },
                 limits: MarketLimits {
-                    amount: crate::types::MinMax { min: min_amount, max: max_amount },
-                    price: crate::types::MinMax { min: None, max: None },
-                    cost: crate::types::MinMax { min: None, max: None },
-                    leverage: crate::types::MinMax { min: None, max: None },
+                    amount: crate::types::MinMax {
+                        min: min_amount,
+                        max: max_amount,
+                    },
+                    price: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    cost: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    leverage: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
                 },
                 info: serde_json::to_value(&pair).unwrap_or_default(),
                 index: false,
@@ -513,7 +542,8 @@ impl Exchange for Bitopro {
         let url = format!("{}{}", Self::BASE_URL, path);
 
         let final_url = if !params.is_empty() && method == "GET" {
-            let query: String = params.iter()
+            let query: String = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -648,7 +678,8 @@ impl Exchange for Bitopro {
         let path = format!("/order-book/{market_id}");
         let response: BitoproOrderBookResponse = self.public_get(&path, Some(params)).await?;
 
-        let bids: Vec<OrderBookEntry> = response.bids
+        let bids: Vec<OrderBookEntry> = response
+            .bids
             .iter()
             .map(|b| OrderBookEntry {
                 price: Decimal::from_str(&b.price).unwrap_or(Decimal::ZERO),
@@ -656,7 +687,8 @@ impl Exchange for Bitopro {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = response.asks
+        let asks: Vec<OrderBookEntry> = response
+            .asks
             .iter()
             .map(|a| OrderBookEntry {
                 price: Decimal::from_str(&a.price).unwrap_or(Decimal::ZERO),
@@ -671,15 +703,22 @@ impl Exchange for Bitopro {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.get_market_id(symbol)?;
         let path = format!("/trades/{market_id}");
         let response: BitoproTradesResponse = self.public_get(&path, None).await?;
 
-        let mut trades: Vec<Trade> = response.data
+        let mut trades: Vec<Trade> = response
+            .data
             .iter()
             .enumerate()
             .map(|(i, t)| {
@@ -690,13 +729,19 @@ impl Exchange for Bitopro {
                     id: format!("{}_{}", t.timestamp, i),
                     info: serde_json::json!({}),
                     timestamp: Some(t.timestamp),
-                    datetime: Some(chrono::DateTime::from_timestamp_millis(t.timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(t.timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
                     symbol: symbol.to_string(),
                     order: None,
                     trade_type: None,
-                    side: Some(if t.is_buyer { "buy".to_string() } else { "sell".to_string() }),
+                    side: Some(if t.is_buyer {
+                        "buy".to_string()
+                    } else {
+                        "sell".to_string()
+                    }),
                     taker_or_maker: None,
                     price,
                     amount,
@@ -722,8 +767,12 @@ impl Exchange for Bitopro {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.get_market_id(symbol)?;
-        let tf = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::BadRequest { message: "Unsupported timeframe".into() })?;
+        let tf = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: "Unsupported timeframe".into(),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("resolution".to_string(), tf.clone());
@@ -731,23 +780,32 @@ impl Exchange for Bitopro {
             params.insert("from".to_string(), (s / 1000).to_string());
         }
         if let Some(l) = limit {
-            params.insert("to".to_string(), (Utc::now().timestamp() + (l as i64 * 86400)).to_string());
+            params.insert(
+                "to".to_string(),
+                (Utc::now().timestamp() + (l as i64 * 86400)).to_string(),
+            );
         }
 
         let path = format!("/trading-history/{market_id}");
         let response: BitoproOHLCVResponse = self.public_get(&path, Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.data
+        let ohlcv: Vec<OHLCV> = response
+            .data
             .iter()
             .filter_map(|candle| {
                 if candle.len() >= 6 {
                     Some(OHLCV {
                         timestamp: candle[0].as_i64().unwrap_or(0) * 1000,
-                        open: Decimal::from_str(candle[1].as_str().unwrap_or("0")).unwrap_or(Decimal::ZERO),
-                        high: Decimal::from_str(candle[2].as_str().unwrap_or("0")).unwrap_or(Decimal::ZERO),
-                        low: Decimal::from_str(candle[3].as_str().unwrap_or("0")).unwrap_or(Decimal::ZERO),
-                        close: Decimal::from_str(candle[4].as_str().unwrap_or("0")).unwrap_or(Decimal::ZERO),
-                        volume: Decimal::from_str(candle[5].as_str().unwrap_or("0")).unwrap_or(Decimal::ZERO),
+                        open: Decimal::from_str(candle[1].as_str().unwrap_or("0"))
+                            .unwrap_or(Decimal::ZERO),
+                        high: Decimal::from_str(candle[2].as_str().unwrap_or("0"))
+                            .unwrap_or(Decimal::ZERO),
+                        low: Decimal::from_str(candle[3].as_str().unwrap_or("0"))
+                            .unwrap_or(Decimal::ZERO),
+                        close: Decimal::from_str(candle[4].as_str().unwrap_or("0"))
+                            .unwrap_or(Decimal::ZERO),
+                        volume: Decimal::from_str(candle[5].as_str().unwrap_or("0"))
+                            .unwrap_or(Decimal::ZERO),
                     })
                 } else {
                     None
@@ -759,7 +817,9 @@ impl Exchange for Bitopro {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: BitoproBalanceResponse = self.private_request("GET", "/accounts/balance", None).await?;
+        let response: BitoproBalanceResponse = self
+            .private_request("GET", "/accounts/balance", None)
+            .await?;
 
         let mut currencies = HashMap::new();
 
@@ -769,12 +829,15 @@ impl Exchange for Bitopro {
             let available = Decimal::from_str(&b.available).unwrap_or(Decimal::ZERO);
             let used = total - available;
 
-            currencies.insert(currency, Balance {
-                free: Some(available),
-                used: Some(used),
-                total: Some(total),
-                debt: None,
-            });
+            currencies.insert(
+                currency,
+                Balance {
+                    free: Some(available),
+                    used: Some(used),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         Ok(Balances {
@@ -804,7 +867,11 @@ impl Exchange for Bitopro {
         let type_str = match order_type {
             OrderType::Limit => "LIMIT",
             OrderType::Market => "MARKET",
-            _ => return Err(CcxtError::BadRequest { message: "Unsupported order type".into() }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: "Unsupported order type".into(),
+                })
+            },
         };
 
         let mut body = serde_json::json!({
@@ -817,14 +884,17 @@ impl Exchange for Bitopro {
             body["price"] = serde_json::json!(p.to_string());
         }
 
-        let response: BitoproCreateOrderResponse = self.private_request("POST", &path, Some(body)).await?;
+        let response: BitoproCreateOrderResponse =
+            self.private_request("POST", &path, Some(body)).await?;
 
         Ok(Order {
             id: response.order_id,
             client_order_id: None,
-            datetime: Some(chrono::DateTime::from_timestamp_millis(response.timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(response.timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             timestamp: Some(response.timestamp),
             last_trade_timestamp: None,
             last_update_timestamp: None,
@@ -899,15 +969,20 @@ impl Exchange for Bitopro {
         let amount = Decimal::from_str(&response.original_amount).unwrap_or(Decimal::ZERO);
         let remaining = Decimal::from_str(&response.remaining_amount).unwrap_or(Decimal::ZERO);
         let filled = amount - remaining;
-        let average = response.avg_execution_price.as_ref().and_then(|p| Decimal::from_str(p).ok());
+        let average = response
+            .avg_execution_price
+            .as_ref()
+            .and_then(|p| Decimal::from_str(p).ok());
         let cost = average.map(|a| a * filled);
 
         Ok(Order {
             id: response.order_id,
             client_order_id: None,
-            datetime: Some(chrono::DateTime::from_timestamp_millis(response.timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(response.timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             timestamp: Some(response.timestamp),
             last_trade_timestamp: None,
             last_update_timestamp: None,
@@ -954,22 +1029,28 @@ impl Exchange for Bitopro {
         let path = format!("/orders/all/{market_id}");
         let response: BitoproOrdersResponse = self.private_request("GET", &path, None).await?;
 
-        let orders: Vec<Order> = response.data
+        let orders: Vec<Order> = response
+            .data
             .iter()
             .map(|o| {
                 let price = Decimal::from_str(&o.price).ok();
                 let amount = Decimal::from_str(&o.original_amount).unwrap_or(Decimal::ZERO);
                 let remaining = Decimal::from_str(&o.remaining_amount).unwrap_or(Decimal::ZERO);
                 let filled = amount - remaining;
-                let average = o.avg_execution_price.as_ref().and_then(|p| Decimal::from_str(p).ok());
+                let average = o
+                    .avg_execution_price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok());
                 let cost = average.map(|a| a * filled);
 
                 Order {
                     id: o.order_id.clone(),
                     client_order_id: None,
-                    datetime: Some(chrono::DateTime::from_timestamp_millis(o.timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(o.timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
                     timestamp: Some(o.timestamp),
                     last_trade_timestamp: None,
                     last_update_timestamp: None,
@@ -1015,7 +1096,8 @@ impl Exchange for Bitopro {
 
         let response: BitoproOrdersResponse = self.private_request("GET", &path, None).await?;
 
-        let orders: Vec<Order> = response.data
+        let orders: Vec<Order> = response
+            .data
             .iter()
             .filter(|o| o.status == 0 || o.status == 1) // Open or partially filled
             .map(|o| {
@@ -1027,9 +1109,11 @@ impl Exchange for Bitopro {
                 Order {
                     id: o.order_id.clone(),
                     client_order_id: None,
-                    datetime: Some(chrono::DateTime::from_timestamp_millis(o.timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(o.timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
                     timestamp: Some(o.timestamp),
                     last_trade_timestamp: None,
                     last_update_timestamp: None,
@@ -1125,7 +1209,10 @@ mod tests {
         assert_eq!(Bitopro::parse_order_type("limit"), OrderType::Limit);
         assert_eq!(Bitopro::parse_order_type("LIMIT"), OrderType::Limit);
         assert_eq!(Bitopro::parse_order_type("market"), OrderType::Market);
-        assert_eq!(Bitopro::parse_order_type("stop_limit"), OrderType::StopLimit);
+        assert_eq!(
+            Bitopro::parse_order_type("stop_limit"),
+            OrderType::StopLimit
+        );
     }
 
     #[test]

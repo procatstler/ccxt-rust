@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, OHLCV,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent, WsOhlcvEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOhlcvEvent,
+    WsOrderBookEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_BASE_URL: &str = "wss://api.gemini.com/v2/marketdata";
@@ -118,7 +118,9 @@ impl GeminiWs {
     /// 티커 메시지 파싱 (l2 updates에서 추출)
     fn parse_ticker_from_l2(data: &GeminiL2Update) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         // Extract bid/ask from changes
         let mut bid: Option<Decimal> = None;
@@ -172,7 +174,9 @@ impl GeminiWs {
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &GeminiL2Update) -> WsOrderBookEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let mut bids = Vec::new();
         let mut asks = Vec::new();
@@ -205,6 +209,7 @@ impl GeminiWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -218,32 +223,36 @@ impl GeminiWs {
     fn parse_trades(data: &GeminiL2Update) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
 
-        let trades: Vec<Trade> = data.trades.iter().map(|t| {
-            let timestamp = t.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
-            let price: Decimal = t.price.parse().unwrap_or_default();
-            let amount: Decimal = t.quantity.parse().unwrap_or_default();
+        let trades: Vec<Trade> = data
+            .trades
+            .iter()
+            .map(|t| {
+                let timestamp = t.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+                let price: Decimal = t.price.parse().unwrap_or_default();
+                let amount: Decimal = t.quantity.parse().unwrap_or_default();
 
-            Trade {
-                id: t.event_id.to_string(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                symbol: symbol.clone(),
-                trade_type: None,
-                side: Some(t.side.clone()),
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: Vec::new(),
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.event_id.to_string(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.clone(),
+                    trade_type: None,
+                    side: Some(t.side.clone()),
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: Vec::new(),
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         WsTradeEvent { symbol, trades }
     }
@@ -256,7 +265,9 @@ impl GeminiWs {
         if let Some(candle) = data.changes.first() {
             if candle.len() >= 6 {
                 let ohlcv = OHLCV {
-                    timestamp: candle[0].parse().unwrap_or_else(|_| Utc::now().timestamp_millis()),
+                    timestamp: candle[0]
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now().timestamp_millis()),
                     open: candle[1].parse().unwrap_or_default(),
                     high: candle[2].parse().unwrap_or_default(),
                     low: candle[3].parse().unwrap_or_default(),
@@ -303,11 +314,13 @@ impl GeminiWs {
                     // Otherwise return orderbook update
                     return Some(WsMessage::OrderBook(Self::parse_order_book(&data)));
                 }
-            }
+            },
             s if s.starts_with("candles_") && s.ends_with("_updates") => {
                 if let Ok(data) = serde_json::from_str::<GeminiCandleUpdate>(msg) {
                     // Extract timeframe from type (e.g., "candles_1m_updates" -> "1m")
-                    let timeframe_str = s.trim_start_matches("candles_").trim_end_matches("_updates");
+                    let timeframe_str = s
+                        .trim_start_matches("candles_")
+                        .trim_end_matches("_updates");
                     let timeframe = match timeframe_str {
                         "1m" => Timeframe::Minute1,
                         "5m" => Timeframe::Minute5,
@@ -320,18 +333,18 @@ impl GeminiWs {
                     };
                     return Some(WsMessage::Ohlcv(Self::parse_ohlcv(&data, timeframe)));
                 }
-            }
+            },
             "subscription_ack" => {
                 return Some(WsMessage::Subscribed {
                     channel: "gemini".to_string(),
                     symbol: None,
                 });
-            }
+            },
             "heartbeat" => {
                 // Ignore heartbeat messages
                 return None;
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -367,13 +380,14 @@ impl GeminiWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
 
         // Send subscription message
-        let sub_json = serde_json::to_string(&subscribe_msg)
-            .map_err(|e| CcxtError::ParseError {
+        let sub_json =
+            serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                 data_type: "GeminiSubscribeRequest".to_string(),
                 message: e.to_string(),
             })?;
@@ -398,19 +412,19 @@ impl GeminiWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -454,13 +468,20 @@ impl WsExchange for GeminiWs {
         client.subscribe_stream(subscription, &message_hash).await
     }
 
-    async fn watch_tickers(&self, _symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        _symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "watchTickers".to_string(),
         })
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         let gemini_symbol = Self::format_symbol(symbol);
 
@@ -486,7 +507,11 @@ impl WsExchange for GeminiWs {
         client.subscribe_stream(subscription, &message_hash).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         let gemini_symbol = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -506,13 +531,19 @@ impl WsExchange for GeminiWs {
         })
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "watchOrders".to_string(),
         })
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "watchMyTrades".to_string(),
         })

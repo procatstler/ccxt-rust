@@ -17,9 +17,9 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, DepositAddress, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade,
-    Transaction, TransactionStatus, TransactionType, OHLCV,
+    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Transaction,
+    TransactionStatus, TransactionType, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -129,12 +129,18 @@ impl Independentreserve {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis();
         let url = format!("{}{}", Self::PRIVATE_URL, path);
@@ -164,14 +170,17 @@ impl Independentreserve {
         let message = auth_parts.join(",");
 
         // Create HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(message.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes()).to_uppercase();
 
         // Build request body
         let mut body = params.clone();
-        body.insert("apiKey".into(), serde_json::Value::String(api_key.to_string()));
+        body.insert(
+            "apiKey".into(),
+            serde_json::Value::String(api_key.to_string()),
+        );
         body.insert("nonce".into(), serde_json::Value::Number(nonce.into()));
         body.insert("signature".into(), serde_json::Value::String(signature));
 
@@ -179,13 +188,18 @@ impl Independentreserve {
         headers.insert("Content-Type".into(), "application/json".into());
 
         self.private_client
-            .post(&format!("/{path}"), Some(serde_json::to_value(&body)?), Some(headers))
+            .post(
+                &format!("/{path}"),
+                Some(serde_json::to_value(&body)?),
+                Some(headers),
+            )
             .await
     }
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &IndependentreserveTicker, symbol: &str) -> Ticker {
-        let timestamp = data.created_timestamp_utc
+        let timestamp = data
+            .created_timestamp_utc
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
@@ -249,14 +263,17 @@ impl Independentreserve {
             (OrderType::Limit, OrderSide::Buy)
         };
 
-        let timestamp = data.created_timestamp_utc
+        let timestamp = data
+            .created_timestamp_utc
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
 
         let symbol = if let Some(s) = symbol {
             s.to_string()
-        } else if let (Some(base), Some(quote)) = (&data.primary_currency_code, &data.secondary_currency_code) {
+        } else if let (Some(base), Some(quote)) =
+            (&data.primary_currency_code, &data.secondary_currency_code)
+        {
             format!("{base}/{quote}")
         } else {
             String::new()
@@ -303,14 +320,17 @@ impl Independentreserve {
 
     /// 거래 내역 파싱
     fn parse_trade(&self, data: &IndependentreserveTrade, symbol: Option<&str>) -> Trade {
-        let timestamp = data.trade_timestamp_utc
+        let timestamp = data
+            .trade_timestamp_utc
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
 
         let symbol = if let Some(s) = symbol {
             s.to_string()
-        } else if let (Some(base), Some(quote)) = (&data.primary_currency_code, &data.secondary_currency_code) {
+        } else if let (Some(base), Some(quote)) =
+            (&data.primary_currency_code, &data.secondary_currency_code)
+        {
             format!("{base}/{quote}")
         } else {
             String::new()
@@ -327,8 +347,14 @@ impl Independentreserve {
             }
         });
 
-        let price = data.price.or(data.secondary_currency_trade_price).unwrap_or_default();
-        let amount = data.volume_traded.or(data.primary_currency_amount).unwrap_or_default();
+        let price = data
+            .price
+            .or(data.secondary_currency_trade_price)
+            .unwrap_or_default();
+        let amount = data
+            .volume_traded
+            .or(data.primary_currency_amount)
+            .unwrap_or_default();
 
         Trade {
             id: data.trade_guid.clone().unwrap_or_default(),
@@ -446,9 +472,8 @@ impl Exchange for Independentreserve {
             .public_get("GetValidSecondaryCurrencyCodes", None)
             .await?;
 
-        let limits: HashMap<String, Decimal> = self
-            .public_get("GetOrderMinimumVolumes", None)
-            .await?;
+        let limits: HashMap<String, Decimal> =
+            self.public_get("GetOrderMinimumVolumes", None).await?;
 
         let mut markets = Vec::new();
 
@@ -521,7 +546,10 @@ impl Exchange for Independentreserve {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         self.load_markets(false).await?;
 
-        let market = self.markets.read().unwrap()
+        let market = self
+            .markets
+            .read()
+            .unwrap()
             .get(symbol)
             .ok_or_else(|| CcxtError::BadSymbol {
                 symbol: symbol.to_string(),
@@ -532,9 +560,8 @@ impl Exchange for Independentreserve {
         params.insert("primaryCurrencyCode".into(), market.base_id.clone());
         params.insert("secondaryCurrencyCode".into(), market.quote_id.clone());
 
-        let response: IndependentreserveTicker = self
-            .public_get("GetMarketSummary", Some(params))
-            .await?;
+        let response: IndependentreserveTicker =
+            self.public_get("GetMarketSummary", Some(params)).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
@@ -542,7 +569,10 @@ impl Exchange for Independentreserve {
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
         self.load_markets(false).await?;
 
-        let market = self.markets.read().unwrap()
+        let market = self
+            .markets
+            .read()
+            .unwrap()
             .get(symbol)
             .ok_or_else(|| CcxtError::BadSymbol {
                 symbol: symbol.to_string(),
@@ -553,11 +583,11 @@ impl Exchange for Independentreserve {
         params.insert("primaryCurrencyCode".into(), market.base_id.clone());
         params.insert("secondaryCurrencyCode".into(), market.quote_id.clone());
 
-        let response: IndependentreserveOrderBook = self
-            .public_get("GetOrderBook", Some(params))
-            .await?;
+        let response: IndependentreserveOrderBook =
+            self.public_get("GetOrderBook", Some(params)).await?;
 
-        let timestamp = response.created_timestamp_utc
+        let timestamp = response
+            .created_timestamp_utc
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
@@ -592,6 +622,7 @@ impl Exchange for Independentreserve {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -603,7 +634,10 @@ impl Exchange for Independentreserve {
     ) -> CcxtResult<Vec<Trade>> {
         self.load_markets(false).await?;
 
-        let market = self.markets.read().unwrap()
+        let market = self
+            .markets
+            .read()
+            .unwrap()
             .get(symbol)
             .ok_or_else(|| CcxtError::BadSymbol {
                 symbol: symbol.to_string(),
@@ -613,11 +647,13 @@ impl Exchange for Independentreserve {
         let mut params = HashMap::new();
         params.insert("primaryCurrencyCode".into(), market.base_id.clone());
         params.insert("secondaryCurrencyCode".into(), market.quote_id.clone());
-        params.insert("numberOfRecentTradesToRetrieve".into(), limit.unwrap_or(50).min(50).to_string());
+        params.insert(
+            "numberOfRecentTradesToRetrieve".into(),
+            limit.unwrap_or(50).min(50).to_string(),
+        );
 
-        let response: IndependentreserveTradesResponse = self
-            .public_get("GetRecentTrades", Some(params))
-            .await?;
+        let response: IndependentreserveTradesResponse =
+            self.public_get("GetRecentTrades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .trades
@@ -631,9 +667,8 @@ impl Exchange for Independentreserve {
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let params = HashMap::new();
 
-        let response: Vec<IndependentreserveBalance> = self
-            .private_post("GetAccounts", params)
-            .await?;
+        let response: Vec<IndependentreserveBalance> =
+            self.private_post("GetAccounts", params).await?;
 
         Ok(self.parse_balance(&response))
     }
@@ -648,7 +683,10 @@ impl Exchange for Independentreserve {
     ) -> CcxtResult<Order> {
         self.load_markets(false).await?;
 
-        let market = self.markets.read().unwrap()
+        let market = self
+            .markets
+            .read()
+            .unwrap()
             .get(symbol)
             .ok_or_else(|| CcxtError::BadSymbol {
                 symbol: symbol.to_string(),
@@ -660,9 +698,10 @@ impl Exchange for Independentreserve {
             match order_type {
                 OrderType::Market => "Market",
                 OrderType::Limit => "Limit",
-                _ => return Err(CcxtError::NotSupported {
-                    feature: format!("Order type: {order_type:?}"),
-                }),
+                _ =>
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    }),
             },
             match side {
                 OrderSide::Buy => "Bid",
@@ -679,14 +718,23 @@ impl Exchange for Independentreserve {
             "secondaryCurrencyCode".into(),
             serde_json::Value::String(market.quote_id.clone()),
         );
-        params.insert("orderType".into(), serde_json::Value::String(order_type_str));
-        params.insert("volume".into(), serde_json::Value::String(amount.to_string()));
+        params.insert(
+            "orderType".into(),
+            serde_json::Value::String(order_type_str),
+        );
+        params.insert(
+            "volume".into(),
+            serde_json::Value::String(amount.to_string()),
+        );
 
         let response: IndependentreserveOrder = if order_type == OrderType::Limit {
             let price_val = price.ok_or_else(|| CcxtError::ArgumentsRequired {
                 message: "Limit order requires price".into(),
             })?;
-            params.insert("price".into(), serde_json::Value::String(price_val.to_string()));
+            params.insert(
+                "price".into(),
+                serde_json::Value::String(price_val.to_string()),
+            );
             self.private_post("PlaceLimitOrder", params).await?
         } else {
             self.private_post("PlaceMarketOrder", params).await?
@@ -697,22 +745,25 @@ impl Exchange for Independentreserve {
 
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let mut params = HashMap::new();
-        params.insert("orderGuid".into(), serde_json::Value::String(id.to_string()));
+        params.insert(
+            "orderGuid".into(),
+            serde_json::Value::String(id.to_string()),
+        );
 
-        let response: IndependentreserveOrder = self
-            .private_post("CancelOrder", params)
-            .await?;
+        let response: IndependentreserveOrder = self.private_post("CancelOrder", params).await?;
 
         Ok(self.parse_order(&response, Some(symbol)))
     }
 
     async fn fetch_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let mut params = HashMap::new();
-        params.insert("orderGuid".into(), serde_json::Value::String(id.to_string()));
+        params.insert(
+            "orderGuid".into(),
+            serde_json::Value::String(id.to_string()),
+        );
 
-        let response: IndependentreserveOrder = self
-            .private_post("GetOrderDetails", params)
-            .await?;
+        let response: IndependentreserveOrder =
+            self.private_post("GetOrderDetails", params).await?;
 
         Ok(self.parse_order(&response, Some(symbol)))
     }
@@ -725,11 +776,17 @@ impl Exchange for Independentreserve {
     ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("pageIndex".into(), serde_json::Value::Number(1.into()));
-        params.insert("pageSize".into(), serde_json::Value::Number(limit.unwrap_or(50).into()));
+        params.insert(
+            "pageSize".into(),
+            serde_json::Value::Number(limit.unwrap_or(50).into()),
+        );
 
         if let Some(s) = symbol {
             self.load_markets(false).await?;
-            let market = self.markets.read().unwrap()
+            let market = self
+                .markets
+                .read()
+                .unwrap()
                 .get(s)
                 .ok_or_else(|| CcxtError::BadSymbol {
                     symbol: s.to_string(),
@@ -746,9 +803,8 @@ impl Exchange for Independentreserve {
             );
         }
 
-        let response: IndependentreserveOrdersResponse = self
-            .private_post("GetOpenOrders", params)
-            .await?;
+        let response: IndependentreserveOrdersResponse =
+            self.private_post("GetOpenOrders", params).await?;
 
         let orders: Vec<Order> = response
             .data
@@ -767,11 +823,17 @@ impl Exchange for Independentreserve {
     ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("pageIndex".into(), serde_json::Value::Number(1.into()));
-        params.insert("pageSize".into(), serde_json::Value::Number(limit.unwrap_or(50).into()));
+        params.insert(
+            "pageSize".into(),
+            serde_json::Value::Number(limit.unwrap_or(50).into()),
+        );
 
         if let Some(s) = symbol {
             self.load_markets(false).await?;
-            let market = self.markets.read().unwrap()
+            let market = self
+                .markets
+                .read()
+                .unwrap()
                 .get(s)
                 .ok_or_else(|| CcxtError::BadSymbol {
                     symbol: s.to_string(),
@@ -788,9 +850,8 @@ impl Exchange for Independentreserve {
             );
         }
 
-        let response: IndependentreserveOrdersResponse = self
-            .private_post("GetClosedOrders", params)
-            .await?;
+        let response: IndependentreserveOrdersResponse =
+            self.private_post("GetClosedOrders", params).await?;
 
         let orders: Vec<Order> = response
             .data
@@ -809,11 +870,13 @@ impl Exchange for Independentreserve {
     ) -> CcxtResult<Vec<Trade>> {
         let mut params = HashMap::new();
         params.insert("pageIndex".into(), serde_json::Value::Number(1.into()));
-        params.insert("pageSize".into(), serde_json::Value::Number(limit.unwrap_or(50).into()));
+        params.insert(
+            "pageSize".into(),
+            serde_json::Value::Number(limit.unwrap_or(50).into()),
+        );
 
-        let response: IndependentreserveMyTradesResponse = self
-            .private_post("GetTrades", params)
-            .await?;
+        let response: IndependentreserveMyTradesResponse =
+            self.private_post("GetTrades", params).await?;
 
         let trades: Vec<Trade> = response
             .data
@@ -830,7 +893,10 @@ impl Exchange for Independentreserve {
         _network: Option<&str>,
     ) -> CcxtResult<DepositAddress> {
         let mut params = HashMap::new();
-        params.insert("primaryCurrencyCode".into(), serde_json::Value::String(code.to_string()));
+        params.insert(
+            "primaryCurrencyCode".into(),
+            serde_json::Value::String(code.to_string()),
+        );
 
         let response: IndependentreserveDepositAddress = self
             .private_post("GetDigitalCurrencyDepositAddress", params)
@@ -854,19 +920,31 @@ impl Exchange for Independentreserve {
         _network: Option<&str>,
     ) -> CcxtResult<Transaction> {
         let mut params = HashMap::new();
-        params.insert("primaryCurrencyCode".into(), serde_json::Value::String(code.to_string()));
-        params.insert("withdrawalAddress".into(), serde_json::Value::String(address.to_string()));
-        params.insert("amount".into(), serde_json::Value::String(amount.to_string()));
+        params.insert(
+            "primaryCurrencyCode".into(),
+            serde_json::Value::String(code.to_string()),
+        );
+        params.insert(
+            "withdrawalAddress".into(),
+            serde_json::Value::String(address.to_string()),
+        );
+        params.insert(
+            "amount".into(),
+            serde_json::Value::String(amount.to_string()),
+        );
 
         if let Some(t) = tag {
-            params.insert("destinationTag".into(), serde_json::Value::String(t.to_string()));
+            params.insert(
+                "destinationTag".into(),
+                serde_json::Value::String(t.to_string()),
+            );
         }
 
-        let response: IndependentreserveWithdrawal = self
-            .private_post("WithdrawDigitalCurrency", params)
-            .await?;
+        let response: IndependentreserveWithdrawal =
+            self.private_post("WithdrawDigitalCurrency", params).await?;
 
-        let timestamp = response.created_timestamp_utc
+        let timestamp = response
+            .created_timestamp_utc
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
@@ -877,18 +955,27 @@ impl Exchange for Independentreserve {
             datetime: response.created_timestamp_utc.clone(),
             updated: None,
             tx_type: TransactionType::Withdrawal,
-            currency: response.primary_currency_code.clone().unwrap_or_else(|| code.to_string()),
+            currency: response
+                .primary_currency_code
+                .clone()
+                .unwrap_or_else(|| code.to_string()),
             network: None,
-            amount: response.amount.clone().and_then(|a| a.total).unwrap_or_default(),
+            amount: response
+                .amount
+                .clone()
+                .and_then(|a| a.total)
+                .unwrap_or_default(),
             status: TransactionStatus::Pending,
             address: response.destination.clone().and_then(|d| d.address),
             tag: response.destination.clone().and_then(|d| d.tag),
             txid: None,
-            fee: response.amount.clone().and_then(|a| a.fee.map(|f| crate::types::Fee {
-                cost: Some(f),
-                currency: Some(code.to_string()),
-                rate: None,
-            })),
+            fee: response.amount.clone().and_then(|a| {
+                a.fee.map(|f| crate::types::Fee {
+                    cost: Some(f),
+                    currency: Some(code.to_string()),
+                    rate: None,
+                })
+            }),
             internal: None,
             confirmations: None,
             info: serde_json::to_value(&response).unwrap_or_default(),

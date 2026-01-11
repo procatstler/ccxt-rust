@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,10 +14,10 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Currency, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
+    Balance, Balances, Currency, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade,
-    Transaction, TransactionStatus, TransactionType, Fee, OHLCV,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, Transaction,
+    TransactionStatus, TransactionType, OHLCV,
 };
 
 /// Timex 거래소
@@ -147,12 +147,18 @@ impl Timex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // Timex uses Basic Auth
         let auth_string = format!("{api_key}:{secret}");
@@ -181,7 +187,7 @@ impl Timex {
                 } else {
                     self.private_client.delete(&url, None, Some(headers)).await
                 }
-            }
+            },
             "POST" => {
                 // For POST, send params as JSON body
                 let body = if params.is_empty() {
@@ -194,11 +200,11 @@ impl Timex {
                     Some(json_params)
                 };
                 self.private_client.post(path, body, Some(headers)).await
-            }
+            },
             "PUT" => {
                 // For PUT, pass params HashMap directly (not as query string)
                 self.private_client.put(path, params, Some(headers)).await
-            }
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -207,7 +213,8 @@ impl Timex {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &TimexTicker, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp
+        let timestamp = data
+            .timestamp
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
@@ -254,7 +261,7 @@ impl Timex {
                 } else {
                     OrderStatus::Open
                 }
-            }
+            },
             Some("NEW") => OrderStatus::Open,
             Some("PARTIALLY_FILLED") => OrderStatus::Open,
             Some("FILLED") => OrderStatus::Closed,
@@ -278,7 +285,8 @@ impl Timex {
             _ => OrderSide::Buy,
         };
 
-        let timestamp = data.created_at
+        let timestamp = data
+            .created_at
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
@@ -292,11 +300,13 @@ impl Timex {
             client_order_id: data.client_order_id.clone(),
             timestamp,
             datetime: data.created_at.clone(),
-            last_trade_timestamp: data.updated_at
+            last_trade_timestamp: data
+                .updated_at
                 .as_ref()
                 .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                 .map(|dt| dt.timestamp_millis()),
-            last_update_timestamp: data.updated_at
+            last_update_timestamp: data
+                .updated_at
                 .as_ref()
                 .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                 .map(|dt| dt.timestamp_millis()),
@@ -350,7 +360,8 @@ impl Timex {
 
     /// 거래 내역 파싱
     fn parse_trade(&self, data: &TimexTrade, symbol: &str) -> Trade {
-        let timestamp = data.timestamp
+        let timestamp = data
+            .timestamp
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
@@ -409,15 +420,18 @@ impl Timex {
             Timeframe::Hour12 => 43200,
             Timeframe::Day1 => 86400,
             Timeframe::Week1 => 604800,
-            _ => return Err(CcxtError::BadRequest {
-                message: format!("Unsupported timeframe: {timeframe:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: format!("Unsupported timeframe: {timeframe:?}"),
+                })
+            },
         })
     }
 
     /// 입출금 내역 파싱
     fn parse_transaction(&self, data: &TimexTransaction) -> Transaction {
-        let timestamp = data.timestamp
+        let timestamp = data
+            .timestamp
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
@@ -428,7 +442,7 @@ impl Timex {
             datetime: data.timestamp.clone(),
             updated: None,
             tx_type: TransactionType::Deposit, // Will be set by caller
-            currency: String::new(), // Will be set by caller
+            currency: String::new(),           // Will be set by caller
             network: None,
             amount: data.value.unwrap_or_default(),
             status: TransactionStatus::Ok,
@@ -507,9 +521,7 @@ impl Exchange for Timex {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: Vec<TimexMarket> = self
-            .public_get("/public/markets", None)
-            .await?;
+        let response: Vec<TimexMarket> = self.public_get("/public/markets", None).await?;
 
         let mut markets = Vec::new();
 
@@ -559,7 +571,10 @@ impl Exchange for Timex {
                     quote: None,
                 },
                 limits: MarketLimits {
-                    leverage: MinMax { min: None, max: None },
+                    leverage: MinMax {
+                        min: None,
+                        max: None,
+                    },
                     amount: crate::types::MinMax {
                         min: market_info.base_min_size,
                         max: None,
@@ -589,18 +604,20 @@ impl Exchange for Timex {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?.id.clone()
+            markets
+                .get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
+                .id
+                .clone()
         };
 
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
         params.insert("period".into(), "D1".into());
 
-        let response: Vec<TimexTicker> = self
-            .public_get("/public/tickers", Some(params))
-            .await?;
+        let response: Vec<TimexTicker> = self.public_get("/public/tickers", Some(params)).await?;
 
         let ticker_data = response.first().ok_or_else(|| CcxtError::ExchangeError {
             message: format!("No ticker data for {symbol}"),
@@ -613,9 +630,7 @@ impl Exchange for Timex {
         let mut params = HashMap::new();
         params.insert("period".into(), "D1".into());
 
-        let response: Vec<TimexTicker> = self
-            .public_get("/public/tickers", Some(params))
-            .await?;
+        let response: Vec<TimexTicker> = self.public_get("/public/tickers", Some(params)).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
         let mut tickers = HashMap::new();
@@ -641,9 +656,13 @@ impl Exchange for Timex {
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?.id.clone()
+            markets
+                .get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
+                .id
+                .clone()
         };
 
         let mut params = HashMap::new();
@@ -656,7 +675,8 @@ impl Exchange for Timex {
             .public_get("/public/orderbook/v2", Some(params))
             .await?;
 
-        let timestamp = response.timestamp
+        let timestamp = response
+            .timestamp
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
@@ -686,6 +706,7 @@ impl Exchange for Timex {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -697,9 +718,13 @@ impl Exchange for Timex {
     ) -> CcxtResult<Vec<Trade>> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?.id.clone()
+            markets
+                .get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
+                .id
+                .clone()
         };
 
         let mut params = HashMap::new();
@@ -707,19 +732,18 @@ impl Exchange for Timex {
         params.insert("sort".into(), "timestamp,asc".into());
 
         if let Some(s) = since {
-            let datetime = chrono::DateTime::from_timestamp_millis(s)
-                .ok_or_else(|| CcxtError::BadRequest {
+            let datetime = chrono::DateTime::from_timestamp_millis(s).ok_or_else(|| {
+                CcxtError::BadRequest {
                     message: "Invalid timestamp".into(),
-                })?;
+                }
+            })?;
             params.insert("from".into(), datetime.to_rfc3339());
         }
         if let Some(l) = limit {
             params.insert("size".into(), l.to_string());
         }
 
-        let response: Vec<TimexTrade> = self
-            .public_get("/public/trades", Some(params))
-            .await?;
+        let response: Vec<TimexTrade> = self.public_get("/public/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -741,9 +765,12 @@ impl Exchange for Timex {
             let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
                 symbol: symbol.to_string(),
             })?;
-            let period = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-                message: format!("Unsupported timeframe: {timeframe:?}"),
-            })?;
+            let period = self
+                .timeframes
+                .get(&timeframe)
+                .ok_or_else(|| CcxtError::BadRequest {
+                    message: format!("Unsupported timeframe: {timeframe:?}"),
+                })?;
             (market.id.clone(), period.clone())
         };
 
@@ -752,10 +779,11 @@ impl Exchange for Timex {
         params.insert("period".into(), period);
 
         if let Some(s) = since {
-            let datetime = chrono::DateTime::from_timestamp_millis(s)
-                .ok_or_else(|| CcxtError::BadRequest {
+            let datetime = chrono::DateTime::from_timestamp_millis(s).ok_or_else(|| {
+                CcxtError::BadRequest {
                     message: "Invalid timestamp".into(),
-                })?;
+                }
+            })?;
             params.insert("from".into(), datetime.to_rfc3339());
         }
 
@@ -764,22 +792,23 @@ impl Exchange for Timex {
             let duration = self.parse_timeframe(timeframe)?;
             if let Some(s) = since {
                 let till_ms = s + ((l as i64) * duration * 1000);
-                let till_datetime = chrono::DateTime::from_timestamp_millis(till_ms)
-                    .ok_or_else(|| CcxtError::BadRequest {
-                        message: "Invalid timestamp".into(),
+                let till_datetime =
+                    chrono::DateTime::from_timestamp_millis(till_ms).ok_or_else(|| {
+                        CcxtError::BadRequest {
+                            message: "Invalid timestamp".into(),
+                        }
                     })?;
                 params.insert("till".into(), till_datetime.to_rfc3339());
             }
         }
 
-        let response: Vec<TimexCandle> = self
-            .public_get("/public/candles", Some(params))
-            .await?;
+        let response: Vec<TimexCandle> = self.public_get("/public/candles", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
             .filter_map(|c| {
-                let timestamp = c.timestamp
+                let timestamp = c
+                    .timestamp
                     .as_ref()
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                     .map(|dt| dt.timestamp_millis())?;
@@ -818,25 +847,35 @@ impl Exchange for Timex {
     ) -> CcxtResult<Order> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?.id.clone()
+            markets
+                .get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
+                .id
+                .clone()
         };
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
         params.insert("quantity".into(), amount.to_string());
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
 
         let order_type_str = match order_type {
             OrderType::Limit => "LIMIT",
             OrderType::Market => "MARKET",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
         params.insert("orderTypes".into(), order_type_str.into());
 
@@ -856,9 +895,12 @@ impl Exchange for Timex {
             .private_request("POST", "/trading/orders", params)
             .await?;
 
-        let order_data = response.orders.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No order returned".into(),
-        })?;
+        let order_data = response
+            .orders
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No order returned".into(),
+            })?;
 
         Ok(self.parse_order(order_data, symbol))
     }
@@ -871,9 +913,13 @@ impl Exchange for Timex {
             .private_request("DELETE", "/trading/orders", params)
             .await?;
 
-        let changed_orders = response.changed_orders.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No order returned".into(),
-        })?;
+        let changed_orders =
+            response
+                .changed_orders
+                .first()
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "No order returned".into(),
+                })?;
 
         Ok(self.parse_order(&changed_orders.new_order, symbol))
     }
@@ -950,10 +996,11 @@ impl Exchange for Timex {
         }
 
         if let Some(s) = since {
-            let datetime = chrono::DateTime::from_timestamp_millis(s)
-                .ok_or_else(|| CcxtError::BadRequest {
+            let datetime = chrono::DateTime::from_timestamp_millis(s).ok_or_else(|| {
+                CcxtError::BadRequest {
                     message: "Invalid timestamp".into(),
-                })?;
+                }
+            })?;
             params.insert("from".into(), datetime.to_rfc3339());
         }
 
@@ -1000,10 +1047,11 @@ impl Exchange for Timex {
         }
 
         if let Some(s) = since {
-            let datetime = chrono::DateTime::from_timestamp_millis(s)
-                .ok_or_else(|| CcxtError::BadRequest {
+            let datetime = chrono::DateTime::from_timestamp_millis(s).ok_or_else(|| {
+                CcxtError::BadRequest {
                     message: "Invalid timestamp".into(),
-                })?;
+                }
+            })?;
             params.insert("from".into(), datetime.to_rfc3339());
         }
 

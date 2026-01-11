@@ -27,9 +27,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage,
-    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent, WsOrderEvent,
+    WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -96,8 +96,8 @@ impl BigoneWs {
     /// Generate authentication signature
     fn generate_auth_signature(secret: &str, timestamp: &str, api_key: &str) -> String {
         let message = format!("{api_key}{timestamp}");
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(message.as_bytes());
         let result = mac.finalize();
         hex::encode(result.into_bytes())
@@ -170,6 +170,7 @@ impl BigoneWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         }
     }
 
@@ -238,8 +239,16 @@ impl BigoneWs {
         };
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.amount.as_ref().and_then(|a| Decimal::from_str(a).ok()).unwrap_or_default();
-        let filled = data.filled_amount.as_ref().and_then(|f| Decimal::from_str(f).ok()).unwrap_or_default();
+        let amount = data
+            .amount
+            .as_ref()
+            .and_then(|a| Decimal::from_str(a).ok())
+            .unwrap_or_default();
+        let filled = data
+            .filled_amount
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok())
+            .unwrap_or_default();
 
         Order {
             id: data.id.map(|id| id.to_string()).unwrap_or_default(),
@@ -258,7 +267,10 @@ impl BigoneWs {
             time_in_force: None,
             side,
             price,
-            average: data.avg_deal_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            average: data
+                .avg_deal_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             amount,
             filled,
             remaining: Some(amount - filled),
@@ -279,19 +291,28 @@ impl BigoneWs {
     /// Parse balance data
     fn parse_balance(data: &BigoneWsBalance) -> Option<(String, Balance)> {
         let currency = data.asset_symbol.clone()?;
-        let free = data.balance.as_ref().and_then(|b| Decimal::from_str(b).ok());
-        let used = data.locked_balance.as_ref().and_then(|l| Decimal::from_str(l).ok());
+        let free = data
+            .balance
+            .as_ref()
+            .and_then(|b| Decimal::from_str(b).ok());
+        let used = data
+            .locked_balance
+            .as_ref()
+            .and_then(|l| Decimal::from_str(l).ok());
         let total = match (free, used) {
             (Some(f), Some(u)) => Some(f + u),
             _ => None,
         };
 
-        Some((currency, Balance {
-            free,
-            used,
-            total,
-            debt: None,
-        }))
+        Some((
+            currency,
+            Balance {
+                free,
+                used,
+                total,
+                debt: None,
+            },
+        ))
     }
 
     /// Process WebSocket message
@@ -302,14 +323,13 @@ impl BigoneWs {
         if let Some(ticker_data) = json.get("marketTickerUpdate") {
             if let Ok(data) = serde_json::from_value::<BigoneWsTickerUpdate>(ticker_data.clone()) {
                 if let Some(ticker_inner) = data.ticker {
-                    let symbol = data.market.as_ref()
+                    let symbol = data
+                        .market
+                        .as_ref()
                         .map(|m| Self::to_unified_symbol(m))
                         .unwrap_or_default();
                     let ticker = Self::parse_ticker(&ticker_inner, &symbol);
-                    let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent {
-                        symbol,
-                        ticker,
-                    }));
+                    let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent { symbol, ticker }));
                 }
             }
         }
@@ -318,7 +338,9 @@ impl BigoneWs {
         if let Some(depth_data) = json.get("marketDepthUpdate") {
             if let Ok(data) = serde_json::from_value::<BigoneWsDepthUpdate>(depth_data.clone()) {
                 if let Some(depth_inner) = data.depth {
-                    let symbol = data.market.as_ref()
+                    let symbol = data
+                        .market
+                        .as_ref()
                         .map(|m| Self::to_unified_symbol(m))
                         .unwrap_or_default();
                     let order_book = Self::parse_order_book(&depth_inner, &symbol);
@@ -334,17 +356,18 @@ impl BigoneWs {
         // Handle trade update
         if let Some(trade_data) = json.get("marketTradeUpdate") {
             if let Ok(data) = serde_json::from_value::<BigoneWsTradeUpdate>(trade_data.clone()) {
-                let symbol = data.market.as_ref()
+                let symbol = data
+                    .market
+                    .as_ref()
                     .map(|m| Self::to_unified_symbol(m))
                     .unwrap_or_default();
-                let trades: Vec<Trade> = data.trades.iter()
+                let trades: Vec<Trade> = data
+                    .trades
+                    .iter()
                     .map(|t| Self::parse_trade(t, &symbol))
                     .collect();
                 if !trades.is_empty() {
-                    let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
-                        symbol,
-                        trades,
-                    }));
+                    let _ = event_tx.send(WsMessage::Trade(WsTradeEvent { symbol, trades }));
                 }
             }
         }
@@ -353,7 +376,9 @@ impl BigoneWs {
         if let Some(kline_data) = json.get("marketKlineUpdate") {
             if let Ok(data) = serde_json::from_value::<BigoneWsKlineUpdate>(kline_data.clone()) {
                 if let Some(kline_inner) = data.kline {
-                    let symbol = data.market.as_ref()
+                    let symbol = data
+                        .market
+                        .as_ref()
                         .map(|m| Self::to_unified_symbol(m))
                         .unwrap_or_default();
                     if let Some(ohlcv) = Self::parse_ohlcv(&kline_inner) {
@@ -371,27 +396,26 @@ impl BigoneWs {
         if let Some(order_data) = json.get("orderStateChangeUpdate") {
             if let Ok(data) = serde_json::from_value::<BigoneWsOrderUpdate>(order_data.clone()) {
                 if let Some(order_inner) = data.order {
-                    let symbol = order_inner.asset_pair_name.as_ref()
+                    let symbol = order_inner
+                        .asset_pair_name
+                        .as_ref()
                         .map(|m| Self::to_unified_symbol(m))
                         .unwrap_or_default();
                     let order = Self::parse_order(&order_inner, &symbol);
-                    let _ = event_tx.send(WsMessage::Order(WsOrderEvent {
-                        order,
-                    }));
+                    let _ = event_tx.send(WsMessage::Order(WsOrderEvent { order }));
                 }
             }
         }
 
         // Handle balance update
         if let Some(balance_data) = json.get("accountAssetChangeUpdate") {
-            if let Ok(data) = serde_json::from_value::<BigoneWsBalanceUpdate>(balance_data.clone()) {
+            if let Ok(data) = serde_json::from_value::<BigoneWsBalanceUpdate>(balance_data.clone())
+            {
                 if let Some(balance_inner) = data.asset {
                     if let Some((currency, balance)) = Self::parse_balance(&balance_inner) {
                         let mut balances = Balances::new();
                         balances.add(&currency, balance);
-                        let _ = event_tx.send(WsMessage::Balance(WsBalanceEvent {
-                            balances,
-                        }));
+                        let _ = event_tx.send(WsMessage::Balance(WsBalanceEvent { balances }));
                     }
                 }
             }
@@ -417,6 +441,7 @@ impl BigoneWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -449,7 +474,7 @@ impl BigoneWs {
                         "market": market_id
                     }
                 })
-            }
+            },
             "depth" => {
                 serde_json::json!({
                     "requestId": format!("depth_{}", Utc::now().timestamp_millis()),
@@ -457,7 +482,7 @@ impl BigoneWs {
                         "market": market_id
                     }
                 })
-            }
+            },
             "trade" => {
                 serde_json::json!({
                     "requestId": format!("trade_{}", Utc::now().timestamp_millis()),
@@ -465,7 +490,7 @@ impl BigoneWs {
                         "market": market_id
                     }
                 })
-            }
+            },
             "orders" => {
                 serde_json::json!({
                     "requestId": format!("orders_{}", Utc::now().timestamp_millis()),
@@ -473,13 +498,13 @@ impl BigoneWs {
                         "market": market_id
                     }
                 })
-            }
+            },
             "account" => {
                 serde_json::json!({
                     "requestId": format!("account_{}", Utc::now().timestamp_millis()),
                     "subscribeAccountAssetChangeRequest": {}
                 })
-            }
+            },
             _ if channel.starts_with("kline") => {
                 let period = channel.replace("kline", "");
                 serde_json::json!({
@@ -489,10 +514,12 @@ impl BigoneWs {
                         "period": period
                     }
                 })
-            }
-            _ => return Err(crate::errors::CcxtError::NotSupported {
-                feature: format!("Channel: {channel}"),
-            }),
+            },
+            _ => {
+                return Err(crate::errors::CcxtError::NotSupported {
+                    feature: format!("Channel: {channel}"),
+                })
+            },
         };
 
         ws_client.send(&sub_msg.to_string())?;
@@ -504,21 +531,26 @@ impl BigoneWs {
                 match event {
                     WsEvent::Message(msg) => {
                         let _ = Self::process_message(&msg, &event_tx);
-                    }
+                    },
                     WsEvent::Connected => {
                         // Connection established
-                    }
+                    },
                     WsEvent::Disconnected => {
                         // Handle disconnection
                         break;
-                    }
+                    },
                     WsEvent::Error(e) => {
                         // Handle error
                         eprintln!("BigONE WebSocket error: {e}");
-                    }
+                    },
                     WsEvent::Ping | WsEvent::Pong => {
+                        // Heartbeat handled
+                    },
+                    _ => {
+                        // Handle new events (Reconnecting, Reconnected, HealthOk, HealthWarning)
+
                         // Heartbeat
-                    }
+                    },
                 }
             }
 
@@ -532,7 +564,10 @@ impl BigoneWs {
     }
 
     /// Subscribe to order updates (private channel)
-    pub async fn watch_orders(&mut self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    pub async fn watch_orders(
+        &mut self,
+        symbol: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let market_id = Self::format_symbol(symbol);
         self.subscribe_stream("orders", &market_id, true).await
     }
@@ -569,7 +604,11 @@ impl WsExchange for BigoneWs {
         ws.subscribe_stream("ticker", &market_id, false).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let market_id = Self::format_symbol(symbol);
         ws.subscribe_stream("depth", &market_id, false).await
@@ -581,7 +620,11 @@ impl WsExchange for BigoneWs {
         ws.subscribe_stream("trade", &market_id, false).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let market_id = Self::format_symbol(symbol);
         let channel = format!("kline{}", Self::format_interval(timeframe));
@@ -597,6 +640,7 @@ impl WsExchange for BigoneWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             ws_client.connect().await?;
@@ -866,18 +910,14 @@ mod tests {
     fn test_parse_order_book() {
         let data = BigoneWsOrderBook {
             timestamp: Some(1234567890000),
-            bids: vec![
-                BigoneWsOrderBookLevel {
-                    price: "100.0".to_string(),
-                    quantity: "10.0".to_string(),
-                },
-            ],
-            asks: vec![
-                BigoneWsOrderBookLevel {
-                    price: "101.0".to_string(),
-                    quantity: "5.0".to_string(),
-                },
-            ],
+            bids: vec![BigoneWsOrderBookLevel {
+                price: "100.0".to_string(),
+                quantity: "10.0".to_string(),
+            }],
+            asks: vec![BigoneWsOrderBookLevel {
+                price: "101.0".to_string(),
+                quantity: "5.0".to_string(),
+            }],
         };
 
         let order_book = BigoneWs::parse_order_book(&data, "BTC/USDT");

@@ -9,9 +9,8 @@ use std::collections::HashMap;
 use crate::client::ExchangeConfig;
 use crate::errors::CcxtResult;
 use crate::types::{
-    Balances, Currency, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    Order, OrderBook, OrderSide, OrderType, SignedRequest, Ticker, Timeframe, Trade,
-    Transaction, OHLCV,
+    Balances, Currency, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, Order,
+    OrderBook, OrderSide, OrderType, SignedRequest, Ticker, Timeframe, Trade, Transaction, OHLCV,
 };
 
 use super::gate::Gate;
@@ -125,7 +124,9 @@ impl Exchange for Gateio {
         amount: Decimal,
         price: Option<Decimal>,
     ) -> CcxtResult<Order> {
-        self.0.create_order(symbol, order_type, side, amount, price).await
+        self.0
+            .create_order(symbol, order_type, side, amount, price)
+            .await
     }
 
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {

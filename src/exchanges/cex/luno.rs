@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -15,9 +15,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// Luno Exchange
@@ -73,7 +73,10 @@ impl Luno {
         let mut api_urls = HashMap::new();
         api_urls.insert("public".into(), "https://api.luno.com/api".into());
         api_urls.insert("private".into(), "https://api.luno.com/api".into());
-        api_urls.insert("exchange".into(), "https://api.luno.com/api/exchange".into());
+        api_urls.insert(
+            "exchange".into(),
+            "https://api.luno.com/api/exchange".into(),
+        );
 
         let urls = ExchangeUrls {
             logo: Some("https://user-images.githubusercontent.com/1294454/27766607-8c1a69d8-5ede-11e7-930c-540b5eb9be24.jpg".into()),
@@ -143,12 +146,18 @@ impl Luno {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // Basic authentication
         let auth = BASE64.encode(format!("{api_key}:{secret}"));
@@ -170,11 +179,13 @@ impl Luno {
                 };
 
                 self.private_client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
                 // Use post_form for form-urlencoded data
-                self.private_client.post_form(path, &params, Some(headers)).await
-            }
+                self.private_client
+                    .post_form(path, &params, Some(headers))
+                    .await
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -235,27 +246,37 @@ impl Luno {
         };
 
         let price: Option<Decimal> = data.limit_price.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.limit_volume.as_ref()
+        let amount: Decimal = data
+            .limit_volume
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.base.as_ref()
+        let filled: Decimal = data
+            .base
+            .as_ref()
             .and_then(|b| b.parse().ok())
             .unwrap_or_default();
         let remaining = Some(amount - filled);
         let cost = data.counter.as_ref().and_then(|c| c.parse().ok());
 
         let fee = if let Some(fee_counter) = &data.fee_counter {
-            fee_counter.parse::<Decimal>().ok().map(|cost| crate::types::Fee {
-                cost: Some(cost),
-                currency: None, // Would be quote currency
-                rate: None,
-            })
+            fee_counter
+                .parse::<Decimal>()
+                .ok()
+                .map(|cost| crate::types::Fee {
+                    cost: Some(cost),
+                    currency: None, // Would be quote currency
+                    rate: None,
+                })
         } else if let Some(fee_base) = &data.fee_base {
-            fee_base.parse::<Decimal>().ok().map(|cost| crate::types::Fee {
-                cost: Some(cost),
-                currency: None, // Would be base currency
-                rate: None,
-            })
+            fee_base
+                .parse::<Decimal>()
+                .ok()
+                .map(|cost| crate::types::Fee {
+                    cost: Some(cost),
+                    currency: None, // Would be base currency
+                    rate: None,
+                })
         } else {
             None
         };
@@ -359,27 +380,33 @@ impl Luno {
         };
 
         let price: Decimal = data.price.parse().unwrap_or_default();
-        let amount: Decimal = data.volume.as_ref()
+        let amount: Decimal = data
+            .volume
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .or_else(|| data.base.as_ref().and_then(|b| b.parse().ok()))
             .unwrap_or_default();
 
         let fee = if let Some(fee_base) = &data.fee_base {
-            fee_base.parse::<Decimal>().ok().filter(|&f| f > Decimal::ZERO).map(|cost| {
-                crate::types::Fee {
+            fee_base
+                .parse::<Decimal>()
+                .ok()
+                .filter(|&f| f > Decimal::ZERO)
+                .map(|cost| crate::types::Fee {
                     cost: Some(cost),
                     currency: None,
                     rate: None,
-                }
-            })
+                })
         } else if let Some(fee_counter) = &data.fee_counter {
-            fee_counter.parse::<Decimal>().ok().filter(|&f| f > Decimal::ZERO).map(|cost| {
-                crate::types::Fee {
+            fee_counter
+                .parse::<Decimal>()
+                .ok()
+                .filter(|&f| f > Decimal::ZERO)
+                .map(|cost| crate::types::Fee {
                     cost: Some(cost),
                     currency: None,
                     rate: None,
-                }
-            })
+                })
         } else {
             None
         };
@@ -439,7 +466,8 @@ impl Exchange for Luno {
 
     fn timeframes(&self) -> &HashMap<Timeframe, String> {
         // Convert i32 to String
-        static TIMEFRAMES_STR: std::sync::OnceLock<HashMap<Timeframe, String>> = std::sync::OnceLock::new();
+        static TIMEFRAMES_STR: std::sync::OnceLock<HashMap<Timeframe, String>> =
+            std::sync::OnceLock::new();
         TIMEFRAMES_STR.get_or_init(|| {
             let mut map = HashMap::new();
             map.insert(Timeframe::Minute1, "60".to_string());
@@ -576,17 +604,13 @@ impl Exchange for Luno {
         let mut params = HashMap::new();
         params.insert("pair".into(), market_id);
 
-        let response: LunoTicker = self
-            .public_get("/1/ticker", Some(params))
-            .await?;
+        let response: LunoTicker = self.public_get("/1/ticker", Some(params)).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: LunoTickersResponse = self
-            .public_get("/1/tickers", None)
-            .await?;
+        let response: LunoTickersResponse = self.public_get("/1/tickers", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut tickers = HashMap::new();
@@ -619,9 +643,7 @@ impl Exchange for Luno {
             "/1/orderbook"
         };
 
-        let response: LunoOrderBook = self
-            .public_get(endpoint, Some(params))
-            .await?;
+        let response: LunoOrderBook = self.public_get(endpoint, Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .bids
@@ -652,6 +674,7 @@ impl Exchange for Luno {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -669,9 +692,7 @@ impl Exchange for Luno {
             params.insert("since".into(), s.to_string());
         }
 
-        let response: LunoTradesResponse = self
-            .public_get("/1/trades", Some(params))
-            .await?;
+        let response: LunoTradesResponse = self.public_get("/1/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .trades
@@ -690,9 +711,12 @@ impl Exchange for Luno {
         _limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let duration = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let duration = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("pair".into(), market_id);
@@ -729,9 +753,8 @@ impl Exchange for Luno {
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let params = HashMap::new();
 
-        let response: LunoBalanceResponse = self
-            .private_request("GET", "/1/balance", params)
-            .await?;
+        let response: LunoBalanceResponse =
+            self.private_request("GET", "/1/balance", params).await?;
 
         Ok(self.parse_balance(&response.balance))
     }
@@ -750,10 +773,14 @@ impl Exchange for Luno {
         params.insert("pair".into(), market_id);
 
         let response: LunoOrder = if order_type == OrderType::Market {
-            params.insert("type".into(), match side {
-                OrderSide::Buy => "BUY",
-                OrderSide::Sell => "SELL",
-            }.into());
+            params.insert(
+                "type".into(),
+                match side {
+                    OrderSide::Buy => "BUY",
+                    OrderSide::Sell => "SELL",
+                }
+                .into(),
+            );
 
             if side == OrderSide::Buy {
                 params.insert("counter_volume".into(), amount.to_string());
@@ -761,17 +788,22 @@ impl Exchange for Luno {
                 params.insert("base_volume".into(), amount.to_string());
             }
 
-            self.private_request("POST", "/1/marketorder", params).await?
+            self.private_request("POST", "/1/marketorder", params)
+                .await?
         } else {
             params.insert("volume".into(), amount.to_string());
             let price_val = price.ok_or_else(|| CcxtError::ArgumentsRequired {
                 message: "Limit order requires price".into(),
             })?;
             params.insert("price".into(), price_val.to_string());
-            params.insert("type".into(), match side {
-                OrderSide::Buy => "BID",
-                OrderSide::Sell => "ASK",
-            }.into());
+            params.insert(
+                "type".into(),
+                match side {
+                    OrderSide::Buy => "BID",
+                    OrderSide::Sell => "ASK",
+                }
+                .into(),
+            );
 
             self.private_request("POST", "/1/postorder", params).await?
         };
@@ -783,9 +815,8 @@ impl Exchange for Luno {
         let mut params = HashMap::new();
         params.insert("order_id".into(), id.to_string());
 
-        let response: LunoStopOrderResponse = self
-            .private_request("POST", "/1/stoporder", params)
-            .await?;
+        let response: LunoStopOrderResponse =
+            self.private_request("POST", "/1/stoporder", params).await?;
 
         Ok(Order {
             id: id.to_string(),
@@ -823,9 +854,8 @@ impl Exchange for Luno {
             params.insert("pair".into(), self.to_market_id(s));
         }
 
-        let response: LunoOrdersResponse = self
-            .private_request("GET", "/1/listorders", params)
-            .await?;
+        let response: LunoOrdersResponse =
+            self.private_request("GET", "/1/listorders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
 
@@ -857,9 +887,8 @@ impl Exchange for Luno {
             params.insert("pair".into(), self.to_market_id(s));
         }
 
-        let response: LunoOrdersResponse = self
-            .private_request("GET", "/1/listorders", params)
-            .await?;
+        let response: LunoOrdersResponse =
+            self.private_request("GET", "/1/listorders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
 
@@ -891,9 +920,8 @@ impl Exchange for Luno {
             params.insert("pair".into(), self.to_market_id(s));
         }
 
-        let response: LunoOrdersResponse = self
-            .private_request("GET", "/1/listorders", params)
-            .await?;
+        let response: LunoOrdersResponse =
+            self.private_request("GET", "/1/listorders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
 
@@ -934,9 +962,8 @@ impl Exchange for Luno {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: LunoTradesResponse = self
-            .private_request("GET", "/1/listtrades", params)
-            .await?;
+        let response: LunoTradesResponse =
+            self.private_request("GET", "/1/listtrades", params).await?;
 
         let trades: Vec<Trade> = response
             .trades

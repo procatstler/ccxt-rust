@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -14,14 +15,13 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::RwLock;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -261,7 +261,14 @@ impl Oxfun {
         })
     }
 
-    fn generate_signature(&self, timestamp: &str, nonce: &str, method: &str, path: &str, body: &str) -> String {
+    fn generate_signature(
+        &self,
+        timestamp: &str,
+        nonce: &str,
+        method: &str,
+        path: &str,
+        body: &str,
+    ) -> String {
         if let Some(secret) = self.config.secret() {
             // Message format: timestamp\nnonce\nmethod\nhost\npath\nbody
             let host = "api.ox.fun";
@@ -314,12 +321,14 @@ impl Oxfun {
 
         // Parse base and quote from market_code (e.g., "BTC-USD-SWAP-LIN" or "BTC-USD")
         let parts: Vec<&str> = market_code.split('-').collect();
-        let base = market_data.base.clone().unwrap_or_else(|| {
-            parts.first().map(|s| s.to_string()).unwrap_or_default()
-        });
-        let quote = market_data.counter.clone().unwrap_or_else(|| {
-            parts.get(1).map(|s| s.to_string()).unwrap_or_default()
-        });
+        let base = market_data
+            .base
+            .clone()
+            .unwrap_or_else(|| parts.first().map(|s| s.to_string()).unwrap_or_default());
+        let quote = market_data
+            .counter
+            .clone()
+            .unwrap_or_else(|| parts.get(1).map(|s| s.to_string()).unwrap_or_default());
 
         let market_type_str = market_data.market_type.as_deref().unwrap_or("");
         let is_swap = market_code.contains("SWAP") || market_type_str == "FUTURE";
@@ -327,21 +336,29 @@ impl Oxfun {
 
         let symbol = format!("{base}/{quote}");
 
-        let tick_size = market_data.tick_size.as_ref()
+        let tick_size = market_data
+            .tick_size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::new(1, 8));
 
-        let step_size = market_data.qty_increment.as_ref()
+        let step_size = market_data
+            .qty_increment
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::new(1, 8));
 
         let price_precision = Self::decimal_places(&tick_size);
         let amount_precision = Self::decimal_places(&step_size);
 
-        let min_amount = market_data.min_size.as_ref()
+        let min_amount = market_data
+            .min_size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
-        let max_amount = market_data.max_size.as_ref()
+        let max_amount = market_data
+            .max_size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
         let active = market_data.status.as_deref() != Some("HALTED");
@@ -357,7 +374,11 @@ impl Oxfun {
             settle: market_data.margin_currency.clone(),
             settle_id: market_data.margin_currency.clone(),
             active,
-            market_type: if is_swap { MarketType::Swap } else { MarketType::Spot },
+            market_type: if is_swap {
+                MarketType::Swap
+            } else {
+                MarketType::Spot
+            },
             spot: !is_swap,
             margin: false,
             swap: is_swap,
@@ -393,8 +414,14 @@ impl Oxfun {
                     min: Some(tick_size),
                     max: None,
                 },
-                cost: crate::types::MinMax { min: None, max: None },
-                leverage: crate::types::MinMax { min: None, max: None },
+                cost: crate::types::MinMax {
+                    min: None,
+                    max: None,
+                },
+                leverage: crate::types::MinMax {
+                    min: None,
+                    max: None,
+                },
             },
             margin_modes: None,
             created: market_data.listing_date,
@@ -405,17 +432,29 @@ impl Oxfun {
     fn parse_ticker(&self, ticker_data: &OxfunTicker) -> Ticker {
         let symbol = self.safe_symbol(&ticker_data.market_code);
 
-        let last = ticker_data.last_price.as_ref()
+        let last = ticker_data
+            .last_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let high = ticker_data.high_24h.as_ref()
+        let high = ticker_data
+            .high_24h
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let low = ticker_data.low_24h.as_ref()
+        let low = ticker_data
+            .low_24h
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let open = ticker_data.open_24h.as_ref()
+        let open = ticker_data
+            .open_24h
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let quote_volume = ticker_data.volume_24h.as_ref()
+        let quote_volume = ticker_data
+            .volume_24h
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let base_volume = ticker_data.base_volume_24h.as_ref()
+        let base_volume = ticker_data
+            .base_volume_24h
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
         let change = match (last, open) {
@@ -423,9 +462,7 @@ impl Oxfun {
             _ => None,
         };
         let percentage = match (change, open) {
-            (Some(c), Some(o)) if o != Decimal::ZERO => {
-                Some(c / o * Decimal::from(100))
-            }
+            (Some(c), Some(o)) if o != Decimal::ZERO => Some(c / o * Decimal::from(100)),
             _ => None,
         };
 
@@ -476,21 +513,31 @@ impl Oxfun {
         let status = match order_data.status.as_deref() {
             Some("OPEN") | Some("PARTIAL_FILL") => OrderStatus::Open,
             Some("FILLED") | Some("COMPLETED") => OrderStatus::Closed,
-            Some("CANCELED") | Some("CANCELLED") | Some("CANCELED_BY_USER") => OrderStatus::Canceled,
+            Some("CANCELED") | Some("CANCELLED") | Some("CANCELED_BY_USER") => {
+                OrderStatus::Canceled
+            },
             Some("EXPIRED") => OrderStatus::Expired,
             Some("REJECTED") => OrderStatus::Rejected,
             _ => OrderStatus::Open,
         };
 
-        let amount = order_data.quantity.as_ref()
+        let amount = order_data
+            .quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let price = order_data.price.as_ref()
+        let price = order_data
+            .price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let filled = order_data.filled.as_ref()
+        let filled = order_data
+            .filled
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let remaining = order_data.remaining.as_ref()
+        let remaining = order_data
+            .remaining
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
         let cost = price.map(|p| filled * p);
 
@@ -515,7 +562,9 @@ impl Oxfun {
             amount,
             filled,
             remaining,
-            stop_price: order_data.stop_price.as_ref()
+            stop_price: order_data
+                .stop_price
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok()),
             trigger_price: None,
             cost,
@@ -533,10 +582,14 @@ impl Oxfun {
     fn parse_trade(&self, trade_data: &OxfunTrade, symbol: &str) -> Trade {
         let side_str = trade_data.side.as_deref().unwrap_or("");
 
-        let price = trade_data.price.as_ref()
+        let price = trade_data
+            .price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let amount = trade_data.amount.as_ref()
+        let amount = trade_data
+            .amount
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
@@ -552,14 +605,19 @@ impl Oxfun {
             symbol: symbol.to_string(),
             order: None,
             trade_type: None,
-            side: if side_str.is_empty() { None } else { Some(side_str.to_lowercase()) },
-            taker_or_maker: trade_data.match_type.as_ref().and_then(|s| {
-                match s.as_str() {
+            side: if side_str.is_empty() {
+                None
+            } else {
+                Some(side_str.to_lowercase())
+            },
+            taker_or_maker: trade_data
+                .match_type
+                .as_ref()
+                .and_then(|s| match s.as_str() {
                     "TAKER" => Some(crate::types::TakerOrMaker::Taker),
                     "MAKER" => Some(crate::types::TakerOrMaker::Maker),
                     _ => None,
-                }
-            }),
+                }),
             price,
             amount,
             cost: Some(price * amount),
@@ -568,17 +626,29 @@ impl Oxfun {
         }
     }
 
-    async fn public_get<T: serde::de::DeserializeOwned>(&self, path: &str, params: Option<HashMap<String, String>>) -> CcxtResult<T> {
+    async fn public_get<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        params: Option<HashMap<String, String>>,
+    ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
         self.client.get(path, params, None).await
     }
 
-    async fn private_request<T: serde::de::DeserializeOwned>(&self, method: &str, path: &str, body: Option<&str>) -> CcxtResult<T> {
+    async fn private_request<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+    ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
         let nonce = Utc::now().timestamp_millis().to_string();
@@ -602,7 +672,7 @@ impl Oxfun {
                     Some(serde_json::from_str(body_str).unwrap_or(serde_json::json!({})))
                 };
                 self.client.post(path, body_json, Some(headers)).await
-            }
+            },
             "DELETE" => self.client.delete(path, None, Some(headers)).await,
             _ => Err(CcxtError::BadRequest {
                 message: format!("Unsupported HTTP method: {method}"),
@@ -705,11 +775,14 @@ impl Exchange for Oxfun {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: OxfunResponse<Vec<OxfunMarket>> = self.public_get("/v3/markets", None).await?;
+        let response: OxfunResponse<Vec<OxfunMarket>> =
+            self.public_get("/v3/markets", None).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch markets".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch markets".to_string()),
             });
         }
 
@@ -729,27 +802,34 @@ impl Exchange for Oxfun {
         let mut params = HashMap::new();
         params.insert("marketCode".to_string(), market_id);
 
-        let response: OxfunResponse<Vec<OxfunTicker>> = self.public_get("/v3/tickers", Some(params)).await?;
+        let response: OxfunResponse<Vec<OxfunTicker>> =
+            self.public_get("/v3/tickers", Some(params)).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch ticker".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch ticker".to_string()),
             });
         }
 
         let tickers = response.data.unwrap_or_default();
-        let ticker_data = tickers.first()
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+        let ticker_data = tickers.first().ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.to_string(),
+        })?;
 
         Ok(self.parse_ticker(ticker_data))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: OxfunResponse<Vec<OxfunTicker>> = self.public_get("/v3/tickers", None).await?;
+        let response: OxfunResponse<Vec<OxfunTicker>> =
+            self.public_get("/v3/tickers", None).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch tickers".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch tickers".to_string()),
             });
         }
 
@@ -780,11 +860,14 @@ impl Exchange for Oxfun {
             params.insert("level".to_string(), l.to_string());
         }
 
-        let response: OxfunResponse<OxfunOrderBook> = self.public_get("/v3/depth", Some(params)).await?;
+        let response: OxfunResponse<OxfunOrderBook> =
+            self.public_get("/v3/depth", Some(params)).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch order book".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch order book".to_string()),
             });
         }
 
@@ -797,10 +880,9 @@ impl Exchange for Oxfun {
 
         for ask in &ob_data.asks {
             if ask.len() >= 2 {
-                if let (Ok(price), Ok(amount)) = (
-                    Decimal::from_str(&ask[0]),
-                    Decimal::from_str(&ask[1])
-                ) {
+                if let (Ok(price), Ok(amount)) =
+                    (Decimal::from_str(&ask[0]), Decimal::from_str(&ask[1]))
+                {
                     asks.push(OrderBookEntry { price, amount });
                 }
             }
@@ -808,10 +890,9 @@ impl Exchange for Oxfun {
 
         for bid in &ob_data.bids {
             if bid.len() >= 2 {
-                if let (Ok(price), Ok(amount)) = (
-                    Decimal::from_str(&bid[0]),
-                    Decimal::from_str(&bid[1])
-                ) {
+                if let (Ok(price), Ok(amount)) =
+                    (Decimal::from_str(&bid[0]), Decimal::from_str(&bid[1]))
+                {
                     bids.push(OrderBookEntry { price, amount });
                 }
             }
@@ -821,6 +902,7 @@ impl Exchange for Oxfun {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: ob_data.last_updated_at,
             datetime: ob_data.last_updated_at.map(|t| {
                 chrono::DateTime::from_timestamp_millis(t)
@@ -831,7 +913,12 @@ impl Exchange for Oxfun {
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.safe_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("marketCode".to_string(), market_id);
@@ -842,17 +929,21 @@ impl Exchange for Oxfun {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let response: OxfunResponse<Vec<OxfunTrade>> = self.public_get("/v3/exchange-trades", Some(params)).await?;
+        let response: OxfunResponse<Vec<OxfunTrade>> =
+            self.public_get("/v3/exchange-trades", Some(params)).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch trades".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch trades".to_string()),
             });
         }
 
         let trades_data = response.data.unwrap_or_default();
 
-        Ok(trades_data.iter()
+        Ok(trades_data
+            .iter()
             .map(|t| self.parse_trade(t, symbol))
             .collect())
     }
@@ -865,8 +956,12 @@ impl Exchange for Oxfun {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.safe_market_id(symbol);
-        let tf_str = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::NotSupported { feature: format!("Timeframe {timeframe:?}") })?;
+        let tf_str = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::NotSupported {
+                feature: format!("Timeframe {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("marketCode".to_string(), market_id);
@@ -878,34 +973,44 @@ impl Exchange for Oxfun {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let response: OxfunResponse<Vec<OxfunCandle>> = self.public_get("/v3/candles", Some(params)).await?;
+        let response: OxfunResponse<Vec<OxfunCandle>> =
+            self.public_get("/v3/candles", Some(params)).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch OHLCV".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch OHLCV".to_string()),
             });
         }
 
         let candles_data = response.data.unwrap_or_default();
 
-        Ok(candles_data.iter().filter_map(|c| {
-            Some(OHLCV {
-                timestamp: c.timestamp?,
-                open: Decimal::from_str(c.open.as_ref()?).ok()?,
-                high: Decimal::from_str(c.high.as_ref()?).ok()?,
-                low: Decimal::from_str(c.low.as_ref()?).ok()?,
-                close: Decimal::from_str(c.close.as_ref()?).ok()?,
-                volume: Decimal::from_str(c.volume.as_ref().or(c.base_volume.as_ref())?).ok()?,
+        Ok(candles_data
+            .iter()
+            .filter_map(|c| {
+                Some(OHLCV {
+                    timestamp: c.timestamp?,
+                    open: Decimal::from_str(c.open.as_ref()?).ok()?,
+                    high: Decimal::from_str(c.high.as_ref()?).ok()?,
+                    low: Decimal::from_str(c.low.as_ref()?).ok()?,
+                    close: Decimal::from_str(c.close.as_ref()?).ok()?,
+                    volume: Decimal::from_str(c.volume.as_ref().or(c.base_volume.as_ref())?)
+                        .ok()?,
+                })
             })
-        }).collect())
+            .collect())
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: OxfunResponse<Vec<OxfunBalance>> = self.private_request("GET", "/v3/balances", None).await?;
+        let response: OxfunResponse<Vec<OxfunBalance>> =
+            self.private_request("GET", "/v3/balances", None).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch balance".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch balance".to_string()),
             });
         }
 
@@ -914,22 +1019,31 @@ impl Exchange for Oxfun {
 
         for balance_data in &balances_data {
             if let Some(ref currency) = balance_data.currency {
-                let total = balance_data.total.as_ref()
+                let total = balance_data
+                    .total
+                    .as_ref()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
-                let free = balance_data.available.as_ref()
+                let free = balance_data
+                    .available
+                    .as_ref()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
-                let used = balance_data.reserved.as_ref()
+                let used = balance_data
+                    .reserved
+                    .as_ref()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
 
-                currencies.insert(currency.clone(), Balance {
-                    free: Some(free),
-                    used: Some(used),
-                    total: Some(total),
-                    debt: None,
-                });
+                currencies.insert(
+                    currency.clone(),
+                    Balance {
+                        free: Some(free),
+                        used: Some(used),
+                        total: Some(total),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -971,13 +1085,21 @@ impl Exchange for Oxfun {
 
         let body = serde_json::to_string(&serde_json::json!({
             "orders": [order_params]
-        })).map_err(|e| CcxtError::ParseError { data_type: "OrderParams".to_string(), message: e.to_string() })?;
+        }))
+        .map_err(|e| CcxtError::ParseError {
+            data_type: "OrderParams".to_string(),
+            message: e.to_string(),
+        })?;
 
-        let response: OxfunResponse<Vec<OxfunOrder>> = self.private_request("POST", "/v3/orders/place", Some(&body)).await?;
+        let response: OxfunResponse<Vec<OxfunOrder>> = self
+            .private_request("POST", "/v3/orders/place", Some(&body))
+            .await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to create order".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to create order".to_string()),
             });
         }
 
@@ -1000,13 +1122,21 @@ impl Exchange for Oxfun {
                 "marketCode": market_id,
                 "orderId": id
             }]
-        })).map_err(|e| CcxtError::ParseError { data_type: "CancelOrderParams".to_string(), message: e.to_string() })?;
+        }))
+        .map_err(|e| CcxtError::ParseError {
+            data_type: "CancelOrderParams".to_string(),
+            message: e.to_string(),
+        })?;
 
-        let response: OxfunResponse<Vec<OxfunOrder>> = self.private_request("DELETE", "/v3/orders/cancel", Some(&body)).await?;
+        let response: OxfunResponse<Vec<OxfunOrder>> = self
+            .private_request("DELETE", "/v3/orders/cancel", Some(&body))
+            .await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to cancel order".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to cancel order".to_string()),
             });
         }
 
@@ -1025,11 +1155,14 @@ impl Exchange for Oxfun {
         let market_id = self.safe_market_id(symbol);
         let path = format!("/v3/orders/status?marketCode={market_id}&orderId={id}");
 
-        let response: OxfunResponse<Vec<OxfunOrder>> = self.private_request("GET", &path, None).await?;
+        let response: OxfunResponse<Vec<OxfunOrder>> =
+            self.private_request("GET", &path, None).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch order".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch order".to_string()),
             });
         }
 
@@ -1044,7 +1177,12 @@ impl Exchange for Oxfun {
         Ok(self.parse_order(order_data))
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let path = if let Some(s) = symbol {
             let market_id = self.safe_market_id(s);
             format!("/v3/orders/working?marketCode={market_id}")
@@ -1052,11 +1190,14 @@ impl Exchange for Oxfun {
             "/v3/orders/working".to_string()
         };
 
-        let response: OxfunResponse<Vec<OxfunOrder>> = self.private_request("GET", &path, None).await?;
+        let response: OxfunResponse<Vec<OxfunOrder>> =
+            self.private_request("GET", &path, None).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch open orders".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch open orders".to_string()),
             });
         }
 
@@ -1064,7 +1205,12 @@ impl Exchange for Oxfun {
         Ok(orders_data.iter().map(|o| self.parse_order(o)).collect())
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut path = "/v3/trades".to_string();
         let mut params_vec = Vec::new();
 
@@ -1083,57 +1229,65 @@ impl Exchange for Oxfun {
             path = format!("{}?{}", path, params_vec.join("&"));
         }
 
-        let response: OxfunResponse<Vec<OxfunMyTrade>> = self.private_request("GET", &path, None).await?;
+        let response: OxfunResponse<Vec<OxfunMyTrade>> =
+            self.private_request("GET", &path, None).await?;
 
         if !response.success {
             return Err(CcxtError::ExchangeError {
-                message: response.message.unwrap_or_else(|| "Failed to fetch my trades".to_string()),
+                message: response
+                    .message
+                    .unwrap_or_else(|| "Failed to fetch my trades".to_string()),
             });
         }
 
         let trades_data = response.data.unwrap_or_default();
 
-        Ok(trades_data.iter().map(|t| {
-            let sym = self.safe_symbol(t.market_code.as_deref().unwrap_or(""));
-            let price = t.price.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or(Decimal::ZERO);
-            let amount = t.amount.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or(Decimal::ZERO);
-            Trade {
-                id: t.trade_id.clone().unwrap_or_default(),
-                info: serde_json::to_value(t).unwrap_or_default(),
-                timestamp: t.timestamp,
-                datetime: t.timestamp.map(|ts| {
-                    chrono::DateTime::from_timestamp_millis(ts)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                }),
-                symbol: sym,
-                order: t.order_id.clone(),
-                trade_type: None,
-                side: t.side.as_ref().map(|s| s.to_lowercase()),
-                taker_or_maker: t.match_type.as_ref().and_then(|s| {
-                    match s.as_str() {
+        Ok(trades_data
+            .iter()
+            .map(|t| {
+                let sym = self.safe_symbol(t.market_code.as_deref().unwrap_or(""));
+                let price = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO);
+                let amount = t
+                    .amount
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO);
+                Trade {
+                    id: t.trade_id.clone().unwrap_or_default(),
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                    timestamp: t.timestamp,
+                    datetime: t.timestamp.map(|ts| {
+                        chrono::DateTime::from_timestamp_millis(ts)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    }),
+                    symbol: sym,
+                    order: t.order_id.clone(),
+                    trade_type: None,
+                    side: t.side.as_ref().map(|s| s.to_lowercase()),
+                    taker_or_maker: t.match_type.as_ref().and_then(|s| match s.as_str() {
                         "TAKER" => Some(crate::types::TakerOrMaker::Taker),
                         "MAKER" => Some(crate::types::TakerOrMaker::Maker),
                         _ => None,
-                    }
-                }),
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: t.fees.as_ref().and_then(|f| {
-                    Decimal::from_str(f).ok().map(|amt| crate::types::Fee {
-                        currency: t.fee_currency.clone(),
-                        cost: Some(amt),
-                        rate: None,
-                    })
-                }),
-                fees: vec![],
-            }
-        }).collect())
+                    }),
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: t.fees.as_ref().and_then(|f| {
+                        Decimal::from_str(f).ok().map(|amt| crate::types::Fee {
+                            currency: t.fee_currency.clone(),
+                            cost: Some(amt),
+                            rate: None,
+                        })
+                    }),
+                    fees: vec![],
+                }
+            })
+            .collect())
     }
 }
 
@@ -1174,7 +1328,10 @@ mod tests {
         let urls = exchange.urls();
         assert!(urls.api.contains_key("public"));
         assert!(urls.api.contains_key("private"));
-        assert_eq!(urls.api.get("public"), Some(&"https://api.ox.fun".to_string()));
+        assert_eq!(
+            urls.api.get("public"),
+            Some(&"https://api.ox.fun".to_string())
+        );
     }
 
     #[test]
@@ -1192,7 +1349,10 @@ mod tests {
     fn test_exchange_info() {
         let exchange = create_test_exchange();
         assert_eq!(exchange.name(), "OX.FUN");
-        assert!(exchange.urls().doc.contains(&"https://docs.ox.fun/".to_string()));
+        assert!(exchange
+            .urls()
+            .doc
+            .contains(&"https://docs.ox.fun/".to_string()));
     }
 
     #[test]

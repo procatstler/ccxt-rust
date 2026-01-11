@@ -4,8 +4,8 @@
 
 #![allow(clippy::manual_strip)]
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 /// Rounding modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,14 +67,14 @@ pub fn decimal_to_precision(
     match precision_mode {
         PrecisionMode::DecimalPlaces => {
             format_decimal_places(value, precision, rounding_mode, padding_mode)
-        }
+        },
         PrecisionMode::SignificantDigits => {
             format_significant_digits(value, precision as u32, rounding_mode, padding_mode)
-        }
+        },
         PrecisionMode::TickSize => {
             let tick = Decimal::new(1, precision as u32);
             format_tick_size(value, tick, rounding_mode, padding_mode)
-        }
+        },
     }
 }
 
@@ -222,10 +222,16 @@ fn round_to_integer(value: Decimal, mode: RoundingMode) -> Decimal {
             } else {
                 value.floor()
             }
-        }
-        RoundingMode::HalfEven => value.round_dp_with_strategy(0, RoundingStrategy::MidpointNearestEven),
-        RoundingMode::HalfUp => value.round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero),
-        RoundingMode::HalfDown => value.round_dp_with_strategy(0, RoundingStrategy::MidpointTowardZero),
+        },
+        RoundingMode::HalfEven => {
+            value.round_dp_with_strategy(0, RoundingStrategy::MidpointNearestEven)
+        },
+        RoundingMode::HalfUp => {
+            value.round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+        },
+        RoundingMode::HalfDown => {
+            value.round_dp_with_strategy(0, RoundingStrategy::MidpointTowardZero)
+        },
     }
 }
 
@@ -342,7 +348,7 @@ mod tests {
             dec!(1.23456),
             dec!(0.01),
             RoundingMode::HalfUp,
-            PaddingMode::NoPadding
+            PaddingMode::NoPadding,
         );
         assert_eq!(result, "1.23");
     }

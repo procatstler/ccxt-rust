@@ -29,15 +29,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WsMessage::Ticker(event) => {
                     println!(
                         "Ticker: {} - Last: {:?}, Bid: {:?}, Ask: {:?}, Volume: {:?}",
-                        event.symbol, event.ticker.last, event.ticker.bid, event.ticker.ask, event.ticker.base_volume
+                        event.symbol,
+                        event.ticker.last,
+                        event.ticker.bid,
+                        event.ticker.ask,
+                        event.ticker.base_volume
                     );
                     count += 1;
                     if count >= 3 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -76,9 +80,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 3 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -112,9 +116,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 5 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -141,9 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 5 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });

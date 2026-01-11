@@ -370,6 +370,118 @@ pub type OptionChain = HashMap<String, OptionContract>;
 /// Last prices by symbol
 pub type LastPrices = HashMap<String, LastPrice>;
 
+/// Option settlement information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Settlement {
+    /// Raw exchange response
+    #[serde(default)]
+    pub info: Value,
+
+    /// Settlement ID
+    pub id: String,
+
+    /// Trading symbol
+    pub symbol: String,
+
+    /// Unix timestamp in milliseconds
+    pub timestamp: i64,
+
+    /// ISO8601 datetime
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datetime: Option<String>,
+
+    /// Settlement price
+    pub settlement_price: Decimal,
+
+    /// Index price at settlement
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_price: Option<Decimal>,
+
+    /// Settlement type (delivery, cash)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settlement_type: Option<String>,
+
+    /// Strike price (for options)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strike: Option<Decimal>,
+
+    /// Option type (call, put)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub option_type: Option<String>,
+}
+
+impl Settlement {
+    /// Create a new Settlement
+    pub fn new(
+        id: impl Into<String>,
+        symbol: impl Into<String>,
+        timestamp: i64,
+        settlement_price: Decimal,
+    ) -> Self {
+        Settlement {
+            info: Value::Null,
+            id: id.into(),
+            symbol: symbol.into(),
+            timestamp,
+            datetime: None,
+            settlement_price,
+            index_price: None,
+            settlement_type: None,
+            strike: None,
+            option_type: None,
+        }
+    }
+}
+
+/// Historical volatility data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolatilityHistory {
+    /// Raw exchange response
+    #[serde(default)]
+    pub info: Value,
+
+    /// Unix timestamp in milliseconds
+    pub timestamp: i64,
+
+    /// ISO8601 datetime
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datetime: Option<String>,
+
+    /// Underlying asset symbol
+    pub symbol: String,
+
+    /// Implied volatility (annualized, as decimal e.g., 0.65 = 65%)
+    pub implied_volatility: Decimal,
+
+    /// Historical/realized volatility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub historical_volatility: Option<Decimal>,
+
+    /// Forward volatility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forward_volatility: Option<Decimal>,
+
+    /// Index price at the time
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_price: Option<Decimal>,
+}
+
+impl VolatilityHistory {
+    /// Create a new VolatilityHistory
+    pub fn new(symbol: impl Into<String>, timestamp: i64, implied_volatility: Decimal) -> Self {
+        VolatilityHistory {
+            info: Value::Null,
+            timestamp,
+            datetime: None,
+            symbol: symbol.into(),
+            implied_volatility,
+            historical_volatility: None,
+            forward_volatility: None,
+            index_price: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,8 +490,7 @@ mod tests {
     #[test]
     fn test_long_short_ratio() {
         // Ratio of 1.5 means 1.5 longs for every 1 short
-        let ratio = LongShortRatio::new("BTC/USDT:USDT", dec!(1.5))
-            .with_timeframe("5m");
+        let ratio = LongShortRatio::new("BTC/USDT:USDT", dec!(1.5)).with_timeframe("5m");
 
         assert_eq!(ratio.symbol, "BTC/USDT:USDT");
         assert_eq!(ratio.long_short_ratio, dec!(1.5));
@@ -398,14 +509,7 @@ mod tests {
 
     #[test]
     fn test_conversion() {
-        let conv = Conversion::new(
-            "conv123",
-            "BTC",
-            dec!(1),
-            "USDT",
-            dec!(50000),
-            dec!(50000),
-        );
+        let conv = Conversion::new("conv123", "BTC", dec!(1), "USDT", dec!(50000), dec!(50000));
 
         assert_eq!(conv.from_currency, "BTC");
         assert_eq!(conv.to_currency, "USDT");

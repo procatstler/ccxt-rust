@@ -15,14 +15,14 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, RwLock};
 use tokio_tungstenite::{
     connect_async_with_config,
-    tungstenite::{protocol::Message, http::Request as WsRequest},
+    tungstenite::{http::Request as WsRequest, protocol::Message},
     MaybeTlsStream, WebSocketStream,
 };
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent, WsOhlcvEvent, OHLCV,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOhlcvEvent,
+    WsOrderBookEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_URL: &str = "wss://ws.blockchain.info/mercury-gateway/v1/ws";
@@ -112,7 +112,12 @@ impl BlockchainComWs {
     }
 
     /// Send a subscription message
-    async fn subscribe(&self, channel: &str, market_id: Option<&str>, extra_params: Option<Value>) -> CcxtResult<()> {
+    async fn subscribe(
+        &self,
+        channel: &str,
+        market_id: Option<&str>,
+        extra_params: Option<Value>,
+    ) -> CcxtResult<()> {
         let ws_guard = self.ws_stream.read().await;
         if let Some(ref _ws) = *ws_guard {
             let mut msg = json!({
@@ -124,23 +129,21 @@ impl BlockchainComWs {
                 msg["symbol"] = json!(id);
             }
 
-            if let Some(params) = extra_params {
-                if let Value::Object(obj) = params {
-                    for (key, value) in obj {
-                        msg[key] = value;
-                    }
+            if let Some(Value::Object(obj)) = extra_params {
+                for (key, value) in obj {
+                    msg[key] = value;
                 }
             }
 
             drop(ws_guard);
             let mut ws_write = self.ws_stream.write().await;
             if let Some(ref mut ws) = *ws_write {
-                ws.send(Message::Text(msg.to_string()))
-                    .await
-                    .map_err(|e| CcxtError::NetworkError {
+                ws.send(Message::Text(msg.to_string())).await.map_err(|e| {
+                    CcxtError::NetworkError {
                         url: WS_URL.to_string(),
                         message: format!("Failed to send subscribe: {e}"),
-                    })?;
+                    }
+                })?;
             }
         }
         Ok(())
@@ -153,9 +156,12 @@ impl BlockchainComWs {
             return Ok(());
         }
 
-        let secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for authentication".into(),
-        })?;
+        let secret = self
+            .api_secret
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required for authentication".into(),
+            })?;
 
         let msg = json!({
             "action": "subscribe",
@@ -208,19 +214,20 @@ impl BlockchainComWs {
                                 &ohlcv_cache,
                                 &ohlcv_timeframes,
                                 &authenticated,
-                            ).await;
+                            )
+                            .await;
                         }
-                    }
+                    },
                     Some(Ok(Message::Ping(data))) => {
                         let mut ws_guard = ws_stream.write().await;
                         if let Some(ref mut ws) = *ws_guard {
                             let _ = ws.send(Message::Pong(data)).await;
                         }
-                    }
+                    },
                     Some(Ok(Message::Close(_))) => break,
                     Some(Err(_)) => break,
                     None => break,
-                    _ => {}
+                    _ => {},
                 }
             }
         });
@@ -256,23 +263,23 @@ impl BlockchainComWs {
         match channel {
             "ticker" => {
                 Self::handle_ticker(data, event, subscriptions, ticker_cache).await;
-            }
+            },
             "trades" => {
                 Self::handle_trades(data, event, subscriptions).await;
-            }
+            },
             "l2" | "l3" => {
                 Self::handle_orderbook(data, event, channel, subscriptions, orderbook_cache).await;
-            }
+            },
             "prices" => {
                 Self::handle_ohlcv(data, event, subscriptions, ohlcv_cache, ohlcv_timeframes).await;
-            }
+            },
             "balances" => {
                 // Balance updates - would need Balance type support
-            }
+            },
             "trading" => {
                 // Order updates - would need Order type support
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -300,17 +307,29 @@ impl BlockchainComWs {
                 ask: None,
                 ask_volume: None,
                 vwap: None,
-                open: data.get("price_24h").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()),
+                open: data
+                    .get("price_24h")
+                    .and_then(|v| v.as_f64())
+                    .and_then(|f| Decimal::try_from(f).ok()),
                 close: None,
-                last: data.get("last_trade_price").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()),
+                last: data
+                    .get("last_trade_price")
+                    .and_then(|v| v.as_f64())
+                    .and_then(|f| Decimal::try_from(f).ok()),
                 previous_close: None,
                 change: None,
                 percentage: None,
                 average: None,
-                base_volume: data.get("volume_24h").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()),
+                base_volume: data
+                    .get("volume_24h")
+                    .and_then(|v| v.as_f64())
+                    .and_then(|f| Decimal::try_from(f).ok()),
                 quote_volume: None,
                 index_price: None,
-                mark_price: data.get("mark_price").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()),
+                mark_price: data
+                    .get("mark_price")
+                    .and_then(|v| v.as_f64())
+                    .and_then(|f| Decimal::try_from(f).ok()),
                 info: data.clone(),
             }
         } else if event == "updated" {
@@ -331,7 +350,10 @@ impl BlockchainComWs {
                 vwap: None,
                 open: prev.and_then(|t| t.open),
                 close: None,
-                last: data.get("mark_price").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()),
+                last: data
+                    .get("mark_price")
+                    .and_then(|v| v.as_f64())
+                    .and_then(|f| Decimal::try_from(f).ok()),
                 previous_close: prev.and_then(|t| t.last),
                 change: None,
                 percentage: None,
@@ -339,7 +361,10 @@ impl BlockchainComWs {
                 base_volume: prev.and_then(|t| t.base_volume),
                 quote_volume: None,
                 index_price: None,
-                mark_price: data.get("mark_price").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()),
+                mark_price: data
+                    .get("mark_price")
+                    .and_then(|v| v.as_f64())
+                    .and_then(|f| Decimal::try_from(f).ok()),
                 info: data.clone(),
             }
         } else {
@@ -383,16 +408,31 @@ impl BlockchainComWs {
             .ok();
 
         let trade = Trade {
-            id: data.get("trade_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            id: data
+                .get("trade_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             order: None,
             timestamp,
             datetime: Some(timestamp_str.to_string()),
             symbol: symbol.clone(),
             trade_type: None,
-            side: data.get("side").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            side: data
+                .get("side")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
             taker_or_maker: None,
-            price: data.get("price").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()).unwrap_or_default(),
-            amount: data.get("qty").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok()).unwrap_or_default(),
+            price: data
+                .get("price")
+                .and_then(|v| v.as_f64())
+                .and_then(|f| Decimal::try_from(f).ok())
+                .unwrap_or_default(),
+            amount: data
+                .get("qty")
+                .and_then(|v| v.as_f64())
+                .and_then(|f| Decimal::try_from(f).ok())
+                .unwrap_or_default(),
             cost: None,
             fee: None,
             fees: Vec::new(),
@@ -432,8 +472,14 @@ impl BlockchainComWs {
                     entries
                         .iter()
                         .filter_map(|e| {
-                            let price = e.get("px").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok())?;
-                            let amount = e.get("qty").and_then(|v| v.as_f64()).and_then(|f| Decimal::try_from(f).ok())?;
+                            let price = e
+                                .get("px")
+                                .and_then(|v| v.as_f64())
+                                .and_then(|f| Decimal::try_from(f).ok())?;
+                            let amount = e
+                                .get("qty")
+                                .and_then(|v| v.as_f64())
+                                .and_then(|f| Decimal::try_from(f).ok())?;
                             Some(OrderBookEntry { price, amount })
                         })
                         .collect()
@@ -455,6 +501,7 @@ impl BlockchainComWs {
                 timestamp,
                 datetime: Some(timestamp_str.to_string()),
                 nonce: None,
+                checksum: None,
             }
         } else {
             // Incremental update - apply to cache
@@ -466,13 +513,15 @@ impl BlockchainComWs {
                 timestamp: None,
                 datetime: None,
                 nonce: None,
+                checksum: None,
             });
 
             // Apply bid deltas
             for entry in &bids {
                 if entry.amount == Decimal::ZERO {
                     existing.bids.retain(|b| b.price != entry.price);
-                } else if let Some(pos) = existing.bids.iter().position(|b| b.price == entry.price) {
+                } else if let Some(pos) = existing.bids.iter().position(|b| b.price == entry.price)
+                {
                     existing.bids[pos].amount = entry.amount;
                 } else {
                     existing.bids.push(entry.clone());
@@ -484,7 +533,8 @@ impl BlockchainComWs {
             for entry in &asks {
                 if entry.amount == Decimal::ZERO {
                     existing.asks.retain(|a| a.price != entry.price);
-                } else if let Some(pos) = existing.asks.iter().position(|a| a.price == entry.price) {
+                } else if let Some(pos) = existing.asks.iter().position(|a| a.price == entry.price)
+                {
                     existing.asks[pos].amount = entry.amount;
                 } else {
                     existing.asks.push(entry.clone());
@@ -536,11 +586,26 @@ impl BlockchainComWs {
             if price_arr.len() >= 6 {
                 let ohlcv = OHLCV {
                     timestamp: price_arr[0].as_i64().unwrap_or(0),
-                    open: price_arr[3].as_f64().and_then(|f| Decimal::try_from(f).ok()).unwrap_or_default(),
-                    high: price_arr[1].as_f64().and_then(|f| Decimal::try_from(f).ok()).unwrap_or_default(),
-                    low: price_arr[2].as_f64().and_then(|f| Decimal::try_from(f).ok()).unwrap_or_default(),
-                    close: price_arr[4].as_f64().and_then(|f| Decimal::try_from(f).ok()).unwrap_or_default(),
-                    volume: price_arr[5].as_f64().and_then(|f| Decimal::try_from(f).ok()).unwrap_or_default(),
+                    open: price_arr[3]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok())
+                        .unwrap_or_default(),
+                    high: price_arr[1]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok())
+                        .unwrap_or_default(),
+                    low: price_arr[2]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok())
+                        .unwrap_or_default(),
+                    close: price_arr[4]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok())
+                        .unwrap_or_default(),
+                    volume: price_arr[5]
+                        .as_f64()
+                        .and_then(|f| Decimal::try_from(f).ok())
+                        .unwrap_or_default(),
                 };
 
                 // Update cache
@@ -684,11 +749,11 @@ impl WsExchange for BlockchainComWs {
         let market_id = self.format_symbol(symbol);
         let message_hash = format!("ohlcv:{symbol}");
 
-        let granularity = self.timeframe_to_granularity(timeframe).ok_or_else(|| {
-            CcxtError::BadRequest {
-                message: format!("Unsupported timeframe: {timeframe:?}"),
-            }
-        })?;
+        let granularity =
+            self.timeframe_to_granularity(timeframe)
+                .ok_or_else(|| CcxtError::BadRequest {
+                    message: format!("Unsupported timeframe: {timeframe:?}"),
+                })?;
 
         let (tx, rx) = mpsc::unbounded_channel();
         {
@@ -703,7 +768,8 @@ impl WsExchange for BlockchainComWs {
         }
 
         let extra_params = json!({ "granularity": granularity });
-        self.subscribe("prices", Some(&market_id), Some(extra_params)).await?;
+        self.subscribe("prices", Some(&market_id), Some(extra_params))
+            .await?;
 
         Ok(rx)
     }

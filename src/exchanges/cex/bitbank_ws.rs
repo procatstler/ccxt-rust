@@ -17,13 +17,13 @@ use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://stream.bitbank.cc/socket.io/?EIO=4&transport=websocket";
@@ -104,14 +104,14 @@ impl BitbankWs {
                                 &orderbook_cache,
                             )
                             .await;
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -159,15 +159,21 @@ impl BitbankWs {
         if let Some(arr) = data.as_array() {
             if arr.len() >= 2 && arr[0].as_str() == Some("message") {
                 if let Some(payload) = arr[1].as_object() {
-                    let room_name = payload.get("room_name")
+                    let room_name = payload
+                        .get("room_name")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
 
-                    let message_data = payload.get("message")
-                        .and_then(|m| m.get("data"));
+                    let message_data = payload.get("message").and_then(|m| m.get("data"));
 
                     if let Some(msg_data) = message_data {
-                        Self::process_room_message(room_name, msg_data, subscriptions, orderbook_cache).await;
+                        Self::process_room_message(
+                            room_name,
+                            msg_data,
+                            subscriptions,
+                            orderbook_cache,
+                        )
+                        .await;
                     }
                 }
             }
@@ -205,31 +211,55 @@ impl BitbankWs {
     ) {
         let symbol = Self::pair_to_symbol(pair);
 
-        let timestamp = data.get("timestamp")
+        let timestamp = data
+            .get("timestamp")
             .and_then(|v| v.as_i64())
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
-            high: data.get("high").and_then(|v| v.as_str()).and_then(|s| Decimal::from_str(s).ok()),
-            low: data.get("low").and_then(|v| v.as_str()).and_then(|s| Decimal::from_str(s).ok()),
-            bid: data.get("buy").and_then(|v| v.as_str()).and_then(|s| Decimal::from_str(s).ok()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
+            high: data
+                .get("high")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok()),
+            low: data
+                .get("low")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok()),
+            bid: data
+                .get("buy")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok()),
             bid_volume: None,
-            ask: data.get("sell").and_then(|v| v.as_str()).and_then(|s| Decimal::from_str(s).ok()),
+            ask: data
+                .get("sell")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok()),
             ask_volume: None,
             vwap: None,
             open: None,
-            close: data.get("last").and_then(|v| v.as_str()).and_then(|s| Decimal::from_str(s).ok()),
-            last: data.get("last").and_then(|v| v.as_str()).and_then(|s| Decimal::from_str(s).ok()),
+            close: data
+                .get("last")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok()),
+            last: data
+                .get("last")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok()),
             previous_close: None,
             change: None,
             percentage: None,
             average: None,
-            base_volume: data.get("vol").and_then(|v| v.as_str()).and_then(|s| Decimal::from_str(s).ok()),
+            base_volume: data
+                .get("vol")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok()),
             quote_volume: None,
             index_price: None,
             mark_price: None,
@@ -263,26 +293,31 @@ impl BitbankWs {
         let trades: Vec<Trade> = transactions
             .iter()
             .map(|t| {
-                let id = t.get("transaction_id")
+                let id = t
+                    .get("transaction_id")
                     .and_then(|v| v.as_i64())
                     .map(|i| i.to_string())
                     .unwrap_or_default();
 
-                let timestamp = t.get("executed_at")
+                let timestamp = t
+                    .get("executed_at")
                     .and_then(|v| v.as_i64())
                     .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-                let price = t.get("price")
+                let price = t
+                    .get("price")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or_default();
 
-                let amount = t.get("amount")
+                let amount = t
+                    .get("amount")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or_default();
 
-                let side = t.get("side")
+                let side = t
+                    .get("side")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_lowercase());
 
@@ -290,9 +325,11 @@ impl BitbankWs {
                     id,
                     order: None,
                     timestamp: Some(timestamp),
-                    datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
                     symbol: symbol.clone(),
                     trade_type: None,
                     side,
@@ -332,19 +369,23 @@ impl BitbankWs {
         let bids = Self::parse_orderbook_side(data.get("bids"));
         let asks = Self::parse_orderbook_side(data.get("asks"));
 
-        let timestamp = data.get("timestamp")
+        let timestamp = data
+            .get("timestamp")
             .and_then(|v| v.as_i64())
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         let orderbook = OrderBook {
             symbol: symbol.clone(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             nonce: data.get("sequenceId").and_then(|v| v.as_i64()),
             bids,
             asks,
+            checksum: None,
         };
 
         // Update cache
@@ -384,6 +425,7 @@ impl BitbankWs {
             timestamp: None,
             datetime: None,
             nonce: None,
+            checksum: None,
             bids: Vec::new(),
             asks: Vec::new(),
         });
@@ -392,7 +434,9 @@ impl BitbankWs {
         for update in bid_updates {
             if update.amount.is_zero() {
                 orderbook.bids.retain(|e| e.price != update.price);
-            } else if let Some(existing) = orderbook.bids.iter_mut().find(|e| e.price == update.price) {
+            } else if let Some(existing) =
+                orderbook.bids.iter_mut().find(|e| e.price == update.price)
+            {
                 existing.amount = update.amount;
             } else {
                 orderbook.bids.push(update);
@@ -404,7 +448,9 @@ impl BitbankWs {
         for update in ask_updates {
             if update.amount.is_zero() {
                 orderbook.asks.retain(|e| e.price != update.price);
-            } else if let Some(existing) = orderbook.asks.iter_mut().find(|e| e.price == update.price) {
+            } else if let Some(existing) =
+                orderbook.asks.iter_mut().find(|e| e.price == update.price)
+            {
                 existing.amount = update.amount;
             } else {
                 orderbook.asks.push(update);
@@ -412,13 +458,16 @@ impl BitbankWs {
         }
         orderbook.asks.sort_by(|a, b| a.price.cmp(&b.price));
 
-        let timestamp = data.get("t")
+        let timestamp = data
+            .get("t")
             .and_then(|v| v.as_i64())
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
         orderbook.timestamp = Some(timestamp);
-        orderbook.datetime = Some(chrono::DateTime::from_timestamp_millis(timestamp)
-            .map(|dt| dt.to_rfc3339())
-            .unwrap_or_default());
+        orderbook.datetime = Some(
+            chrono::DateTime::from_timestamp_millis(timestamp)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default(),
+        );
         orderbook.nonce = data.get("s").and_then(|v| v.as_i64());
 
         let updated_orderbook = orderbook.clone();
@@ -449,10 +498,8 @@ impl BitbankWs {
                 // Format: ["price", "amount"] as strings
                 if let Some(arr) = item.as_array() {
                     if arr.len() >= 2 {
-                        let price = arr[0].as_str()
-                            .and_then(|s| Decimal::from_str(s).ok())?;
-                        let amount = arr[1].as_str()
-                            .and_then(|s| Decimal::from_str(s).ok())?;
+                        let price = arr[0].as_str().and_then(|s| Decimal::from_str(s).ok())?;
+                        let amount = arr[1].as_str().and_then(|s| Decimal::from_str(s).ok())?;
                         return Some(OrderBookEntry { price, amount });
                     }
                 }
@@ -522,7 +569,10 @@ impl WsExchange for BitbankWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -556,7 +606,10 @@ impl WsExchange for BitbankWs {
         Ok(rx)
     }
 
-    async fn watch_trades_for_symbols(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades_for_symbols(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -574,7 +627,11 @@ impl WsExchange for BitbankWs {
         Ok(rx)
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
         let sub_key = format!("orderbook:{symbol}");
 
@@ -595,7 +652,11 @@ impl WsExchange for BitbankWs {
         Ok(rx)
     }
 
-    async fn watch_order_book_for_symbols(&self, symbols: &[&str], _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book_for_symbols(
+        &self,
+        symbols: &[&str],
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -617,14 +678,22 @@ impl WsExchange for BitbankWs {
         Ok(rx)
     }
 
-    async fn watch_ohlcv(&self, _symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        _symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Bitbank does not support OHLCV via WebSocket
         Err(CcxtError::NotSupported {
             feature: "watch_ohlcv".to_string(),
         })
     }
 
-    async fn watch_ohlcv_for_symbols(&self, _symbols: &[&str], _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv_for_symbols(
+        &self,
+        _symbols: &[&str],
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "watch_ohlcv_for_symbols".to_string(),
         })

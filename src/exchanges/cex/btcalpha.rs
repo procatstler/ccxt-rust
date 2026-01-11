@@ -16,10 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Transaction,
-    OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, Transaction, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -79,7 +78,10 @@ impl Btcalpha {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/dce49f3a-61e5-4ba0-a2fe-41d192fd0e5d".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/dce49f3a-61e5-4ba0-a2fe-41d192fd0e5d"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://btc-alpha.com".into()),
             doc: vec!["https://btc-alpha.github.io/api-docs".into()],
@@ -138,12 +140,18 @@ impl Btcalpha {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
 
@@ -162,8 +170,8 @@ impl Btcalpha {
         };
 
         // Create HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -181,12 +189,12 @@ impl Btcalpha {
                     format!("{path}?{query}")
                 };
                 self.private_client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
                 self.private_client
                     .post_form(path, &params, Some(headers))
                     .await
-            }
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -276,20 +284,39 @@ impl Btcalpha {
         };
 
         let timestamp = if data.success.unwrap_or(false) {
-            data.date.as_ref().and_then(|d| d.parse::<f64>().ok().map(|ts| (ts * 1000.0) as i64))
+            data.date
+                .as_ref()
+                .and_then(|d| d.parse::<f64>().ok().map(|ts| (ts * 1000.0) as i64))
         } else {
             data.date.as_ref().and_then(|d| d.parse::<i64>().ok())
         };
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.amount_original.as_ref()
+        let amount: Decimal = data
+            .amount_original
+            .as_ref()
             .and_then(|a| a.parse().ok())
-            .unwrap_or_else(|| data.amount.as_ref().and_then(|a| a.parse().ok()).unwrap_or_default());
-        let filled: Decimal = data.amount_filled.as_ref().and_then(|f| f.parse().ok()).unwrap_or_default();
-        let remaining: Decimal = data.amount.as_ref().and_then(|r| r.parse().ok()).unwrap_or_else(|| amount - filled);
+            .unwrap_or_else(|| {
+                data.amount
+                    .as_ref()
+                    .and_then(|a| a.parse().ok())
+                    .unwrap_or_default()
+            });
+        let filled: Decimal = data
+            .amount_filled
+            .as_ref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
+        let remaining: Decimal = data
+            .amount
+            .as_ref()
+            .and_then(|r| r.parse().ok())
+            .unwrap_or_else(|| amount - filled);
 
         Order {
-            id: data.oid.as_ref()
+            id: data
+                .oid
+                .as_ref()
                 .or(data.id.as_ref())
                 .or(data.order.as_ref())
                 .cloned()
@@ -351,7 +378,9 @@ impl Btcalpha {
         let amount: Decimal = data.amount.parse().unwrap_or_default();
         let cost = price * amount;
 
-        let side = data.my_side.as_deref()
+        let side = data
+            .my_side
+            .as_deref()
             .or(data.trade_type.as_deref())
             .map(String::from);
 
@@ -402,7 +431,11 @@ impl Btcalpha {
     }
 
     /// Parse transaction (deposit/withdrawal)
-    fn parse_transaction(&self, data: &BtcalphaTransaction, tx_type: crate::types::TransactionType) -> Transaction {
+    fn parse_transaction(
+        &self,
+        data: &BtcalphaTransaction,
+        tx_type: crate::types::TransactionType,
+    ) -> Transaction {
         let status = match data.status {
             Some(10) => crate::types::TransactionStatus::Pending, // New
             Some(20) => crate::types::TransactionStatus::Pending, // Verified
@@ -507,9 +540,7 @@ impl Exchange for Btcalpha {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: Vec<BtcalphaMarket> = self
-            .public_get("/v1/pairs/", None)
-            .await?;
+        let response: Vec<BtcalphaMarket> = self.public_get("/v1/pairs/", None).await?;
 
         let mut markets = Vec::new();
 
@@ -593,17 +624,13 @@ impl Exchange for Btcalpha {
         let mut params = HashMap::new();
         params.insert("pair".into(), market_id);
 
-        let response: BtcalphaTicker = self
-            .public_get("/v1/ticker/", Some(params))
-            .await?;
+        let response: BtcalphaTicker = self.public_get("/v1/ticker/", Some(params)).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: Vec<BtcalphaTicker> = self
-            .public_get("/v1/ticker/", None)
-            .await?;
+        let response: Vec<BtcalphaTicker> = self.public_get("/v1/ticker/", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut tickers = HashMap::new();
@@ -636,7 +663,14 @@ impl Exchange for Btcalpha {
 
         let path = format!("/v1/orderbook/{market_id}/");
         let response: BtcalphaOrderBook = self
-            .public_get(&path, if params.is_empty() { None } else { Some(params) })
+            .public_get(
+                &path,
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         let bids: Vec<OrderBookEntry> = response
@@ -664,6 +698,7 @@ impl Exchange for Btcalpha {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -681,9 +716,7 @@ impl Exchange for Btcalpha {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: Vec<BtcalphaTrade> = self
-            .public_get("/v1/exchanges/", Some(params))
-            .await?;
+        let response: Vec<BtcalphaTrade> = self.public_get("/v1/exchanges/", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -701,9 +734,12 @@ impl Exchange for Btcalpha {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         if let Some(s) = since {
@@ -715,7 +751,14 @@ impl Exchange for Btcalpha {
 
         let path = format!("/v1/charts/{market_id}/{interval}/chart/");
         let response: Vec<BtcalphaOHLCV> = self
-            .public_get(&path, if params.is_empty() { None } else { Some(params) })
+            .public_get(
+                &path,
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         let ohlcv: Vec<OHLCV> = response
@@ -736,9 +779,8 @@ impl Exchange for Btcalpha {
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let params = HashMap::new();
 
-        let response: Vec<BtcalphaBalance> = self
-            .private_request("GET", "/v1/wallets/", params)
-            .await?;
+        let response: Vec<BtcalphaBalance> =
+            self.private_request("GET", "/v1/wallets/", params).await?;
 
         Ok(self.parse_balance(&response))
     }
@@ -764,16 +806,18 @@ impl Exchange for Btcalpha {
 
         let mut params = HashMap::new();
         params.insert("pair".into(), market_id);
-        params.insert("type".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.into());
+        params.insert(
+            "type".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .into(),
+        );
         params.insert("amount".into(), amount.to_string());
         params.insert("price".into(), price_val.to_string());
 
-        let response: BtcalphaOrder = self
-            .private_request("POST", "/v1/order/", params)
-            .await?;
+        let response: BtcalphaOrder = self.private_request("POST", "/v1/order/", params).await?;
 
         if !response.success.unwrap_or(false) {
             return Err(CcxtError::InvalidOrder {
@@ -805,9 +849,7 @@ impl Exchange for Btcalpha {
         let path = format!("/v1/order/{id}/");
         let params = HashMap::new();
 
-        let response: BtcalphaOrder = self
-            .private_request("GET", &path, params)
-            .await?;
+        let response: BtcalphaOrder = self.private_request("GET", &path, params).await?;
 
         Ok(self.parse_order(&response, None))
     }
@@ -837,7 +879,9 @@ impl Exchange for Btcalpha {
         let orders: Vec<Order> = response
             .iter()
             .map(|o| {
-                let sym = o.pair.as_ref()
+                let sym = o
+                    .pair
+                    .as_ref()
                     .and_then(|p| markets_by_id.get(p))
                     .map(|s| s.as_str());
                 self.parse_order(o, sym)
@@ -873,7 +917,9 @@ impl Exchange for Btcalpha {
         let orders: Vec<Order> = response
             .iter()
             .map(|o| {
-                let sym = o.pair.as_ref()
+                let sym = o
+                    .pair
+                    .as_ref()
                     .and_then(|p| markets_by_id.get(p))
                     .map(|s| s.as_str());
                 self.parse_order(o, sym)
@@ -920,7 +966,9 @@ impl Exchange for Btcalpha {
         let orders: Vec<Order> = response
             .iter()
             .map(|o| {
-                let sym = o.pair.as_ref()
+                let sym = o
+                    .pair
+                    .as_ref()
                     .and_then(|p| markets_by_id.get(p))
                     .map(|s| s.as_str());
                 self.parse_order(o, sym)
@@ -977,9 +1025,8 @@ impl Exchange for Btcalpha {
     ) -> CcxtResult<Vec<Transaction>> {
         let params = HashMap::new();
 
-        let response: Vec<BtcalphaTransaction> = self
-            .private_request("GET", "/v1/deposits/", params)
-            .await?;
+        let response: Vec<BtcalphaTransaction> =
+            self.private_request("GET", "/v1/deposits/", params).await?;
 
         let transactions: Vec<Transaction> = response
             .iter()
@@ -1062,7 +1109,10 @@ impl Exchange for Btcalpha {
             headers.insert("X-NONCE".into(), nonce);
 
             if method == "POST" {
-                headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+                headers.insert(
+                    "Content-Type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
             } else if !query.is_empty() {
                 url = format!("{url}?{query}");
             }

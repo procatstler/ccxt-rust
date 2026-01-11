@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha512 = Hmac<Sha512>;
@@ -161,12 +161,18 @@ impl Exmo {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // Add nonce
         let mut body_params = params.clone();
@@ -180,8 +186,8 @@ impl Exmo {
             .join("&");
 
         // Create HMAC-SHA512 signature
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha512::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(body.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -189,7 +195,9 @@ impl Exmo {
         headers.insert("Key".into(), api_key.to_string());
         headers.insert("Sign".into(), signature);
 
-        self.private_client.post_form(path, &body_params, Some(headers)).await
+        self.private_client
+            .post_form(path, &body_params, Some(headers))
+            .await
     }
 
     /// 심볼 → 마켓 ID 변환 (BTC/USDT → BTC_USDT)
@@ -205,7 +213,10 @@ impl Exmo {
             .cloned()
             .unwrap_or_else(|| market_id.replace("_", "/"));
 
-        let timestamp = data.updated.unwrap_or_else(|| Utc::now().timestamp_millis() / 1000) * 1000;
+        let timestamp = data
+            .updated
+            .unwrap_or_else(|| Utc::now().timestamp_millis() / 1000)
+            * 1000;
 
         Ok(Ticker {
             symbol: symbol.clone(),
@@ -286,20 +297,31 @@ impl Exmo {
         };
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.quantity.as_ref().and_then(|q| q.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .quantity
+            .as_ref()
+            .and_then(|q| q.parse().ok())
+            .unwrap_or_default();
         let cost: Option<Decimal> = data.amount.as_ref().and_then(|a| a.parse().ok());
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let symbol_str = if let Some(s) = symbol {
             s.to_string()
         } else if let Some(pair) = &data.pair {
-            markets_by_id.get(pair).cloned().unwrap_or_else(|| pair.replace("_", "/"))
+            markets_by_id
+                .get(pair)
+                .cloned()
+                .unwrap_or_else(|| pair.replace("_", "/"))
         } else {
             String::new()
         };
 
         Order {
-            id: data.order_id.as_ref().unwrap_or(&"".to_string()).to_string(),
+            id: data
+                .order_id
+                .as_ref()
+                .unwrap_or(&"".to_string())
+                .to_string(),
             client_order_id: data.client_id.map(|id| id.to_string()),
             timestamp: Some(timestamp),
             datetime: Some(
@@ -334,7 +356,11 @@ impl Exmo {
     }
 
     /// 잔고 응답 파싱
-    fn parse_balance(&self, balances: &HashMap<String, String>, reserved: &HashMap<String, String>) -> Balances {
+    fn parse_balance(
+        &self,
+        balances: &HashMap<String, String>,
+        reserved: &HashMap<String, String>,
+    ) -> Balances {
         let mut result = Balances::new();
 
         for (currency_id, free_str) in balances {
@@ -424,9 +450,8 @@ impl Exchange for Exmo {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: HashMap<String, ExmoPairSettings> = self
-            .public_get("/v1.1/pair_settings", None)
-            .await?;
+        let response: HashMap<String, ExmoPairSettings> =
+            self.public_get("/v1.1/pair_settings", None).await?;
 
         let mut markets = Vec::new();
 
@@ -462,8 +487,12 @@ impl Exchange for Exmo {
                 linear: None,
                 inverse: None,
                 sub_type: None,
-                taker: settings.commission_taker_percent.map(|p| p / Decimal::from(100)),
-                maker: settings.commission_maker_percent.map(|p| p / Decimal::from(100)),
+                taker: settings
+                    .commission_taker_percent
+                    .map(|p| p / Decimal::from(100)),
+                maker: settings
+                    .commission_maker_percent
+                    .map(|p| p / Decimal::from(100)),
                 contract_size: None,
                 expiry: None,
                 expiry_datetime: None,
@@ -477,10 +506,22 @@ impl Exchange for Exmo {
                     quote: settings.price_precision,
                 },
                 limits: MarketLimits {
-                    leverage: MinMax { min: None, max: None },
-                    amount: MinMax { min: Some(settings.min_quantity), max: Some(settings.max_quantity) },
-                    price: MinMax { min: Some(settings.min_price), max: Some(settings.max_price) },
-                    cost: MinMax { min: Some(settings.min_amount), max: Some(settings.max_amount) },
+                    leverage: MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    amount: MinMax {
+                        min: Some(settings.min_quantity),
+                        max: Some(settings.max_quantity),
+                    },
+                    price: MinMax {
+                        min: Some(settings.min_price),
+                        max: Some(settings.max_price),
+                    },
+                    cost: MinMax {
+                        min: Some(settings.min_amount),
+                        max: Some(settings.max_amount),
+                    },
                 },
                 margin_modes: None,
                 created: None,
@@ -497,21 +538,19 @@ impl Exchange for Exmo {
 
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let market_id = self.to_market_id(symbol);
-        let response: HashMap<String, ExmoTicker> = self
-            .public_get("/v1.1/ticker", None)
-            .await?;
+        let response: HashMap<String, ExmoTicker> = self.public_get("/v1.1/ticker", None).await?;
 
-        let ticker = response.get(&market_id).ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })?;
+        let ticker = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
         self.parse_ticker(ticker, &market_id)
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: HashMap<String, ExmoTicker> = self
-            .public_get("/v1.1/ticker", None)
-            .await?;
+        let response: HashMap<String, ExmoTicker> = self.public_get("/v1.1/ticker", None).await?;
 
         let mut tickers = HashMap::new();
 
@@ -538,13 +577,14 @@ impl Exchange for Exmo {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: HashMap<String, ExmoOrderBook> = self
-            .public_get("/v1.1/order_book", Some(params))
-            .await?;
+        let response: HashMap<String, ExmoOrderBook> =
+            self.public_get("/v1.1/order_book", Some(params)).await?;
 
-        let orderbook = response.get(&market_id).ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })?;
+        let orderbook = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
         let bids: Vec<OrderBookEntry> = orderbook
             .bid
@@ -571,6 +611,7 @@ impl Exchange for Exmo {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -584,13 +625,14 @@ impl Exchange for Exmo {
         let mut params = HashMap::new();
         params.insert("pair".into(), market_id.clone());
 
-        let response: HashMap<String, Vec<ExmoTrade>> = self
-            .public_get("/v1.1/trades", Some(params))
-            .await?;
+        let response: HashMap<String, Vec<ExmoTrade>> =
+            self.public_get("/v1.1/trades", Some(params)).await?;
 
-        let trades_data = response.get(&market_id).ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })?;
+        let trades_data = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
         let trades: Vec<Trade> = trades_data
             .iter()
@@ -608,9 +650,12 @@ impl Exchange for Exmo {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let duration = match timeframe {
             Timeframe::Minute1 => 60,
@@ -663,9 +708,7 @@ impl Exchange for Exmo {
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let params = HashMap::new();
 
-        let response: ExmoUserInfo = self
-            .private_post("/v1.1/user_info", params)
-            .await?;
+        let response: ExmoUserInfo = self.private_post("/v1.1/user_info", params).await?;
 
         Ok(self.parse_balance(&response.balances, &response.reserved))
     }
@@ -689,9 +732,11 @@ impl Exchange for Exmo {
             (OrderType::Market, OrderSide::Sell) => "market_sell",
             (OrderType::Limit, OrderSide::Buy) => "buy",
             (OrderType::Limit, OrderSide::Sell) => "sell",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
         params.insert("type".into(), type_str.into());
 
@@ -704,9 +749,7 @@ impl Exchange for Exmo {
             params.insert("price".into(), "0".into());
         }
 
-        let response: ExmoOrderResponse = self
-            .private_post("/v1.1/order_create", params)
-            .await?;
+        let response: ExmoOrderResponse = self.private_post("/v1.1/order_create", params).await?;
 
         let order = ExmoOrder {
             order_id: Some(response.order_id.to_string()),
@@ -728,9 +771,7 @@ impl Exchange for Exmo {
         let mut params = HashMap::new();
         params.insert("order_id".into(), id.to_string());
 
-        let response: serde_json::Value = self
-            .private_post("/v1.1/order_cancel", params)
-            .await?;
+        let response: serde_json::Value = self.private_post("/v1.1/order_cancel", params).await?;
 
         let order = ExmoOrder {
             order_id: Some(id.to_string()),
@@ -756,9 +797,8 @@ impl Exchange for Exmo {
         let mut params = HashMap::new();
         params.insert("order_id".into(), id.to_string());
 
-        let response: ExmoOrderTradesResponse = self
-            .private_post("/v1.1/order_trades", params)
-            .await?;
+        let response: ExmoOrderTradesResponse =
+            self.private_post("/v1.1/order_trades", params).await?;
 
         let order = ExmoOrder {
             order_id: Some(id.to_string()),
@@ -784,17 +824,14 @@ impl Exchange for Exmo {
     ) -> CcxtResult<Vec<Order>> {
         let params = HashMap::new();
 
-        let response: HashMap<String, Vec<ExmoOrder>> = self
-            .private_post("/v1.1/user_open_orders", params)
-            .await?;
+        let response: HashMap<String, Vec<ExmoOrder>> =
+            self.private_post("/v1.1/user_open_orders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut orders = Vec::new();
 
         for (market_id, market_orders) in response {
-            let symbol = markets_by_id
-                .get(&market_id)
-                .map(|s| s.as_str());
+            let symbol = markets_by_id.get(&market_id).map(|s| s.as_str());
 
             for order_data in market_orders {
                 orders.push(self.parse_order(&order_data, symbol));
@@ -821,13 +858,14 @@ impl Exchange for Exmo {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: HashMap<String, Vec<ExmoMyTrade>> = self
-            .private_post("/v1.1/user_trades", params)
-            .await?;
+        let response: HashMap<String, Vec<ExmoMyTrade>> =
+            self.private_post("/v1.1/user_trades", params).await?;
 
-        let trades_data = response.get(&market_id).ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("No trades found for {symbol}"),
-        })?;
+        let trades_data = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("No trades found for {symbol}"),
+            })?;
 
         let trades: Vec<Trade> = trades_data
             .iter()

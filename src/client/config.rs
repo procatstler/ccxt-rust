@@ -1,5 +1,123 @@
 //! Exchange configuration
 
+/// 프록시 설정
+#[derive(Debug, Clone, Default)]
+pub struct ProxyConfig {
+    /// HTTP/HTTPS 프록시 URL (예: "http://127.0.0.1:8080")
+    pub http_proxy: Option<String>,
+    /// SOCKS5 프록시 URL (예: "socks5://127.0.0.1:1080")
+    pub socks_proxy: Option<String>,
+    /// 프록시 인증 사용자명
+    pub proxy_username: Option<String>,
+    /// 프록시 인증 비밀번호
+    pub proxy_password: Option<String>,
+    /// 프록시 바이패스 호스트 목록
+    pub no_proxy: Vec<String>,
+}
+
+impl ProxyConfig {
+    /// 새로운 프록시 설정 생성
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// HTTP 프록시 설정
+    pub fn with_http_proxy(mut self, proxy: impl Into<String>) -> Self {
+        self.http_proxy = Some(proxy.into());
+        self
+    }
+
+    /// SOCKS5 프록시 설정
+    pub fn with_socks_proxy(mut self, proxy: impl Into<String>) -> Self {
+        self.socks_proxy = Some(proxy.into());
+        self
+    }
+
+    /// 프록시 인증 설정
+    pub fn with_auth(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
+        self.proxy_username = Some(username.into());
+        self.proxy_password = Some(password.into());
+        self
+    }
+
+    /// 바이패스 호스트 추가
+    pub fn with_no_proxy(mut self, hosts: Vec<String>) -> Self {
+        self.no_proxy = hosts;
+        self
+    }
+
+    /// 프록시 설정 여부 확인
+    pub fn is_configured(&self) -> bool {
+        self.http_proxy.is_some() || self.socks_proxy.is_some()
+    }
+}
+
+/// 재시도 설정
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// 최대 재시도 횟수
+    pub max_retries: u32,
+    /// 초기 대기 시간 (밀리초)
+    pub initial_delay_ms: u64,
+    /// 최대 대기 시간 (밀리초)
+    pub max_delay_ms: u64,
+    /// 지수 백오프 배수
+    pub backoff_multiplier: f64,
+    /// 재시도할 HTTP 상태 코드
+    pub retry_status_codes: Vec<u16>,
+    /// 네트워크 에러 재시도 여부
+    pub retry_on_network_error: bool,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_delay_ms: 1000,
+            max_delay_ms: 30000,
+            backoff_multiplier: 2.0,
+            retry_status_codes: vec![429, 500, 502, 503, 504],
+            retry_on_network_error: true,
+        }
+    }
+}
+
+impl RetryConfig {
+    /// 새로운 재시도 설정 생성
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 최대 재시도 횟수 설정
+    pub fn with_max_retries(mut self, max: u32) -> Self {
+        self.max_retries = max;
+        self
+    }
+
+    /// 초기 대기 시간 설정
+    pub fn with_initial_delay(mut self, delay_ms: u64) -> Self {
+        self.initial_delay_ms = delay_ms;
+        self
+    }
+
+    /// 최대 대기 시간 설정
+    pub fn with_max_delay(mut self, delay_ms: u64) -> Self {
+        self.max_delay_ms = delay_ms;
+        self
+    }
+
+    /// N번째 재시도 대기 시간 계산
+    pub fn delay_for_attempt(&self, attempt: u32) -> u64 {
+        let delay = self.initial_delay_ms as f64 * self.backoff_multiplier.powi(attempt as i32);
+        (delay as u64).min(self.max_delay_ms)
+    }
+
+    /// 해당 상태 코드가 재시도 대상인지 확인
+    pub fn should_retry_status(&self, status: u16) -> bool {
+        self.retry_status_codes.contains(&status)
+    }
+}
+
 /// 거래소 설정
 #[derive(Debug, Clone, Default)]
 pub struct ExchangeConfig {
@@ -12,6 +130,10 @@ pub struct ExchangeConfig {
     timeout_ms: u64,
     rate_limit_ms: u64,
     hostname: Option<String>,
+    /// 프록시 설정
+    proxy: Option<ProxyConfig>,
+    /// 재시도 설정
+    retry: Option<RetryConfig>,
 }
 
 impl ExchangeConfig {
@@ -27,6 +149,8 @@ impl ExchangeConfig {
             timeout_ms: 30000,
             rate_limit_ms: 1000, // 초당 1회
             hostname: None,
+            proxy: None,
+            retry: None,
         }
     }
 
@@ -95,6 +219,40 @@ impl ExchangeConfig {
         self
     }
 
+    /// 프록시 설정
+    pub fn with_proxy(mut self, proxy: ProxyConfig) -> Self {
+        self.proxy = Some(proxy);
+        self
+    }
+
+    /// HTTP 프록시 간편 설정
+    pub fn with_http_proxy(mut self, proxy_url: impl Into<String>) -> Self {
+        self.proxy = Some(ProxyConfig::new().with_http_proxy(proxy_url));
+        self
+    }
+
+    /// SOCKS5 프록시 간편 설정
+    pub fn with_socks_proxy(mut self, proxy_url: impl Into<String>) -> Self {
+        self.proxy = Some(ProxyConfig::new().with_socks_proxy(proxy_url));
+        self
+    }
+
+    /// 재시도 설정
+    pub fn with_retry(mut self, retry: RetryConfig) -> Self {
+        self.retry = Some(retry);
+        self
+    }
+
+    /// 재시도 횟수 간편 설정
+    pub fn with_max_retries(mut self, max_retries: u32) -> Self {
+        let retry = self.retry.unwrap_or_default();
+        self.retry = Some(RetryConfig {
+            max_retries,
+            ..retry
+        });
+        self
+    }
+
     // === Getters ===
 
     pub fn api_key(&self) -> Option<&str> {
@@ -141,6 +299,29 @@ impl ExchangeConfig {
     /// 인증 정보 유효성 확인
     pub fn has_credentials(&self) -> bool {
         self.api_key.is_some() && self.api_secret.is_some()
+    }
+
+    /// 프록시 설정 조회
+    pub fn proxy(&self) -> Option<&ProxyConfig> {
+        self.proxy.as_ref()
+    }
+
+    /// 재시도 설정 조회
+    pub fn retry(&self) -> Option<&RetryConfig> {
+        self.retry.as_ref()
+    }
+
+    /// 재시도 설정 조회 (기본값 포함)
+    pub fn retry_config(&self) -> RetryConfig {
+        self.retry.clone().unwrap_or_default()
+    }
+
+    /// 프록시 설정 여부 확인
+    pub fn has_proxy(&self) -> bool {
+        self.proxy
+            .as_ref()
+            .map(|p| p.is_configured())
+            .unwrap_or(false)
     }
 }
 

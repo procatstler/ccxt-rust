@@ -17,9 +17,9 @@ use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
-    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent,
+    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent,
     WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent,
-    WsTickerEvent, WsTradeEvent,
+    WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -156,27 +156,35 @@ impl BitmartWs {
 
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &BitmartOrderBookData, symbol: &str) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let timestamp = data.ms_t.unwrap_or_else(|| Utc::now().timestamp_millis());
         let unified_symbol = Self::to_unified_symbol(symbol);
@@ -192,6 +200,7 @@ impl BitmartWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -203,10 +212,21 @@ impl BitmartWs {
 
     /// 체결 메시지 파싱
     fn parse_trade(data: &BitmartTradeData, symbol: &str) -> WsTradeEvent {
-        let timestamp = data.s_t.map(|t| t * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .s_t
+            .map(|t| t * 1000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let unified_symbol = Self::to_unified_symbol(symbol);
-        let price = data.price.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
-        let amount = data.size.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+        let price = data
+            .price
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
+        let amount = data
+            .size
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
 
         let trades = vec![Trade {
             id: String::new(),
@@ -240,22 +260,35 @@ impl BitmartWs {
         let unified_symbol = Self::to_unified_symbol(symbol);
 
         let ohlcv = OHLCV {
-            timestamp: data.candle.first()
+            timestamp: data
+                .candle
+                .first()
                 .and_then(|t| t.parse::<i64>().ok())
-                .unwrap_or(0) * 1000,
-            open: data.candle.get(1)
+                .unwrap_or(0)
+                * 1000,
+            open: data
+                .candle
+                .get(1)
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default(),
-            high: data.candle.get(2)
+            high: data
+                .candle
+                .get(2)
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default(),
-            low: data.candle.get(3)
+            low: data
+                .candle
+                .get(3)
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default(),
-            close: data.candle.get(4)
+            close: data
+                .candle
+                .get(4)
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default(),
-            volume: data.candle.get(5)
+            volume: data
+                .candle
+                .get(5)
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default(),
         };
@@ -268,7 +301,11 @@ impl BitmartWs {
     }
 
     /// 메시지 처리
-    fn process_message(msg: &str, subscribed_symbol: Option<&str>, subscribed_timeframe: Option<Timeframe>) -> Option<WsMessage> {
+    fn process_message(
+        msg: &str,
+        subscribed_symbol: Option<&str>,
+        subscribed_timeframe: Option<Timeframe>,
+    ) -> Option<WsMessage> {
         // Pong 메시지 처리
         if msg.contains("\"pong\"") || msg.contains("pong") {
             return None;
@@ -282,34 +319,48 @@ impl BitmartWs {
         match table {
             s if s.contains("ticker") => {
                 if let Some(first) = data.first() {
-                    if let Ok(ticker_data) = serde_json::from_value::<BitmartTickerData>(first.clone()) {
+                    if let Ok(ticker_data) =
+                        serde_json::from_value::<BitmartTickerData>(first.clone())
+                    {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                     }
                 }
-            }
+            },
             s if s.contains("depth") => {
                 if let Some(first) = data.first() {
-                    if let Ok(book_data) = serde_json::from_value::<BitmartOrderBookData>(first.clone()) {
-                        return Some(WsMessage::OrderBook(Self::parse_order_book(&book_data, symbol)));
+                    if let Ok(book_data) =
+                        serde_json::from_value::<BitmartOrderBookData>(first.clone())
+                    {
+                        return Some(WsMessage::OrderBook(Self::parse_order_book(
+                            &book_data, symbol,
+                        )));
                     }
                 }
-            }
+            },
             s if s.contains("trade") => {
                 if let Some(first) = data.first() {
-                    if let Ok(trade_data) = serde_json::from_value::<BitmartTradeData>(first.clone()) {
+                    if let Ok(trade_data) =
+                        serde_json::from_value::<BitmartTradeData>(first.clone())
+                    {
                         return Some(WsMessage::Trade(Self::parse_trade(&trade_data, symbol)));
                     }
                 }
-            }
+            },
             s if s.contains("kline") => {
                 if let Some(first) = data.first() {
-                    if let Ok(kline_data) = serde_json::from_value::<BitmartKlineData>(first.clone()) {
+                    if let Ok(kline_data) =
+                        serde_json::from_value::<BitmartKlineData>(first.clone())
+                    {
                         let timeframe = subscribed_timeframe.unwrap_or(Timeframe::Minute1);
-                        return Some(WsMessage::Ohlcv(Self::parse_candle(&kline_data, symbol, timeframe)));
+                        return Some(WsMessage::Ohlcv(Self::parse_candle(
+                            &kline_data,
+                            symbol,
+                            timeframe,
+                        )));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -321,7 +372,7 @@ impl BitmartWs {
         subscribe_msg: serde_json::Value,
         channel: &str,
         symbol: Option<&str>,
-        timeframe: Option<Timeframe>
+        timeframe: Option<Timeframe>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -333,6 +384,7 @@ impl BitmartWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 15,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -345,7 +397,10 @@ impl BitmartWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -356,19 +411,21 @@ impl BitmartWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
-                        if let Some(ws_msg) = Self::process_message(&msg, subscribed_symbol.as_deref(), timeframe) {
+                        if let Some(ws_msg) =
+                            Self::process_message(&msg, subscribed_symbol.as_deref(), timeframe)
+                        {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -378,28 +435,43 @@ impl BitmartWs {
 
     /// 인증 서명 생성 (HMAC-SHA256)
     /// Sign: timestamp + "#" + memo + "#" + body
-    fn generate_auth_signature(api_secret: &str, timestamp: &str, memo: &str) -> CcxtResult<String> {
+    fn generate_auth_signature(
+        api_secret: &str,
+        timestamp: &str,
+        memo: &str,
+    ) -> CcxtResult<String> {
         let sign_str = format!("{timestamp}#{memo}#bitmart.WebSocket");
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".into(),
-            })?;
+            }
+        })?;
         mac.update(sign_str.as_bytes());
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
 
     /// Private 스트림에 연결하고 이벤트 수신
-    async fn subscribe_private_stream(&mut self, channel: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Config required for private streams".into(),
-        })?;
+    async fn subscribe_private_stream(
+        &mut self,
+        channel: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Config required for private streams".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
         let memo = config.uid().unwrap_or("");
 
         let timestamp = Utc::now().timestamp_millis().to_string();
@@ -415,6 +487,7 @@ impl BitmartWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 15,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -457,7 +530,10 @@ impl BitmartWs {
         // 구독 저장
         {
             let key = format!("private:{channel}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -467,19 +543,19 @@ impl BitmartWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -501,14 +577,20 @@ impl BitmartWs {
         match table {
             s if s.contains("balance") || s.contains("BALANCE") => {
                 if let Some(first) = data.first() {
-                    if let Ok(balance_data) = serde_json::from_value::<BitmartBalanceData>(first.clone()) {
-                        return Some(WsMessage::Balance(Self::parse_balance_update(&balance_data)));
+                    if let Ok(balance_data) =
+                        serde_json::from_value::<BitmartBalanceData>(first.clone())
+                    {
+                        return Some(WsMessage::Balance(Self::parse_balance_update(
+                            &balance_data,
+                        )));
                     }
                 }
-            }
+            },
             s if s.contains("order") || s.contains("ORDER") => {
                 if let Some(first) = data.first() {
-                    if let Ok(order_data) = serde_json::from_value::<BitmartOrderData>(first.clone()) {
+                    if let Ok(order_data) =
+                        serde_json::from_value::<BitmartOrderData>(first.clone())
+                    {
                         // 체결 내역인지 주문 업데이트인지 확인
                         if order_data.deal_price.is_some() && order_data.deal_vol.is_some() {
                             return Some(WsMessage::Trade(Self::parse_my_trade(&order_data)));
@@ -516,15 +598,19 @@ impl BitmartWs {
                         return Some(WsMessage::Order(Self::parse_order_update(&order_data)));
                     }
                 }
-            }
+            },
             s if s.contains("position") || s.contains("POSITION") => {
                 if let Some(first) = data.first() {
-                    if let Ok(position_data) = serde_json::from_value::<BitmartPositionData>(first.clone()) {
-                        return Some(WsMessage::Position(Self::parse_position_update(&position_data)));
+                    if let Ok(position_data) =
+                        serde_json::from_value::<BitmartPositionData>(first.clone())
+                    {
+                        return Some(WsMessage::Position(Self::parse_position_update(
+                            &position_data,
+                        )));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -540,10 +626,11 @@ impl BitmartWs {
         };
 
         if let Some(currency) = &data.currency {
-            let free = data.available.as_ref()
+            let free = data
+                .available
+                .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok());
-            let used = data.frozen.as_ref()
-                .and_then(|v| Decimal::from_str(v).ok());
+            let used = data.frozen.as_ref().and_then(|v| Decimal::from_str(v).ok());
             let total = match (free, used) {
                 (Some(f), Some(u)) => Some(f + u),
                 (Some(f), None) => Some(f),
@@ -551,12 +638,15 @@ impl BitmartWs {
                 _ => None,
             };
 
-            balances.currencies.insert(currency.clone(), Balance {
-                free,
-                used,
-                total,
-                debt: None,
-            });
+            balances.currencies.insert(
+                currency.clone(),
+                Balance {
+                    free,
+                    used,
+                    total,
+                    debt: None,
+                },
+            );
         }
 
         WsBalanceEvent { balances }
@@ -564,7 +654,9 @@ impl BitmartWs {
 
     /// 주문 업데이트 파싱
     fn parse_order_update(data: &BitmartOrderData) -> WsOrderEvent {
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
@@ -589,16 +681,20 @@ impl BitmartWs {
             _ => OrderStatus::Open,
         };
 
-        let price = data.price.as_ref()
-            .and_then(|v| Decimal::from_str(v).ok());
-        let amount = data.size.as_ref()
+        let price = data.price.as_ref().and_then(|v| Decimal::from_str(v).ok());
+        let amount = data
+            .size
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or(Decimal::ZERO);
-        let filled = data.filled_size.as_ref()
+        let filled = data
+            .filled_size
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or(Decimal::ZERO);
 
-        let timestamp = data.create_time
+        let timestamp = data
+            .create_time
             .or(data.update_time)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -610,7 +706,10 @@ impl BitmartWs {
             side,
             status,
             price,
-            average: data.price_avg.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            average: data
+                .price_avg
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             amount,
             filled,
             remaining: Some(amount - filled),
@@ -641,7 +740,9 @@ impl BitmartWs {
 
     /// 내 체결 파싱
     fn parse_my_trade(data: &BitmartOrderData) -> WsTradeEvent {
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
@@ -651,14 +752,20 @@ impl BitmartWs {
             _ => None,
         };
 
-        let price = data.deal_price.as_ref()
+        let price = data
+            .deal_price
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or(Decimal::ZERO);
-        let amount = data.deal_vol.as_ref()
+        let amount = data
+            .deal_vol
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or(Decimal::ZERO);
 
-        let timestamp = data.update_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .update_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let fee = data.deal_fee.as_ref().and_then(|fee_str| {
             let fee_amount = Decimal::from_str(fee_str).ok()?;
@@ -695,7 +802,9 @@ impl BitmartWs {
 
     /// 포지션 업데이트 파싱
     fn parse_position_update(data: &BitmartPositionData) -> WsPositionEvent {
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
@@ -705,7 +814,9 @@ impl BitmartWs {
             _ => PositionSide::Long,
         };
 
-        let contracts = data.hold_vol.as_ref()
+        let contracts = data
+            .hold_vol
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or(Decimal::ZERO);
 
@@ -718,13 +829,31 @@ impl BitmartWs {
             contracts: Some(contracts),
             contract_size: None,
             notional: None,
-            leverage: data.leverage.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            unrealized_pnl: data.unrealized_pnl.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            realized_pnl: data.realized_pnl.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            leverage: data
+                .leverage
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            unrealized_pnl: data
+                .unrealized_pnl
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            realized_pnl: data
+                .realized_pnl
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             collateral: None,
-            entry_price: data.entry_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            mark_price: data.mark_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            liquidation_price: data.liquidation_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            entry_price: data
+                .entry_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            mark_price: data
+                .mark_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            liquidation_price: data
+                .liquidation_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             margin_mode: Some(MarginMode::Cross),
             hedged: None,
             maintenance_margin: None,
@@ -740,7 +869,9 @@ impl BitmartWs {
             info: serde_json::Value::Null,
         };
 
-        WsPositionEvent { positions: vec![position] }
+        WsPositionEvent {
+            positions: vec![position],
+        }
     }
 }
 
@@ -759,22 +890,34 @@ impl WsExchange for BitmartWs {
             "op": "subscribe",
             "args": [format!("spot/ticker:{}", formatted)]
         });
-        client.subscribe_stream(subscribe_msg, "ticker", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "ticker", Some(&formatted), None)
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let args: Vec<String> = symbols.iter()
+        let args: Vec<String> = symbols
+            .iter()
             .map(|s| format!("spot/ticker:{}", Self::format_symbol(s)))
             .collect();
         let subscribe_msg = serde_json::json!({
             "op": "subscribe",
             "args": args
         });
-        client.subscribe_stream(subscribe_msg, "tickers", None, None).await
+        client
+            .subscribe_stream(subscribe_msg, "tickers", None, None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let depth = limit.unwrap_or(20);
@@ -782,7 +925,9 @@ impl WsExchange for BitmartWs {
             "op": "subscribe",
             "args": [format!("spot/depth{}:{}", depth, formatted)]
         });
-        client.subscribe_stream(subscribe_msg, "orderBook", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "orderBook", Some(&formatted), None)
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -792,10 +937,16 @@ impl WsExchange for BitmartWs {
             "op": "subscribe",
             "args": [format!("spot/trade:{}", formatted)]
         });
-        client.subscribe_stream(subscribe_msg, "trade", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "trade", Some(&formatted), None)
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -803,7 +954,9 @@ impl WsExchange for BitmartWs {
             "op": "subscribe",
             "args": [format!("spot/kline{}:{}", interval, formatted)]
         });
-        client.subscribe_stream(subscribe_msg, "kline", Some(&formatted), Some(timeframe)).await
+        client
+            .subscribe_stream(subscribe_msg, "kline", Some(&formatted), Some(timeframe))
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -833,32 +986,48 @@ impl WsExchange for BitmartWs {
         client.subscribe_private_stream("balance").await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("orders").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("myTrades").await
     }
 
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("positions").await
     }
 
     async fn ws_authenticate(&mut self) -> CcxtResult<()> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Config required for authentication".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Config required for authentication".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
         let memo = config.uid().unwrap_or("");
 
         let timestamp = Utc::now().timestamp_millis().to_string();
@@ -871,6 +1040,7 @@ impl WsExchange for BitmartWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 15,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut _ws_rx = ws_client.connect().await?;
@@ -1121,7 +1291,10 @@ mod tests {
         assert_eq!(event.order.symbol, "BTC/USDT");
         assert_eq!(event.order.side, OrderSide::Buy);
         assert_eq!(event.order.status, OrderStatus::Open);
-        assert_eq!(event.order.price, Some(Decimal::from_str("50000.00").unwrap()));
+        assert_eq!(
+            event.order.price,
+            Some(Decimal::from_str("50000.00").unwrap())
+        );
     }
 
     #[test]
@@ -1250,10 +1423,7 @@ mod tests {
 
     #[test]
     fn test_with_credentials() {
-        let ws = BitmartWs::with_credentials(
-            "test_key".to_string(),
-            "test_secret".to_string(),
-        );
+        let ws = BitmartWs::with_credentials("test_key".to_string(), "test_secret".to_string());
         assert!(ws.config.is_some());
         let config = ws.config.unwrap();
         assert_eq!(config.api_key(), Some("test_key"));
@@ -1264,10 +1434,7 @@ mod tests {
     fn test_set_credentials() {
         let mut ws = BitmartWs::new();
         assert!(ws.config.is_none());
-        ws.set_credentials(
-            "test_key".to_string(),
-            "test_secret".to_string(),
-        );
+        ws.set_credentials("test_key".to_string(), "test_secret".to_string());
         assert!(ws.config.is_some());
         let config = ws.config.unwrap();
         assert_eq!(config.api_key(), Some("test_key"));

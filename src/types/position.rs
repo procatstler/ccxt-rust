@@ -18,7 +18,6 @@ pub enum PositionSide {
     Unknown,
 }
 
-
 /// Margin mode for position
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -30,7 +29,6 @@ pub enum MarginMode {
     #[default]
     Unknown,
 }
-
 
 /// Position mode (hedged vs one-way)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -45,7 +43,6 @@ pub enum PositionMode {
     #[default]
     Unknown,
 }
-
 
 /// Position mode information
 #[derive(Debug, Clone, Serialize, Deserialize)]

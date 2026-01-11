@@ -21,9 +21,9 @@ use uuid::Uuid;
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent,
-    WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent, WsOrderEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://api.upbit.com/websocket/v1";
@@ -90,7 +90,9 @@ impl UpbitWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &UpbitTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.code);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
@@ -128,7 +130,9 @@ impl UpbitWs {
     fn parse_order_book(data: &UpbitOrderBookData) -> WsOrderBookEvent {
         let symbol = Self::to_unified_symbol(&data.code);
 
-        let bids: Vec<OrderBookEntry> = data.orderbook_units.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .orderbook_units
+            .iter()
             .filter_map(|u| {
                 Some(OrderBookEntry {
                     price: u.bid_price?,
@@ -137,7 +141,9 @@ impl UpbitWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.orderbook_units.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .orderbook_units
+            .iter()
             .filter_map(|u| {
                 Some(OrderBookEntry {
                     price: u.ask_price?,
@@ -146,7 +152,9 @@ impl UpbitWs {
             })
             .collect();
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.clone(),
@@ -159,19 +167,22 @@ impl UpbitWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
             symbol,
             order_book,
-            is_snapshot: true,  // Upbit always sends full orderbook
+            is_snapshot: true, // Upbit always sends full orderbook
         }
     }
 
     /// 체결 메시지 파싱
     fn parse_trade(data: &UpbitTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.code);
-        let timestamp = data.trade_timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .trade_timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.trade_price.unwrap_or_default();
         let amount: Decimal = data.trade_volume.unwrap_or_default();
 
@@ -182,7 +193,10 @@ impl UpbitWs {
         };
 
         let trades = vec![Trade {
-            id: data.sequential_id.map(|id| id.to_string()).unwrap_or_default(),
+            id: data
+                .sequential_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             order: None,
             timestamp: Some(timestamp),
             datetime: Some(
@@ -235,7 +249,7 @@ impl UpbitWs {
         msg_type: &str,
         codes: Vec<String>,
         channel: &str,
-        symbol: Option<&str>
+        symbol: Option<&str>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -245,8 +259,9 @@ impl UpbitWs {
             auto_reconnect: true,
             reconnect_interval_ms: 5000,
             max_reconnect_attempts: 10,
-            ping_interval_secs: 120,  // Upbit requires ping every 2 minutes
+            ping_interval_secs: 120, // Upbit requires ping every 2 minutes
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -266,7 +281,10 @@ impl UpbitWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -276,19 +294,19 @@ impl UpbitWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -320,10 +338,11 @@ impl UpbitWs {
         let message = format!("{header_b64}.{payload_b64}");
 
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".to_string(),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
@@ -336,12 +355,18 @@ impl UpbitWs {
         channel: &str,
         symbol: Option<&str>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".to_string(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channels".to_string(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".to_string(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for private channels".to_string(),
+                })?;
 
         let jwt = Self::create_jwt(api_key, api_secret)?;
 
@@ -359,6 +384,7 @@ impl UpbitWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 120,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -382,18 +408,18 @@ impl UpbitWs {
                         {"type": "myOrder", "isOnlyRealtime": true}
                     ])
                 }
-            }
+            },
             "myAsset" => {
                 serde_json::json!([
                     {"ticket": ticket},
                     {"type": "myAsset", "isOnlyRealtime": true}
                 ])
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Unknown private channel: {channel}"),
                 });
-            }
+            },
         };
 
         ws_client.send(&subscribe_msg.to_string())?;
@@ -402,7 +428,10 @@ impl UpbitWs {
         // Save subscription
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or("all"));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Event processing task
@@ -413,19 +442,19 @@ impl UpbitWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg, &channel_clone) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -442,26 +471,30 @@ impl UpbitWs {
                         return Some(WsMessage::Order(Self::parse_order(&order_data)));
                     }
                 }
-            }
+            },
             "myAsset" => {
                 if let Ok(asset_data) = serde_json::from_str::<UpbitMyAssetData>(msg) {
                     if asset_data.msg_type.as_deref() == Some("myAsset") {
                         return Some(WsMessage::Balance(Self::parse_balance(&asset_data)));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
         None
     }
 
     /// 주문 데이터 파싱
     fn parse_order(data: &UpbitMyOrderData) -> WsOrderEvent {
-        let symbol = data.code.as_ref()
+        let symbol = data
+            .code
+            .as_ref()
             .map(|c| Self::to_unified_symbol(c))
             .unwrap_or_default();
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let status = match data.state.as_deref() {
             Some("wait") | Some("watch") => OrderStatus::Open,
@@ -522,7 +555,9 @@ impl UpbitWs {
     /// 잔고 데이터 파싱
     fn parse_balance(data: &UpbitMyAssetData) -> WsBalanceEvent {
         let currency = data.currency.clone().unwrap_or_default();
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let balance = Balance {
             free: data.balance,
@@ -561,28 +596,47 @@ impl WsExchange for UpbitWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let codes = vec![Self::format_symbol(symbol)];
-        client.subscribe_stream("ticker", codes, "ticker", Some(symbol)).await
+        client
+            .subscribe_stream("ticker", codes, "ticker", Some(symbol))
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let codes: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
-        client.subscribe_stream("ticker", codes, "tickers", None).await
+        client
+            .subscribe_stream("ticker", codes, "tickers", None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let codes = vec![Self::format_symbol(symbol)];
-        client.subscribe_stream("orderbook", codes, "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream("orderbook", codes, "orderBook", Some(symbol))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let codes = vec![Self::format_symbol(symbol)];
-        client.subscribe_stream("trade", codes, "trades", Some(symbol)).await
+        client
+            .subscribe_stream("trade", codes, "trades", Some(symbol))
+            .await
     }
 
-    async fn watch_ohlcv(&self, _symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        _symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Upbit does not support OHLCV streaming via WebSocket
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watch_ohlcv".to_string(),
@@ -611,40 +665,58 @@ impl WsExchange for UpbitWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
         client.subscribe_private_stream("myOrder", symbol).await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Upbit's myOrder channel includes trade execution info
         // Trades are part of order updates when executed_volume changes
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
         client.subscribe_private_stream("myOrder", symbol).await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
         client.subscribe_private_stream("myAsset", None).await
     }

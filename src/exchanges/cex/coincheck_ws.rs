@@ -20,8 +20,8 @@ use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Timeframe, Trade, WsExchange, WsMessage,
-    WsTradeEvent, WsOrderBookEvent,
+    OrderBook, OrderBookEntry, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://ws-api.coincheck.com/";
@@ -98,17 +98,22 @@ impl CoincheckWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -127,7 +132,13 @@ impl CoincheckWs {
                 // Check if first element is market_id (string) -> orderbook
                 if let Some(market_id) = arr[0].as_str() {
                     if let Some(orderbook_data) = arr[1].as_object() {
-                        Self::handle_orderbook(market_id, orderbook_data, subscriptions, orderbook_cache).await;
+                        Self::handle_orderbook(
+                            market_id,
+                            orderbook_data,
+                            subscriptions,
+                            orderbook_cache,
+                        )
+                        .await;
                     }
                 }
             } else if arr.len() == 1 {
@@ -158,10 +169,12 @@ impl CoincheckWs {
             for bid in bids_array {
                 if let Some(bid_arr) = bid.as_array() {
                     if bid_arr.len() >= 2 {
-                        let price: Decimal = bid_arr[0].as_str()
+                        let price: Decimal = bid_arr[0]
+                            .as_str()
                             .and_then(|s| s.parse().ok())
                             .unwrap_or_default();
-                        let amount: Decimal = bid_arr[1].as_str()
+                        let amount: Decimal = bid_arr[1]
+                            .as_str()
                             .and_then(|s| s.parse().ok())
                             .unwrap_or_default();
 
@@ -176,10 +189,12 @@ impl CoincheckWs {
             for ask in asks_array {
                 if let Some(ask_arr) = ask.as_array() {
                     if ask_arr.len() >= 2 {
-                        let price: Decimal = ask_arr[0].as_str()
+                        let price: Decimal = ask_arr[0]
+                            .as_str()
                             .and_then(|s| s.parse().ok())
                             .unwrap_or_default();
-                        let amount: Decimal = ask_arr[1].as_str()
+                        let amount: Decimal = ask_arr[1]
+                            .as_str()
                             .and_then(|s| s.parse().ok())
                             .unwrap_or_default();
 
@@ -194,7 +209,8 @@ impl CoincheckWs {
         asks.sort_by(|a, b| a.price.cmp(&b.price));
 
         // Get timestamp
-        let timestamp = orderbook_data.get("last_update_at")
+        let timestamp = orderbook_data
+            .get("last_update_at")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<i64>().ok())
             .map(|ts| ts * 1000); // Convert seconds to milliseconds
@@ -203,6 +219,7 @@ impl CoincheckWs {
             symbol: symbol.clone(),
             bids,
             asks,
+            checksum: None,
             timestamp,
             datetime: None,
             nonce: None,
@@ -239,32 +256,28 @@ impl CoincheckWs {
                     let key = format!("trades:{symbol}");
 
                     // Parse timestamp (in seconds)
-                    let timestamp = trade_arr[0].as_str()
+                    let timestamp = trade_arr[0]
+                        .as_str()
                         .and_then(|s| s.parse::<i64>().ok())
                         .map(|ts| ts * 1000); // Convert seconds to milliseconds
 
                     // Parse trade_id
-                    let trade_id = trade_arr[1].as_str()
-                        .map(String::from)
-                        .unwrap_or_default();
+                    let trade_id = trade_arr[1].as_str().map(String::from).unwrap_or_default();
 
                     // Parse price and amount
-                    let price: Decimal = trade_arr[3].as_str()
+                    let price: Decimal = trade_arr[3]
+                        .as_str()
                         .and_then(|s| s.parse().ok())
                         .unwrap_or_default();
-                    let amount: Decimal = trade_arr[4].as_str()
+                    let amount: Decimal = trade_arr[4]
+                        .as_str()
                         .and_then(|s| s.parse().ok())
                         .unwrap_or_default();
 
                     // Parse side
                     let side = trade_arr[5].as_str().unwrap_or("");
 
-                    let mut trade = Trade::new(
-                        trade_id,
-                        symbol.clone(),
-                        price,
-                        amount,
-                    );
+                    let mut trade = Trade::new(trade_id, symbol.clone(), price, amount);
 
                     if let Some(ts) = timestamp {
                         trade = trade.with_timestamp(ts);
@@ -343,7 +356,10 @@ impl WsExchange for CoincheckWs {
         })
     }
 
-    async fn watch_tickers(&self, _symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        _symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Coincheck does not support ticker via WebSocket
         Err(CcxtError::NotSupported {
             feature: "Coincheck WebSocket does not support ticker".to_string(),

@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -146,12 +146,18 @@ impl Coinex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -186,15 +192,17 @@ impl Coinex {
             "GET" => {
                 let url = format!("{path}?{query}");
                 self.private_client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
                 let json_body = Some(serde_json::to_value(&query_params).unwrap_or_default());
-                self.private_client.post(path, json_body, Some(headers)).await
-            }
+                self.private_client
+                    .post(path, json_body, Some(headers))
+                    .await
+            },
             "DELETE" => {
                 let url = format!("{path}?{query}");
                 self.private_client.delete(&url, None, Some(headers)).await
-            }
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -271,7 +279,10 @@ impl Coinex {
             bid: ticker_data.buy.as_ref().and_then(|s| s.parse().ok()),
             bid_volume: ticker_data.buy_amount.as_ref().and_then(|s| s.parse().ok()),
             ask: ticker_data.sell.as_ref().and_then(|s| s.parse().ok()),
-            ask_volume: ticker_data.sell_amount.as_ref().and_then(|s| s.parse().ok()),
+            ask_volume: ticker_data
+                .sell_amount
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             vwap: None,
             open: ticker_data.open.as_ref().and_then(|s| s.parse().ok()),
             close: ticker_data.last.as_ref().and_then(|s| s.parse().ok()),
@@ -290,7 +301,10 @@ impl Coinex {
 
     /// 주문 파싱
     fn parse_order(&self, data: &CoinexOrder) -> Order {
-        let timestamp = data.create_time.map(|t| t * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .create_time
+            .map(|t| t * 1000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let status = match data.status.as_deref() {
             Some("not_deal") | Some("part_deal") => OrderStatus::Open,
@@ -312,8 +326,16 @@ impl Coinex {
         };
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|s| s.parse().ok());
-        let amount: Decimal = data.amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-        let filled: Decimal = data.deal_amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .amount
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let filled: Decimal = data
+            .deal_amount
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
         let remaining = data.left.as_ref().and_then(|s| s.parse().ok());
         let cost: Option<Decimal> = data.deal_money.as_ref().and_then(|s| s.parse().ok());
 
@@ -357,9 +379,20 @@ impl Coinex {
 
     /// 거래 파싱
     fn parse_trade(&self, data: &CoinexTrade, symbol: &str) -> Trade {
-        let timestamp = data.date.map(|t| t * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price: Decimal = data.price.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-        let amount: Decimal = data.amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+        let timestamp = data
+            .date
+            .map(|t| t * 1000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let price: Decimal = data
+            .price
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let amount: Decimal = data
+            .amount
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
 
         let side = match data.trade_type.as_deref() {
             Some("buy") => "buy",
@@ -515,9 +548,7 @@ impl Exchange for Coinex {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: CoinexMarketsResponse = self
-            .public_get("/v1/market/info", None)
-            .await?;
+        let response: CoinexMarketsResponse = self.public_get("/v1/market/info", None).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -551,9 +582,8 @@ impl Exchange for Coinex {
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
 
-        let response: CoinexTickerResponse = self
-            .public_get("/v1/market/ticker", Some(params))
-            .await?;
+        let response: CoinexTickerResponse =
+            self.public_get("/v1/market/ticker", Some(params)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -570,9 +600,8 @@ impl Exchange for Coinex {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: CoinexTickersResponse = self
-            .public_get("/v1/market/ticker/all", None)
-            .await?;
+        let response: CoinexTickersResponse =
+            self.public_get("/v1/market/ticker/all", None).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -620,9 +649,8 @@ impl Exchange for Coinex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: CoinexOrderBookResponse = self
-            .public_get("/v1/market/depth", Some(params))
-            .await?;
+        let response: CoinexOrderBookResponse =
+            self.public_get("/v1/market/depth", Some(params)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -635,9 +663,14 @@ impl Exchange for Coinex {
             message: "No data in response".into(),
         })?;
 
-        let timestamp = data.time.map(|t| t * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .time
+            .map(|t| t * 1000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|b| {
                 if b.len() >= 2 {
                     let price = b[0].parse::<Decimal>().ok()?;
@@ -649,7 +682,9 @@ impl Exchange for Coinex {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|a| {
                 if a.len() >= 2 {
                     let price = a[0].parse::<Decimal>().ok()?;
@@ -672,10 +707,16 @@ impl Exchange for Coinex {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
@@ -683,9 +724,8 @@ impl Exchange for Coinex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: CoinexTradesResponse = self
-            .public_get("/v1/market/deals", Some(params))
-            .await?;
+        let response: CoinexTradesResponse =
+            self.public_get("/v1/market/deals", Some(params)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -711,7 +751,11 @@ impl Exchange for Coinex {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).cloned().unwrap_or("1hour".into());
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or("1hour".into());
 
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
@@ -721,9 +765,8 @@ impl Exchange for Coinex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: CoinexKlinesResponse = self
-            .public_get("/v1/market/kline", Some(params))
-            .await?;
+        let response: CoinexKlinesResponse =
+            self.public_get("/v1/market/kline", Some(params)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -767,8 +810,16 @@ impl Exchange for Coinex {
         );
 
         for (currency, balance_data) in &data {
-            let free: Decimal = balance_data.available.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-            let locked: Decimal = balance_data.frozen.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+            let free: Decimal = balance_data
+                .available
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
+            let locked: Decimal = balance_data
+                .frozen
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
             let total = free + locked;
 
             balances.currencies.insert(
@@ -797,10 +848,13 @@ impl Exchange for Coinex {
 
         let mut request = HashMap::new();
         request.insert("market".into(), market_id);
-        request.insert("type".into(), match side {
-            OrderSide::Buy => "buy".into(),
-            OrderSide::Sell => "sell".into(),
-        });
+        request.insert(
+            "type".into(),
+            match side {
+                OrderSide::Buy => "buy".into(),
+                OrderSide::Sell => "sell".into(),
+            },
+        );
         request.insert("amount".into(), amount.to_string());
 
         if let Some(p) = price {
@@ -813,9 +867,8 @@ impl Exchange for Coinex {
             _ => "/v1/order/limit",
         };
 
-        let response: CoinexOrderResponse = self
-            .private_request("POST", path, Some(request))
-            .await?;
+        let response: CoinexOrderResponse =
+            self.private_request("POST", path, Some(request)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -896,7 +949,15 @@ impl Exchange for Coinex {
         }
 
         let response: CoinexOrdersResponse = self
-            .private_request("GET", "/v1/order/pending", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/v1/order/pending",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -930,7 +991,15 @@ impl Exchange for Coinex {
         }
 
         let response: CoinexMyTradesResponse = self
-            .private_request("GET", "/v1/order/user/deals", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/v1/order/user/deals",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -978,7 +1047,15 @@ impl Exchange for Coinex {
         }
 
         let _response: CoinexResponse<serde_json::Value> = self
-            .private_request("DELETE", "/v1/order/pending", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "DELETE",
+                "/v1/order/pending",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         Ok(vec![])
@@ -999,7 +1076,15 @@ impl Exchange for Coinex {
         }
 
         let response: CoinexOrdersResponse = self
-            .private_request("GET", "/v1/order/finished", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/v1/order/finished",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1037,9 +1122,8 @@ impl Exchange for Coinex {
     }
 
     async fn fetch_currencies(&self) -> CcxtResult<HashMap<String, crate::types::Currency>> {
-        let response: CoinexCurrenciesResponse = self
-            .public_get("/v1/common/asset/config", None)
-            .await?;
+        let response: CoinexCurrenciesResponse =
+            self.public_get("/v1/common/asset/config", None).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -1058,7 +1142,10 @@ impl Exchange for Coinex {
                 active: c.deposit_enabled.unwrap_or(false) || c.withdraw_enabled.unwrap_or(false),
                 deposit: c.deposit_enabled,
                 withdraw: c.withdraw_enabled,
-                fee: c.withdraw_tx_fee.clone().and_then(|f| f.parse::<Decimal>().ok()),
+                fee: c
+                    .withdraw_tx_fee
+                    .clone()
+                    .and_then(|f| f.parse::<Decimal>().ok()),
                 precision: None,
                 limits: None,
                 networks: HashMap::new(),
@@ -1117,7 +1204,15 @@ impl Exchange for Coinex {
         }
 
         let response: CoinexTransactionsResponse = self
-            .private_request("GET", "/v1/balance/coin/deposit", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/v1/balance/coin/deposit",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1150,7 +1245,15 @@ impl Exchange for Coinex {
         }
 
         let response: CoinexTransactionsResponse = self
-            .private_request("GET", "/v1/balance/coin/withdraw", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/v1/balance/coin/withdraw",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1198,7 +1301,10 @@ impl Exchange for Coinex {
 
         Ok(crate::types::Transaction {
             info: serde_json::to_value(&data).unwrap_or_default(),
-            id: data.coin_withdraw_id.map(|id| id.to_string()).unwrap_or_default(),
+            id: data
+                .coin_withdraw_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             txid: None,
             timestamp: Some(Utc::now().timestamp_millis()),
             datetime: Some(Utc::now().to_rfc3339()),
@@ -1218,8 +1324,13 @@ impl Exchange for Coinex {
 }
 
 impl Coinex {
-    fn parse_transaction(&self, data: &CoinexTransaction, transaction_type: &str) -> crate::types::Transaction {
-        let amount = data.actual_amount
+    fn parse_transaction(
+        &self,
+        data: &CoinexTransaction,
+        transaction_type: &str,
+    ) -> crate::types::Transaction {
+        let amount = data
+            .actual_amount
             .as_ref()
             .and_then(|a| a.parse::<Decimal>().ok())
             .unwrap_or_default();
@@ -1234,14 +1345,16 @@ impl Coinex {
 
         crate::types::Transaction {
             info: serde_json::to_value(data).unwrap_or_default(),
-            id: data.coin_deposit_id.map(|id| id.to_string())
+            id: data
+                .coin_deposit_id
+                .map(|id| id.to_string())
                 .or_else(|| data.coin_withdraw_id.map(|id| id.to_string()))
                 .unwrap_or_default(),
             txid: data.tx_id.clone(),
             timestamp: data.create_time,
-            datetime: data.create_time.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .create_time
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             address: data.coin_address.clone(),
             tag: None,
             tx_type: if transaction_type == "deposit" {

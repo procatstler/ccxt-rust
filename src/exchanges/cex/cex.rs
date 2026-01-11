@@ -17,9 +17,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -128,7 +128,13 @@ impl Cex {
         let mut headers = HashMap::new();
         headers.insert("Content-Type".into(), "application/json".into());
 
-        self.public_client.post(path, Some(serde_json::to_value(params).unwrap_or(serde_json::json!({}))), Some(headers)).await
+        self.public_client
+            .post(
+                path,
+                Some(serde_json::to_value(params).unwrap_or(serde_json::json!({}))),
+                Some(headers),
+            )
+            .await
     }
 
     /// 비공개 API 호출 (HMAC-SHA256 서명)
@@ -139,12 +145,18 @@ impl Cex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let seconds = Utc::now().timestamp().to_string();
         let body = serde_json::to_string(&params).map_err(|e| CcxtError::ExchangeError {
@@ -153,10 +165,11 @@ impl Cex {
 
         // Create signature: HMAC-SHA256(path + seconds + body, secret)
         let auth_string = format!("{path}{seconds}{body}");
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(auth_string.as_bytes());
-        let signature = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        let signature =
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
 
         let mut headers = HashMap::new();
         headers.insert("Content-Type".into(), "application/json".into());
@@ -164,7 +177,13 @@ impl Cex {
         headers.insert("X-AGGR-TIMESTAMP".into(), seconds);
         headers.insert("X-AGGR-SIGNATURE".into(), signature);
 
-        self.private_client.post(path, Some(serde_json::to_value(params).unwrap_or(serde_json::json!({}))), Some(headers)).await
+        self.private_client
+            .post(
+                path,
+                Some(serde_json::to_value(params).unwrap_or(serde_json::json!({}))),
+                Some(headers),
+            )
+            .await
     }
 
     /// 심볼 → 마켓 ID 변환 (BTC/USDT → BTC-USDT)
@@ -227,15 +246,19 @@ impl Cex {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
         let timestamp = data.timestamp_ms;
-        let amount = data.remains.unwrap_or(Decimal::ZERO) + data.executed_amount.unwrap_or(Decimal::ZERO);
+        let amount =
+            data.remains.unwrap_or(Decimal::ZERO) + data.executed_amount.unwrap_or(Decimal::ZERO);
         let filled = data.executed_amount.unwrap_or(Decimal::ZERO);
         let remaining = Some(data.remains.unwrap_or(Decimal::ZERO));
 
@@ -360,9 +383,8 @@ impl Exchange for Cex {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: CexPairsInfoResponse = self
-            .public_post("/get_pairs_info", HashMap::new())
-            .await?;
+        let response: CexPairsInfoResponse =
+            self.public_post("/get_pairs_info", HashMap::new()).await?;
 
         let mut markets = Vec::new();
         let pairs = response.data.ok_or_else(|| CcxtError::ExchangeError {
@@ -426,27 +448,28 @@ impl Exchange for Cex {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
-        params.insert("pair".to_string(), serde_json::Value::String(market_id.clone()));
+        params.insert(
+            "pair".to_string(),
+            serde_json::Value::String(market_id.clone()),
+        );
 
-        let response: CexTickerResponse = self
-            .public_post("/get_ticker", params)
-            .await?;
+        let response: CexTickerResponse = self.public_post("/get_ticker", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No ticker data in response".into(),
         })?;
 
-        let ticker_data = data.get(&market_id).ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("No ticker for market {market_id}"),
-        })?;
+        let ticker_data = data
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("No ticker for market {market_id}"),
+            })?;
 
         Ok(self.parse_ticker(ticker_data, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: CexTickerResponse = self
-            .public_post("/get_ticker", HashMap::new())
-            .await?;
+        let response: CexTickerResponse = self.public_post("/get_ticker", HashMap::new()).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No ticker data in response".into(),
@@ -475,9 +498,7 @@ impl Exchange for Cex {
         let mut params = HashMap::new();
         params.insert("pair".to_string(), serde_json::Value::String(market_id));
 
-        let response: CexOrderBookResponse = self
-            .public_post("/get_order_book", params)
-            .await?;
+        let response: CexOrderBookResponse = self.public_post("/get_order_book", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No order book data in response".into(),
@@ -490,8 +511,13 @@ impl Exchange for Cex {
             for bid in bid_array {
                 if bid.len() >= 2 {
                     if let (Some(price), Some(amount)) = (bid[0].as_str(), bid[1].as_str()) {
-                        if let (Ok(p), Ok(a)) = (price.parse::<Decimal>(), amount.parse::<Decimal>()) {
-                            bids.push(OrderBookEntry { price: p, amount: a });
+                        if let (Ok(p), Ok(a)) =
+                            (price.parse::<Decimal>(), amount.parse::<Decimal>())
+                        {
+                            bids.push(OrderBookEntry {
+                                price: p,
+                                amount: a,
+                            });
                         }
                     }
                 }
@@ -503,8 +529,13 @@ impl Exchange for Cex {
             for ask in ask_array {
                 if ask.len() >= 2 {
                     if let (Some(price), Some(amount)) = (ask[0].as_str(), ask[1].as_str()) {
-                        if let (Ok(p), Ok(a)) = (price.parse::<Decimal>(), amount.parse::<Decimal>()) {
-                            asks.push(OrderBookEntry { price: p, amount: a });
+                        if let (Ok(p), Ok(a)) =
+                            (price.parse::<Decimal>(), amount.parse::<Decimal>())
+                        {
+                            asks.push(OrderBookEntry {
+                                price: p,
+                                amount: a,
+                            });
                         }
                     }
                 }
@@ -515,23 +546,26 @@ impl Exchange for Cex {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp,
             datetime: timestamp.and_then(|ts| {
-                chrono::DateTime::from_timestamp_millis(ts)
-                    .map(|dt| dt.to_rfc3339())
+                chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
             }),
             nonce: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("pair".to_string(), serde_json::Value::String(market_id));
 
-        let response: CexTradesResponse = self
-            .public_post("/get_trade_history", params)
-            .await?;
+        let response: CexTradesResponse = self.public_post("/get_trade_history", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No trade data in response".into(),
@@ -551,7 +585,10 @@ impl Exchange for Cex {
                 _ => "buy",
             };
 
-            let trade_id = trade_data.trade_id.clone().unwrap_or_else(|| "".to_string());
+            let trade_id = trade_data
+                .trade_id
+                .clone()
+                .unwrap_or_else(|| "".to_string());
 
             let trade = Trade {
                 id: trade_id,
@@ -583,23 +620,33 @@ impl Exchange for Cex {
         _limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let resolution = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::NotSupported {
-                feature: format!("Timeframe {timeframe:?}"),
-            })?;
+        let resolution =
+            self.timeframes
+                .get(&timeframe)
+                .ok_or_else(|| CcxtError::NotSupported {
+                    feature: format!("Timeframe {timeframe:?}"),
+                })?;
 
         let mut params = HashMap::new();
         params.insert("pair".to_string(), serde_json::Value::String(market_id));
-        params.insert("resolution".to_string(), serde_json::Value::String(resolution.clone()));
-        params.insert("dataType".to_string(), serde_json::Value::String("bestBid".to_string()));
-        params.insert("toISO".to_string(), serde_json::Value::String(
-            chrono::Utc::now().to_rfc3339()
-        ));
-        params.insert("limit".to_string(), serde_json::Value::Number(serde_json::Number::from(100)));
+        params.insert(
+            "resolution".to_string(),
+            serde_json::Value::String(resolution.clone()),
+        );
+        params.insert(
+            "dataType".to_string(),
+            serde_json::Value::String("bestBid".to_string()),
+        );
+        params.insert(
+            "toISO".to_string(),
+            serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+        );
+        params.insert(
+            "limit".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(100)),
+        );
 
-        let response: CexOHLCVResponse = self
-            .public_post("/get_candles", params)
-            .await?;
+        let response: CexOHLCVResponse = self.public_post("/get_candles", params).await?;
 
         let data = response.data.unwrap_or_default();
         let mut result = Vec::new();
@@ -642,28 +689,40 @@ impl Exchange for Cex {
 
         let mut params = HashMap::new();
         params.insert("pair".to_string(), serde_json::Value::String(market_id));
-        params.insert("side".to_string(), serde_json::Value::String(
-            match side {
-                OrderSide::Buy => "buy",
-                OrderSide::Sell => "sell",
-            }.to_string()
-        ));
-        params.insert("orderType".to_string(), serde_json::Value::String(
-            match order_type {
-                OrderType::Limit => "limit",
-                OrderType::Market => "market",
-                _ => "limit",
-            }.to_string()
-        ));
-        params.insert("amount".to_string(), serde_json::Value::String(amount.to_string()));
+        params.insert(
+            "side".to_string(),
+            serde_json::Value::String(
+                match side {
+                    OrderSide::Buy => "buy",
+                    OrderSide::Sell => "sell",
+                }
+                .to_string(),
+            ),
+        );
+        params.insert(
+            "orderType".to_string(),
+            serde_json::Value::String(
+                match order_type {
+                    OrderType::Limit => "limit",
+                    OrderType::Market => "market",
+                    _ => "limit",
+                }
+                .to_string(),
+            ),
+        );
+        params.insert(
+            "amount".to_string(),
+            serde_json::Value::String(amount.to_string()),
+        );
 
         if let Some(p) = price {
-            params.insert("price".to_string(), serde_json::Value::String(p.to_string()));
+            params.insert(
+                "price".to_string(),
+                serde_json::Value::String(p.to_string()),
+            );
         }
 
-        let response: CexOrderResponse = self
-            .private_post("/do_my_new_order", params)
-            .await?;
+        let response: CexOrderResponse = self.private_post("/do_my_new_order", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No order data in response".into(),
@@ -674,11 +733,12 @@ impl Exchange for Cex {
 
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let mut params = HashMap::new();
-        params.insert("orderId".to_string(), serde_json::Value::String(id.to_string()));
+        params.insert(
+            "orderId".to_string(),
+            serde_json::Value::String(id.to_string()),
+        );
 
-        let response: CexOrderResponse = self
-            .private_post("/do_cancel_my_order", params)
-            .await?;
+        let response: CexOrderResponse = self.private_post("/do_cancel_my_order", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No order data in response".into(),
@@ -689,33 +749,43 @@ impl Exchange for Cex {
 
     async fn fetch_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let mut params = HashMap::new();
-        params.insert("orderId".to_string(), serde_json::Value::String(id.to_string()));
+        params.insert(
+            "orderId".to_string(),
+            serde_json::Value::String(id.to_string()),
+        );
 
-        let response: CexOrdersResponse = self
-            .private_post("/get_my_orders", params)
-            .await?;
+        let response: CexOrdersResponse = self.private_post("/get_my_orders", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No orders data in response".into(),
         })?;
 
         let orders = data.orders.unwrap_or_default();
-        let order_data = orders.into_iter().next().ok_or_else(|| CcxtError::OrderNotFound {
-            order_id: id.to_string(),
-        })?;
+        let order_data = orders
+            .into_iter()
+            .next()
+            .ok_or_else(|| CcxtError::OrderNotFound {
+                order_id: id.to_string(),
+            })?;
 
         Ok(self.parse_order(&order_data, symbol))
     }
 
-    async fn fetch_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(sym) = symbol {
-            params.insert("pair".to_string(), serde_json::Value::String(self.to_market_id(sym)));
+            params.insert(
+                "pair".to_string(),
+                serde_json::Value::String(self.to_market_id(sym)),
+            );
         }
 
-        let response: CexOrdersResponse = self
-            .private_post("/get_my_orders", params)
-            .await?;
+        let response: CexOrdersResponse = self.private_post("/get_my_orders", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No orders data in response".into(),
@@ -732,16 +802,25 @@ impl Exchange for Cex {
         Ok(result)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
-        params.insert("status".to_string(), serde_json::Value::String("a".to_string())); // 'a' = active
+        params.insert(
+            "status".to_string(),
+            serde_json::Value::String("a".to_string()),
+        ); // 'a' = active
         if let Some(sym) = symbol {
-            params.insert("pair".to_string(), serde_json::Value::String(self.to_market_id(sym)));
+            params.insert(
+                "pair".to_string(),
+                serde_json::Value::String(self.to_market_id(sym)),
+            );
         }
 
-        let response: CexOrdersResponse = self
-            .private_post("/get_my_orders", params)
-            .await?;
+        let response: CexOrdersResponse = self.private_post("/get_my_orders", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No orders data in response".into(),
@@ -758,16 +837,25 @@ impl Exchange for Cex {
         Ok(result)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
-        params.insert("status".to_string(), serde_json::Value::String("d".to_string())); // 'd' = done
+        params.insert(
+            "status".to_string(),
+            serde_json::Value::String("d".to_string()),
+        ); // 'd' = done
         if let Some(sym) = symbol {
-            params.insert("pair".to_string(), serde_json::Value::String(self.to_market_id(sym)));
+            params.insert(
+                "pair".to_string(),
+                serde_json::Value::String(self.to_market_id(sym)),
+            );
         }
 
-        let response: CexOrdersResponse = self
-            .private_post("/get_my_orders", params)
-            .await?;
+        let response: CexOrdersResponse = self.private_post("/get_my_orders", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No orders data in response".into(),
@@ -831,7 +919,8 @@ impl Exchange for Cex {
             let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
                 .expect("HMAC can take key of any size");
             mac.update(auth_string.as_bytes());
-            let signature = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+            let signature =
+                base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
 
             headers.insert("Content-Type".into(), "application/json".into());
             headers.insert("X-AGGR-KEY".into(), api_key.to_string());

@@ -36,9 +36,9 @@ use tokio_tungstenite::{
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide,
-    MarginMode, Ticker, Timeframe, Trade, TakerOrMaker, WsExchange, WsMessage,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsMyTradeEvent,
+    Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position,
+    PositionSide, TakerOrMaker, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsMyTradeEvent,
+    WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://ws.api.prod.paradex.trade/v1";
@@ -232,11 +232,13 @@ impl ParadexWs {
 
     /// Send authentication message with JWT token
     async fn send_auth(&self) -> CcxtResult<()> {
-        let jwt_token = self.jwt_token.as_ref().ok_or_else(|| {
-            CcxtError::AuthenticationError {
-                message: "JWT token required for private channels. Use ParadexWs::with_jwt()".into(),
-            }
-        })?;
+        let jwt_token = self
+            .jwt_token
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "JWT token required for private channels. Use ParadexWs::with_jwt()"
+                    .into(),
+            })?;
 
         if let Some(ws) = &self.ws_stream {
             let msg = json!({
@@ -289,17 +291,23 @@ impl ParadexWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache, &authenticated).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                    &authenticated,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -318,7 +326,11 @@ impl ParadexWs {
         // Handle auth response
         if method == "auth" {
             if let Some(result) = data.get("result") {
-                if result.get("authenticated").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if result
+                    .get("authenticated")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     *authenticated.write().await = true;
                     // Notify subscribers of successful authentication
                     let subs = subscriptions.read().await;
@@ -345,24 +357,24 @@ impl ParadexWs {
                 // Public channels
                 "trades" => {
                     Self::handle_trade(params, subscriptions).await;
-                }
+                },
                 "order_book" => {
                     Self::handle_orderbook(params, subscriptions, orderbook_cache).await;
-                }
+                },
                 "markets_summary" => {
                     Self::handle_ticker(params, subscriptions).await;
-                }
+                },
                 // Private channels
                 "orders" => {
                     Self::handle_orders(params, subscriptions).await;
-                }
+                },
                 "fills" => {
                     Self::handle_fills(params, subscriptions).await;
-                }
+                },
                 "positions" => {
                     Self::handle_positions(params, subscriptions).await;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     }
@@ -373,22 +385,36 @@ impl ParadexWs {
         subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
     ) {
         if let Some(trade_data) = params.get("data") {
-            let market_id = trade_data.get("market").and_then(|v| v.as_str()).unwrap_or("");
+            let market_id = trade_data
+                .get("market")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let symbol = Self::parse_symbol_static(market_id);
             let key = format!("trades:{symbol}");
 
             let timestamp = trade_data.get("created_at").and_then(|v| v.as_i64());
-            let side = trade_data.get("side").and_then(|v| v.as_str())
+            let side = trade_data
+                .get("side")
+                .and_then(|v| v.as_str())
                 .map(|s| s.to_lowercase());
 
-            let price: Decimal = trade_data.get("price").and_then(|v| v.as_str())
-                .and_then(|s| s.parse().ok()).unwrap_or_default();
-            let amount: Decimal = trade_data.get("size").and_then(|v| v.as_str())
-                .and_then(|s| s.parse().ok()).unwrap_or_default();
+            let price: Decimal = trade_data
+                .get("price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
+            let amount: Decimal = trade_data
+                .get("size")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
 
             let trade = Trade::new(
-                trade_data.get("id").and_then(|v| v.as_str())
-                    .map(String::from).unwrap_or_default(),
+                trade_data
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_default(),
                 symbol.clone(),
                 price,
                 amount,
@@ -444,12 +470,21 @@ impl ParadexWs {
             if let Some(inserts) = data.get("inserts").and_then(|v| v.as_array()) {
                 for insert in inserts {
                     let side = insert.get("side").and_then(|v| v.as_str()).unwrap_or("");
-                    let price: Decimal = insert.get("price").and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok()).unwrap_or_default();
-                    let size: Decimal = insert.get("size").and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok()).unwrap_or_default();
+                    let price: Decimal = insert
+                        .get("price")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default();
+                    let size: Decimal = insert
+                        .get("size")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default();
 
-                    let entry = OrderBookEntry { price, amount: size };
+                    let entry = OrderBookEntry {
+                        price,
+                        amount: size,
+                    };
 
                     if side == "BUY" {
                         bids.push(entry);
@@ -467,6 +502,7 @@ impl ParadexWs {
                 symbol: symbol.clone(),
                 bids,
                 asks,
+                checksum: None,
                 timestamp,
                 datetime: None,
                 nonce: seq_no,
@@ -503,10 +539,22 @@ impl ParadexWs {
 
             let ticker = Ticker {
                 symbol: symbol.clone(),
-                bid: data.get("bid").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                ask: data.get("ask").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                last: data.get("last_traded_price").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                base_volume: data.get("volume_24h").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
+                bid: data
+                    .get("bid")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                ask: data
+                    .get("ask")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                last: data
+                    .get("last_traded_price")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                base_volume: data
+                    .get("volume_24h")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
                 timestamp,
                 ..Default::default()
             };
@@ -581,26 +629,39 @@ impl ParadexWs {
                 _ => OrderType::Limit,
             };
 
-            let price = data.get("price")
+            let price = data
+                .get("price")
                 .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok());
-            let amount = data.get("size")
+            let amount = data
+                .get("size")
                 .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default();
-            let filled = data.get("filled_size")
+            let filled = data
+                .get("filled_size")
                 .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default();
-            let average = data.get("avg_fill_price")
+            let average = data
+                .get("avg_fill_price")
                 .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok());
-            let timestamp = data.get("updated_at").and_then(|v| v.as_i64())
+            let timestamp = data
+                .get("updated_at")
+                .and_then(|v| v.as_i64())
                 .or_else(|| data.get("created_at").and_then(|v| v.as_i64()));
 
             let order = Order {
-                id: data.get("id").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
-                client_order_id: data.get("client_id").and_then(|v| v.as_str()).map(String::from),
+                id: data
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_default(),
+                client_order_id: data
+                    .get("client_id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 symbol: symbol.clone(),
                 order_type,
                 side,
@@ -625,7 +686,9 @@ impl ParadexWs {
             // Notify symbol-specific subscribers
             let key = format!("orders:{symbol}");
             if let Some(sender) = subs.get(&key) {
-                let _ = sender.send(WsMessage::Order(WsOrderEvent { order: order.clone() }));
+                let _ = sender.send(WsMessage::Order(WsOrderEvent {
+                    order: order.clone(),
+                }));
             }
             // Notify all-orders subscribers
             if let Some(sender) = subs.get("orders:ALL") {
@@ -657,21 +720,25 @@ impl ParadexWs {
                 _ => None,
             };
 
-            let price = data.get("price")
+            let price = data
+                .get("price")
                 .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default();
-            let amount = data.get("size")
+            let amount = data
+                .get("size")
                 .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default();
             let timestamp = data.get("created_at").and_then(|v| v.as_i64());
 
             // Build Fee struct
-            let fee_cost = data.get("fee")
+            let fee_cost = data
+                .get("fee")
                 .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok());
-            let fee_currency = data.get("fee_currency")
+            let fee_currency = data
+                .get("fee_currency")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             let fee = if fee_cost.is_some() || fee_currency.is_some() {
@@ -685,7 +752,10 @@ impl ParadexWs {
             };
 
             let mut trade = Trade::new(
-                data.get("id").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
+                data.get("id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_default(),
                 symbol.clone(),
                 price,
                 amount,
@@ -696,7 +766,10 @@ impl ParadexWs {
             }
             trade.side = side;
             trade.taker_or_maker = taker_or_maker;
-            trade.order = data.get("order_id").and_then(|v| v.as_str()).map(String::from);
+            trade.order = data
+                .get("order_id")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             trade.fee = fee;
 
             let subs = subscriptions.read().await;
@@ -732,7 +805,10 @@ impl ParadexWs {
 
             let mut parsed_positions = Vec::new();
             for pos_data in positions {
-                let market_id = pos_data.get("market").and_then(|v| v.as_str()).unwrap_or("");
+                let market_id = pos_data
+                    .get("market")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let symbol = Self::parse_symbol_static(market_id);
 
                 let side_str = pos_data.get("side").and_then(|v| v.as_str()).unwrap_or("");
@@ -742,22 +818,28 @@ impl ParadexWs {
                     _ => Some(PositionSide::Long),
                 };
 
-                let contracts = pos_data.get("size")
+                let contracts = pos_data
+                    .get("size")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok());
-                let entry_price = pos_data.get("entry_price")
+                let entry_price = pos_data
+                    .get("entry_price")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok());
-                let mark_price = pos_data.get("mark_price")
+                let mark_price = pos_data
+                    .get("mark_price")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok());
-                let unrealized_pnl = pos_data.get("unrealized_pnl")
+                let unrealized_pnl = pos_data
+                    .get("unrealized_pnl")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok());
-                let liquidation_price = pos_data.get("liquidation_price")
+                let liquidation_price = pos_data
+                    .get("liquidation_price")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok());
-                let leverage = pos_data.get("leverage")
+                let leverage = pos_data
+                    .get("leverage")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok());
                 let timestamp = pos_data.get("updated_at").and_then(|v| v.as_i64());
@@ -874,7 +956,10 @@ impl WsExchange for ParadexWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -996,7 +1081,10 @@ impl WsExchange for ParadexWs {
 
     // === Private Channels ===
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if !self.has_jwt() {
             return Err(CcxtError::AuthenticationError {
                 message: "JWT token required for watch_orders. Use ParadexWs::with_jwt()".into(),
@@ -1027,7 +1115,10 @@ impl WsExchange for ParadexWs {
         Ok(rx)
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if !self.has_jwt() {
             return Err(CcxtError::AuthenticationError {
                 message: "JWT token required for watch_my_trades. Use ParadexWs::with_jwt()".into(),
@@ -1057,7 +1148,10 @@ impl WsExchange for ParadexWs {
         Ok(rx)
     }
 
-    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if !self.has_jwt() {
             return Err(CcxtError::AuthenticationError {
                 message: "JWT token required for watch_positions. Use ParadexWs::with_jwt()".into(),
@@ -1135,7 +1229,10 @@ mod tests {
 
     #[test]
     fn test_parse_symbol_static() {
-        assert_eq!(ParadexWs::parse_symbol_static("BTC-USD-PERP"), "BTC/USD:USD");
+        assert_eq!(
+            ParadexWs::parse_symbol_static("BTC-USD-PERP"),
+            "BTC/USD:USD"
+        );
         assert_eq!(ParadexWs::parse_symbol_static("ETH-USD"), "ETH/USD");
         assert_eq!(ParadexWs::parse_symbol_static("UNKNOWN"), "UNKNOWN");
     }

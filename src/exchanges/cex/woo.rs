@@ -17,9 +17,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Fee, OHLCV, TakerOrMaker,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://api.woox.io";
@@ -175,12 +175,26 @@ impl Woo {
             let quote = parts[2].to_string();
 
             if type_str == "PERP" {
-                (MarketType::Swap, false, true, base.clone(), quote.clone(), Some(quote.clone()))
+                (
+                    MarketType::Swap,
+                    false,
+                    true,
+                    base.clone(),
+                    quote.clone(),
+                    Some(quote.clone()),
+                )
             } else {
                 (MarketType::Spot, true, false, base, quote, None)
             }
         } else {
-            (MarketType::Spot, true, false, String::new(), String::new(), None)
+            (
+                MarketType::Spot,
+                true,
+                false,
+                String::new(),
+                String::new(),
+                None,
+            )
         };
 
         let symbol = if swap {
@@ -192,8 +206,10 @@ impl Woo {
         let active = data.status.as_deref() == Some("TRADING");
 
         // Parse precision from tick sizes
-        let price_precision = self.precision_from_string(data.quote_tick.as_deref().unwrap_or("0.01"));
-        let amount_precision = self.precision_from_string(data.base_tick.as_deref().unwrap_or("0.0001"));
+        let price_precision =
+            self.precision_from_string(data.quote_tick.as_deref().unwrap_or("0.01"));
+        let amount_precision =
+            self.precision_from_string(data.base_tick.as_deref().unwrap_or("0.0001"));
 
         Market {
             id,
@@ -231,15 +247,30 @@ impl Woo {
             },
             limits: MarketLimits {
                 amount: MinMax {
-                    min: data.base_min.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    max: data.base_max.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                    min: data
+                        .base_min
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
+                    max: data
+                        .base_max
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
                 },
                 price: MinMax {
-                    min: data.quote_min.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-                    max: data.quote_max.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                    min: data
+                        .quote_min
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
+                    max: data
+                        .quote_max
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
                 },
                 cost: MinMax {
-                    min: data.min_notional.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+                    min: data
+                        .min_notional
+                        .as_ref()
+                        .and_then(|v| Decimal::from_str(v).ok()),
                     max: None,
                 },
                 leverage: MinMax::default(),
@@ -328,10 +359,8 @@ impl Woo {
             data.executed_timestamp.parse::<i64>().ok()
         };
 
-        let datetime = timestamp.and_then(|ts| {
-            chrono::DateTime::from_timestamp_millis(ts)
-                .map(|dt| dt.to_rfc3339())
-        });
+        let datetime = timestamp
+            .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339()));
 
         Trade {
             id: data.id.as_ref().unwrap_or(&data.executed_timestamp).clone(),
@@ -342,7 +371,11 @@ impl Woo {
             trade_type: None,
             side,
             taker_or_maker: data.is_maker.as_ref().map(|m| {
-                if m == "1" { TakerOrMaker::Maker } else { TakerOrMaker::Taker }
+                if m == "1" {
+                    TakerOrMaker::Maker
+                } else {
+                    TakerOrMaker::Taker
+                }
             }),
             price,
             amount,
@@ -361,17 +394,30 @@ impl Woo {
 
     /// 주문 데이터 파싱
     fn parse_order(&self, data: &WooOrder) -> CcxtResult<Order> {
-        let status = self.parse_order_status(data.status.as_deref().or(data.algo_status.as_deref()));
+        let status =
+            self.parse_order_status(data.status.as_deref().or(data.algo_status.as_deref()));
 
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| self.to_symbol(s))
             .unwrap_or_default();
 
-        let side = data.side.as_ref()
-            .map(|s| if s.to_uppercase() == "BUY" { OrderSide::Buy } else { OrderSide::Sell })
+        let side = data
+            .side
+            .as_ref()
+            .map(|s| {
+                if s.to_uppercase() == "BUY" {
+                    OrderSide::Buy
+                } else {
+                    OrderSide::Sell
+                }
+            })
             .unwrap_or(OrderSide::Buy);
 
-        let order_type = data.order_type.as_ref()
+        let order_type = data
+            .order_type
+            .as_ref()
             .map(|t| match t.to_uppercase().as_str() {
                 "MARKET" => OrderType::Market,
                 "LIMIT" => OrderType::Limit,
@@ -383,39 +429,64 @@ impl Woo {
             .unwrap_or(OrderType::Limit);
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.quantity.as_ref()
+        let amount = data
+            .quantity
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
-        let filled = data.executed.as_ref()
+        let filled = data
+            .executed
+            .as_ref()
             .or(data.total_executed_quantity.as_ref())
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
-        let remaining = if amount > filled { amount - filled } else { Decimal::ZERO };
+        let remaining = if amount > filled {
+            amount - filled
+        } else {
+            Decimal::ZERO
+        };
 
-        let average = data.average_executed_price.as_ref()
+        let average = data
+            .average_executed_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
 
         let cost = data.amount.as_ref().and_then(|c| Decimal::from_str(c).ok());
 
         // Parse timestamp
-        let timestamp = data.created_time.as_ref().and_then(|ct| {
-            if ct.contains('.') {
-                // Format: "1752049062.496"
-                ct.split('.').next()
-                    .and_then(|s| s.parse::<i64>().ok())
-                    .map(|s| s * 1000)
-            } else {
-                ct.parse::<i64>().ok()
-            }
-        }).or(data.timestamp);
+        let timestamp = data
+            .created_time
+            .as_ref()
+            .and_then(|ct| {
+                if ct.contains('.') {
+                    // Format: "1752049062.496"
+                    ct.split('.')
+                        .next()
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .map(|s| s * 1000)
+                } else {
+                    ct.parse::<i64>().ok()
+                }
+            })
+            .or(data.timestamp);
 
-        let fee_cost = data.total_fee.as_ref().and_then(|f| Decimal::from_str(f).ok());
+        let fee_cost = data
+            .total_fee
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok());
 
         Ok(Order {
-            id: data.order_id.clone().or(data.algo_order_id.clone()).unwrap_or_default(),
-            client_order_id: data.client_order_id.clone().or(data.client_algo_order_id.clone()),
+            id: data
+                .order_id
+                .clone()
+                .or(data.algo_order_id.clone())
+                .unwrap_or_default(),
+            client_order_id: data
+                .client_order_id
+                .clone()
+                .or(data.client_algo_order_id.clone()),
             timestamp,
             datetime: timestamp.and_then(|ts| {
                 chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
@@ -423,7 +494,8 @@ impl Woo {
             last_trade_timestamp: None,
             last_update_timestamp: data.updated_time.as_ref().and_then(|ut| {
                 if ut.contains('.') {
-                    ut.split('.').next()
+                    ut.split('.')
+                        .next()
                         .and_then(|s| s.parse::<i64>().ok())
                         .map(|s| s * 1000)
                 } else {
@@ -450,8 +522,14 @@ impl Woo {
             reduce_only: data.reduce_only,
             post_only: None,
             time_in_force: None,
-            stop_price: data.trigger_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            trigger_price: data.trigger_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            stop_price: data
+                .trigger_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            trigger_price: data
+                .trigger_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             take_profit_price: None,
             stop_loss_price: None,
             info: serde_json::to_value(data).unwrap_or_default(),
@@ -484,12 +562,15 @@ impl Woo {
             let frozen = Decimal::from_str(&balance.frozen).unwrap_or_default();
             let free = total - frozen;
 
-            currencies.insert(currency, Balance {
-                free: Some(free),
-                used: Some(frozen),
-                total: Some(total),
-                debt: None,
-            });
+            currencies.insert(
+                currency,
+                Balance {
+                    free: Some(free),
+                    used: Some(frozen),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         Balances {
@@ -501,19 +582,29 @@ impl Woo {
     }
 
     /// API 서명 생성
-    fn sign_request(&self, method: &str, path: &str, params: &str, timestamp: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+    fn sign_request(
+        &self,
+        method: &str,
+        path: &str,
+        params: &str,
+        timestamp: &str,
+    ) -> CcxtResult<String> {
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         // Build auth string: timestamp + method + path + params(if POST/PUT)
         let auth = format!("{timestamp}{method}{path}{params}");
 
         // HMAC-SHA256
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(auth.as_bytes());
         let signature = mac.finalize().into_bytes();
 
@@ -539,9 +630,12 @@ impl Woo {
     ) -> CcxtResult<WooResponse<T>> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let path = format!("/v3/{endpoint}");
@@ -550,7 +644,8 @@ impl Woo {
             let body_json = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
             (body_json, String::new())
         } else if !params.is_empty() {
-            let query = params.iter()
+            let query = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -575,7 +670,9 @@ impl Woo {
 
         let response: WooResponse<T> = if method == "POST" {
             let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or_default();
-            self.client.post(&full_path, Some(json_body), Some(headers)).await?
+            self.client
+                .post(&full_path, Some(json_body), Some(headers))
+                .await?
         } else if method == "DELETE" {
             self.client.delete(&full_path, None, Some(headers)).await?
         } else {
@@ -632,7 +729,8 @@ impl Exchange for Woo {
             }
         }
 
-        let response: WooResponse<WooInstrumentsData> = self.public_get("/v3/public/instruments", None).await?;
+        let response: WooResponse<WooInstrumentsData> =
+            self.public_get("/v3/public/instruments", None).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No instruments data returned".into(),
@@ -654,9 +752,12 @@ impl Exchange for Woo {
             *m = markets_map.clone();
         }
         {
-            let mut m = self.markets_by_id.write().map_err(|_| CcxtError::ExchangeError {
-                message: "Failed to acquire write lock".into(),
-            })?;
+            let mut m = self
+                .markets_by_id
+                .write()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to acquire write lock".into(),
+                })?;
             *m = markets_by_id_map;
         }
 
@@ -675,7 +776,10 @@ impl Exchange for Woo {
         })
     }
 
-    async fn fetch_tickers(&self, _symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
+    async fn fetch_tickers(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<HashMap<String, Ticker>> {
         // WOO doesn't support tickers endpoint
         Err(CcxtError::NotSupported {
             feature: "fetchTickers".into(),
@@ -690,41 +794,57 @@ impl Exchange for Woo {
             params.insert("maxLevel".to_string(), l.to_string());
         }
 
-        let response: WooResponse<WooOrderBookData> = self.public_get("/v3/public/orderbook", Some(params)).await?;
+        let response: WooResponse<WooOrderBookData> = self
+            .public_get("/v3/public/orderbook", Some(params))
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No order book data returned".into(),
         })?;
 
-        let timestamp = response.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().map(|b| {
-            OrderBookEntry {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .map(|b| OrderBookEntry {
                 price: Decimal::from_str(&b.price).unwrap_or_default(),
                 amount: Decimal::from_str(&b.quantity).unwrap_or_default(),
-            }
-        }).collect();
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().map(|a| {
-            OrderBookEntry {
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .map(|a| OrderBookEntry {
                 price: Decimal::from_str(&a.price).unwrap_or_default(),
                 amount: Decimal::from_str(&a.quantity).unwrap_or_default(),
-            }
-        }).collect();
+            })
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let woo_symbol = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), woo_symbol);
@@ -732,13 +852,17 @@ impl Exchange for Woo {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let response: WooResponse<WooTradesData> = self.public_get("/v3/public/marketTrades", Some(params)).await?;
+        let response: WooResponse<WooTradesData> = self
+            .public_get("/v3/public/marketTrades", Some(params))
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No trades data returned".into(),
         })?;
 
-        let trades: Vec<Trade> = data.rows.iter()
+        let trades: Vec<Trade> = data
+            .rows
+            .iter()
             .map(|t| self.parse_trade(symbol, t))
             .collect();
 
@@ -753,7 +877,9 @@ impl Exchange for Woo {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let woo_symbol = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -768,15 +894,15 @@ impl Exchange for Woo {
             params.insert("after".to_string(), s.to_string());
         }
 
-        let response: WooResponse<WooOHLCVData> = self.public_get("/v3/public/klineHistory", Some(params)).await?;
+        let response: WooResponse<WooOHLCVData> = self
+            .public_get("/v3/public/klineHistory", Some(params))
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No OHLCV data returned".into(),
         })?;
 
-        let ohlcv_list: Vec<OHLCV> = data.rows.iter()
-            .map(|c| self.parse_ohlcv(c))
-            .collect();
+        let ohlcv_list: Vec<OHLCV> = data.rows.iter().map(|c| self.parse_ohlcv(c)).collect();
 
         Ok(ohlcv_list)
     }
@@ -806,9 +932,11 @@ impl Exchange for Woo {
         let type_str = match order_type {
             OrderType::Market => "MARKET",
             OrderType::Limit => "LIMIT",
-            _ => return Err(CcxtError::BadRequest {
-                message: format!("Unsupported order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: format!("Unsupported order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -916,9 +1044,8 @@ impl Exchange for Woo {
         let mut params = HashMap::new();
         params.insert("orderId".to_string(), id.to_string());
 
-        let response: WooResponse<WooOrder> = self
-            .private_request("GET", "trade/order", params)
-            .await?;
+        let response: WooResponse<WooOrder> =
+            self.private_request("GET", "trade/order", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::OrderNotFound {
             order_id: id.to_string(),
@@ -927,7 +1054,12 @@ impl Exchange for Woo {
         self.parse_order(&data)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("status".to_string(), "INCOMPLETE".to_string());
 
@@ -939,22 +1071,28 @@ impl Exchange for Woo {
             params.insert("size".to_string(), l.to_string().min("500".to_string()));
         }
 
-        let response: WooResponse<WooOrdersData> = self
-            .private_request("GET", "trade/orders", params)
-            .await?;
+        let response: WooResponse<WooOrdersData> =
+            self.private_request("GET", "trade/orders", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No orders data returned".into(),
         })?;
 
-        let orders: Vec<Order> = data.rows.iter()
+        let orders: Vec<Order> = data
+            .rows
+            .iter()
             .filter_map(|o| self.parse_order(o).ok())
             .collect();
 
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("status".to_string(), "COMPLETED".to_string());
 
@@ -966,15 +1104,16 @@ impl Exchange for Woo {
             params.insert("size".to_string(), l.to_string().min("500".to_string()));
         }
 
-        let response: WooResponse<WooOrdersData> = self
-            .private_request("GET", "trade/orders", params)
-            .await?;
+        let response: WooResponse<WooOrdersData> =
+            self.private_request("GET", "trade/orders", params).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::BadResponse {
             message: "No orders data returned".into(),
         })?;
 
-        let orders: Vec<Order> = data.rows.iter()
+        let orders: Vec<Order> = data
+            .rows
+            .iter()
             .filter_map(|o| self.parse_order(o).ok())
             .collect();
 
@@ -998,7 +1137,8 @@ impl Exchange for Woo {
             let (body_str, query_str) = if method == "POST" || method == "PUT" {
                 (body.unwrap_or("{}").to_string(), String::new())
             } else if !params.is_empty() {
-                let query = params.iter()
+                let query = params
+                    .iter()
                     .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
                     .collect::<Vec<_>>()
                     .join("&");
@@ -1015,7 +1155,8 @@ impl Exchange for Woo {
                     result_headers.insert("x-api-timestamp".to_string(), timestamp);
                     result_headers.insert("x-api-signature".to_string(), signature);
                     if method == "POST" || method == "PUT" {
-                        result_headers.insert("Content-Type".to_string(), "application/json".to_string());
+                        result_headers
+                            .insert("Content-Type".to_string(), "application/json".to_string());
                     }
                 }
             }
@@ -1024,7 +1165,8 @@ impl Exchange for Woo {
         let url = if params.is_empty() || method == "POST" || method == "PUT" {
             format!("{BASE_URL}{path}")
         } else {
-            let query = params.iter()
+            let query = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -1283,7 +1425,13 @@ mod tests {
         let woo = create_test_woo();
         assert_eq!(woo.parse_order_status(Some("NEW")), OrderStatus::Open);
         assert_eq!(woo.parse_order_status(Some("FILLED")), OrderStatus::Closed);
-        assert_eq!(woo.parse_order_status(Some("CANCELLED")), OrderStatus::Canceled);
-        assert_eq!(woo.parse_order_status(Some("REJECTED")), OrderStatus::Rejected);
+        assert_eq!(
+            woo.parse_order_status(Some("CANCELLED")),
+            OrderStatus::Canceled
+        );
+        assert_eq!(
+            woo.parse_order_status(Some("REJECTED")),
+            OrderStatus::Rejected
+        );
     }
 }

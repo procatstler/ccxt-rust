@@ -4,22 +4,21 @@
 //! API Documentation: <https://coincatch.github.io/github.io/en/spot/>
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::collections::HashMap;
-use std::sync::RwLock;
 use std::str::FromStr;
+use std::sync::RwLock;
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee,
-    Market, MarketLimits, MarketPrecision, MarketType, MinMax, OHLCV, Order,
-    OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, SignedRequest,
-    TakerOrMaker, Ticker, Timeframe, Trade,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
+    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -123,15 +122,24 @@ impl CoinCatch {
     }
 
     /// Send public GET request
-    async fn public_get(&self, path: &str, params: Option<&HashMap<String, String>>) -> CcxtResult<serde_json::Value> {
+    async fn public_get(
+        &self,
+        path: &str,
+        params: Option<&HashMap<String, String>>,
+    ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
         let params_owned = params.cloned();
-        let data: CoinCatchResponse<serde_json::Value> = self.client.get(path, params_owned, None).await?;
+        let data: CoinCatchResponse<serde_json::Value> =
+            self.client.get(path, params_owned, None).await?;
 
         if data.code != "00000" {
             return Err(CcxtError::ExchangeError {
-                message: format!("CoinCatch API error: {} - {}", data.code, data.msg.unwrap_or_default()),
+                message: format!(
+                    "CoinCatch API error: {} - {}",
+                    data.code,
+                    data.msg.unwrap_or_default()
+                ),
             });
         }
 
@@ -150,15 +158,21 @@ impl CoinCatch {
     ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key()
+        let api_key = self
+            .config
+            .api_key()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API key required".to_string(),
             })?;
-        let secret = self.config.secret()
+        let secret = self
+            .config
+            .secret()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "Secret required".to_string(),
             })?;
-        let passphrase = self.config.password()
+        let passphrase = self
+            .config
+            .password()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "Passphrase required".to_string(),
             })?;
@@ -168,9 +182,7 @@ impl CoinCatch {
         let mut request_path = path.to_string();
         if let Some(p) = params {
             if !p.is_empty() {
-                let query: Vec<String> = p.iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect();
+                let query: Vec<String> = p.iter().map(|(k, v)| format!("{k}={v}")).collect();
                 request_path = format!("{}?{}", path, query.join("&"));
             }
         }
@@ -182,7 +194,13 @@ impl CoinCatch {
         };
 
         // Signature: timestamp + method + requestPath + body
-        let sign_str = format!("{}{}{}{}", timestamp, method.to_uppercase(), request_path, body_str);
+        let sign_str = format!(
+            "{}{}{}{}",
+            timestamp,
+            method.to_uppercase(),
+            request_path,
+            body_str
+        );
         let signature = self.sign_message(&sign_str, secret)?;
 
         let mut headers = HashMap::new();
@@ -193,16 +211,30 @@ impl CoinCatch {
         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
         let data: CoinCatchResponse<serde_json::Value> = match method.to_uppercase().as_str() {
-            "GET" => self.client.get(&request_path, params.cloned(), Some(headers)).await?,
-            "POST" => self.client.post(&request_path, body.cloned(), Some(headers)).await?,
-            _ => return Err(CcxtError::ExchangeError {
-                message: format!("Unsupported method: {method}"),
-            }),
+            "GET" => {
+                self.client
+                    .get(&request_path, params.cloned(), Some(headers))
+                    .await?
+            },
+            "POST" => {
+                self.client
+                    .post(&request_path, body.cloned(), Some(headers))
+                    .await?
+            },
+            _ => {
+                return Err(CcxtError::ExchangeError {
+                    message: format!("Unsupported method: {method}"),
+                })
+            },
         };
 
         if data.code != "00000" {
             return Err(CcxtError::ExchangeError {
-                message: format!("CoinCatch API error: {} - {}", data.code, data.msg.unwrap_or_default()),
+                message: format!(
+                    "CoinCatch API error: {} - {}",
+                    data.code,
+                    data.msg.unwrap_or_default()
+                ),
             });
         }
 
@@ -213,10 +245,11 @@ impl CoinCatch {
 
     /// Create HMAC-SHA256 signature
     fn sign_message(&self, message: &str, secret: &str) -> CcxtResult<String> {
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::ExchangeError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::ExchangeError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         let result = mac.finalize();
         Ok(BASE64.encode(result.into_bytes()))
@@ -231,13 +264,19 @@ impl CoinCatch {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             high: data.high.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             low: data.low.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            bid: data.buy_one.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            bid: data
+                .buy_one
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             bid_volume: None,
-            ask: data.sell_one.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            ask: data
+                .sell_one
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             ask_volume: None,
             vwap: None,
             open: data.open.as_ref().and_then(|s| Decimal::from_str(s).ok()),
@@ -245,12 +284,19 @@ impl CoinCatch {
             last: data.close.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             previous_close: None,
             change: data.change.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            percentage: data.change_percentage.as_ref().and_then(|s| {
-                Decimal::from_str(s.trim_end_matches('%')).ok()
-            }),
+            percentage: data
+                .change_percentage
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s.trim_end_matches('%')).ok()),
             average: None,
-            base_volume: data.base_vol.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            quote_volume: data.quote_vol.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            base_volume: data
+                .base_vol
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            quote_volume: data
+                .quote_vol
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             index_price: None,
             mark_price: None,
             info: serde_json::to_value(data).unwrap_or_default(),
@@ -259,7 +305,9 @@ impl CoinCatch {
 
     /// Parse order from API response
     fn parse_order(&self, data: &CoinCatchOrder) -> Order {
-        let timestamp = data.c_time.as_ref()
+        let timestamp = data
+            .c_time
+            .as_ref()
             .and_then(|s| s.parse::<i64>().ok())
             .unwrap_or(0);
 
@@ -283,20 +331,27 @@ impl CoinCatch {
             _ => OrderSide::Buy,
         };
 
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| self.to_symbol(s))
             .unwrap_or_default();
 
-        let price = data.price.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-        let amount = data.quantity.as_ref()
+        let price = data.price.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let amount = data
+            .quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let filled = data.fill_quantity.as_ref()
+        let filled = data
+            .fill_quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
         let remaining = amount - filled;
-        let cost = data.fill_total_amount.as_ref()
+        let cost = data
+            .fill_total_amount
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
         Order {
@@ -306,7 +361,7 @@ impl CoinCatch {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             last_trade_timestamp: None,
             last_update_timestamp: None,
@@ -316,7 +371,10 @@ impl CoinCatch {
             time_in_force: None,
             side,
             price,
-            average: data.fill_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            average: data
+                .fill_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             amount,
             filled,
             remaining: Some(remaining),
@@ -340,23 +398,32 @@ impl CoinCatch {
 
         for asset in data {
             let currency = asset.coin_name.clone().unwrap_or_default();
-            let free = asset.available.as_ref()
+            let free = asset
+                .available
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
-            let used = asset.frozen.as_ref()
+            let used = asset
+                .frozen
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or(Decimal::ZERO) +
-                asset.lock.as_ref()
+                .unwrap_or(Decimal::ZERO)
+                + asset
+                    .lock
+                    .as_ref()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
             let total = free + used;
 
-            currencies.insert(currency, Balance {
-                free: Some(free),
-                used: Some(used),
-                total: Some(total),
-                debt: None,
-            });
+            currencies.insert(
+                currency,
+                Balance {
+                    free: Some(free),
+                    used: Some(used),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         Balances {
@@ -488,7 +555,10 @@ impl Exchange for CoinCatch {
                             min: Some(Decimal::from_str("1").unwrap()),
                             max: None,
                         },
-                        leverage: MinMax { min: None, max: None },
+                        leverage: MinMax {
+                            min: None,
+                            max: None,
+                        },
                     },
                     margin_modes: None,
                     created: None,
@@ -505,7 +575,9 @@ impl Exchange for CoinCatch {
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
 
-        let data = self.public_get("/api/spot/v1/market/ticker", Some(&params)).await?;
+        let data = self
+            .public_get("/api/spot/v1/market/ticker", Some(&params))
+            .await?;
         let ticker: CoinCatchTicker = serde_json::from_value(data)?;
 
         Ok(self.parse_ticker(&ticker, symbol))
@@ -543,15 +615,20 @@ impl Exchange for CoinCatch {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let data = self.public_get("/api/spot/v1/market/depth", Some(&params)).await?;
+        let data = self
+            .public_get("/api/spot/v1/market/depth", Some(&params))
+            .await?;
         let book: CoinCatchOrderBook = serde_json::from_value(data)?;
 
-        let timestamp = book.timestamp.as_ref()
+        let timestamp = book
+            .timestamp
+            .as_ref()
             .and_then(|s| s.parse::<i64>().ok())
             .unwrap_or(0);
 
         let parse_entries = |entries: &[Vec<String>]| -> Vec<OrderBookEntry> {
-            entries.iter()
+            entries
+                .iter()
                 .filter_map(|e| {
                     if e.len() >= 2 {
                         Some(OrderBookEntry {
@@ -571,15 +648,21 @@ impl Exchange for CoinCatch {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&book.bids),
             asks: parse_entries(&book.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
@@ -587,35 +670,49 @@ impl Exchange for CoinCatch {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let data = self.public_get("/api/spot/v1/market/fills", Some(&params)).await?;
+        let data = self
+            .public_get("/api/spot/v1/market/fills", Some(&params))
+            .await?;
         let trades: Vec<CoinCatchTrade> = serde_json::from_value(data)?;
 
-        let result: Vec<Trade> = trades.iter().map(|t| {
-            let timestamp = t.ts.as_ref()
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or(0);
+        let result: Vec<Trade> = trades
+            .iter()
+            .map(|t| {
+                let timestamp =
+                    t.ts.as_ref()
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .unwrap_or(0);
 
-            Trade {
-                id: t.trade_id.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                ),
-                symbol: symbol.to_string(),
-                trade_type: None,
-                side: t.side.clone(),
-                taker_or_maker: None,
-                price: t.price.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-                amount: t.size.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-                cost: None,
-                fee: None,
-                fees: vec![],
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.trade_id.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.to_string(),
+                    trade_type: None,
+                    side: t.side.clone(),
+                    taker_or_maker: None,
+                    price: t
+                        .price
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok())
+                        .unwrap_or(Decimal::ZERO),
+                    amount: t
+                        .size
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok())
+                        .unwrap_or(Decimal::ZERO),
+                    cost: None,
+                    fee: None,
+                    fees: vec![],
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         Ok(result)
     }
@@ -628,7 +725,9 @@ impl Exchange for CoinCatch {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let period = self.timeframes.get(&timeframe)
+        let period = self
+            .timeframes
+            .get(&timeframe)
             .cloned()
             .unwrap_or_else(|| "1min".to_string());
 
@@ -642,10 +741,13 @@ impl Exchange for CoinCatch {
             params.insert("after".to_string(), s.to_string());
         }
 
-        let data = self.public_get("/api/spot/v1/market/candles", Some(&params)).await?;
+        let data = self
+            .public_get("/api/spot/v1/market/candles", Some(&params))
+            .await?;
         let candles: Vec<Vec<String>> = serde_json::from_value(data)?;
 
-        let result: Vec<OHLCV> = candles.iter()
+        let result: Vec<OHLCV> = candles
+            .iter()
             .filter_map(|c| {
                 if c.len() >= 6 {
                     Some(OHLCV {
@@ -666,7 +768,9 @@ impl Exchange for CoinCatch {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let data = self.private_request("GET", "/api/spot/v1/account/assets", None, None).await?;
+        let data = self
+            .private_request("GET", "/api/spot/v1/account/assets", None, None)
+            .await?;
         let assets: Vec<CoinCatchAsset> = serde_json::from_value(data)?;
         Ok(self.parse_balance(&assets))
     }
@@ -684,9 +788,11 @@ impl Exchange for CoinCatch {
         let order_type_str = match order_type {
             OrderType::Limit => "limit",
             OrderType::Market => "market",
-            _ => return Err(CcxtError::ExchangeError {
-                message: format!("Unsupported order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::ExchangeError {
+                    message: format!("Unsupported order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -706,7 +812,9 @@ impl Exchange for CoinCatch {
             body["price"] = serde_json::Value::String(p.to_string());
         }
 
-        let data = self.private_request("POST", "/api/spot/v1/trade/orders", None, Some(&body)).await?;
+        let data = self
+            .private_request("POST", "/api/spot/v1/trade/orders", None, Some(&body))
+            .await?;
         let result: CoinCatchOrderResult = serde_json::from_value(data)?;
 
         let timestamp = chrono::Utc::now().timestamp_millis();
@@ -749,7 +857,8 @@ impl Exchange for CoinCatch {
             "orderId": id
         });
 
-        self.private_request("POST", "/api/spot/v1/trade/cancel-order", None, Some(&body)).await?;
+        self.private_request("POST", "/api/spot/v1/trade/cancel-order", None, Some(&body))
+            .await?;
 
         let timestamp = chrono::Utc::now().timestamp_millis();
         Ok(Order {
@@ -791,13 +900,20 @@ impl Exchange for CoinCatch {
             "orderId": id
         });
 
-        let data = self.private_request("POST", "/api/spot/v1/trade/orderInfo", None, Some(&body)).await?;
+        let data = self
+            .private_request("POST", "/api/spot/v1/trade/orderInfo", None, Some(&body))
+            .await?;
         let order: CoinCatchOrder = serde_json::from_value(data)?;
 
         Ok(self.parse_order(&order))
     }
 
-    async fn fetch_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let sym = symbol.ok_or_else(|| CcxtError::ArgumentsRequired {
             message: "Symbol required".to_string(),
         })?;
@@ -811,13 +927,20 @@ impl Exchange for CoinCatch {
             body["limit"] = serde_json::Value::String(l.to_string());
         }
 
-        let data = self.private_request("POST", "/api/spot/v1/trade/history", None, Some(&body)).await?;
+        let data = self
+            .private_request("POST", "/api/spot/v1/trade/history", None, Some(&body))
+            .await?;
         let orders: Vec<CoinCatchOrder> = serde_json::from_value(data)?;
 
         Ok(orders.iter().map(|o| self.parse_order(o)).collect())
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let sym = symbol.ok_or_else(|| CcxtError::ArgumentsRequired {
             message: "Symbol required".to_string(),
         })?;
@@ -829,20 +952,38 @@ impl Exchange for CoinCatch {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let data = self.private_request("POST", "/api/spot/v1/trade/open-orders", Some(&params), None).await?;
+        let data = self
+            .private_request(
+                "POST",
+                "/api/spot/v1/trade/open-orders",
+                Some(&params),
+                None,
+            )
+            .await?;
         let orders: Vec<CoinCatchOrder> = serde_json::from_value(data)?;
 
         Ok(orders.iter().map(|o| self.parse_order(o)).collect())
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let orders = self.fetch_orders(symbol, since, limit).await?;
-        Ok(orders.into_iter().filter(|o| {
-            matches!(o.status, OrderStatus::Closed | OrderStatus::Canceled)
-        }).collect())
+        Ok(orders
+            .into_iter()
+            .filter(|o| matches!(o.status, OrderStatus::Closed | OrderStatus::Canceled))
+            .collect())
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let sym = symbol.ok_or_else(|| CcxtError::ArgumentsRequired {
             message: "Symbol required".to_string(),
         })?;
@@ -856,49 +997,64 @@ impl Exchange for CoinCatch {
             body["limit"] = serde_json::Value::String(l.to_string());
         }
 
-        let data = self.private_request("POST", "/api/spot/v1/trade/fills", None, Some(&body)).await?;
+        let data = self
+            .private_request("POST", "/api/spot/v1/trade/fills", None, Some(&body))
+            .await?;
         let fills: Vec<CoinCatchFill> = serde_json::from_value(data)?;
 
-        let result: Vec<Trade> = fills.iter().map(|f| {
-            let timestamp = f.c_time.as_ref()
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or(0);
+        let result: Vec<Trade> = fills
+            .iter()
+            .map(|f| {
+                let timestamp = f
+                    .c_time
+                    .as_ref()
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .unwrap_or(0);
 
-            let fee = f.fee.as_ref().and_then(|s| Decimal::from_str(s).ok()).map(|cost| {
-                Fee {
-                    cost: Some(cost),
-                    currency: f.fee_currency.clone(),
-                    rate: None,
-                }
-            });
+                let fee = f
+                    .fee
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .map(|cost| Fee {
+                        cost: Some(cost),
+                        currency: f.fee_currency.clone(),
+                        rate: None,
+                    });
 
-            Trade {
-                id: f.trade_id.clone().unwrap_or_default(),
-                order: f.order_id.clone(),
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                ),
-                symbol: sym.to_string(),
-                trade_type: None,
-                side: f.side.clone(),
-                taker_or_maker: f.trade_scope.as_ref().and_then(|s| {
-                    match s.as_str() {
+                Trade {
+                    id: f.trade_id.clone().unwrap_or_default(),
+                    order: f.order_id.clone(),
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: sym.to_string(),
+                    trade_type: None,
+                    side: f.side.clone(),
+                    taker_or_maker: f.trade_scope.as_ref().and_then(|s| match s.as_str() {
                         "taker" => Some(TakerOrMaker::Taker),
                         "maker" => Some(TakerOrMaker::Maker),
                         _ => None,
-                    }
-                }),
-                price: f.price.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-                amount: f.size.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-                cost: None,
-                fee,
-                fees: vec![],
-                info: serde_json::to_value(f).unwrap_or_default(),
-            }
-        }).collect();
+                    }),
+                    price: f
+                        .price
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok())
+                        .unwrap_or(Decimal::ZERO),
+                    amount: f
+                        .size
+                        .as_ref()
+                        .and_then(|s| Decimal::from_str(s).ok())
+                        .unwrap_or(Decimal::ZERO),
+                    cost: None,
+                    fee,
+                    fees: vec![],
+                    info: serde_json::to_value(f).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         Ok(result)
     }
@@ -924,14 +1080,18 @@ impl Exchange for CoinCatch {
 
         let mut request_path = path.to_string();
         if !params.is_empty() {
-            let query: Vec<String> = params.iter()
-                .map(|(k, v)| format!("{k}={v}"))
-                .collect();
+            let query: Vec<String> = params.iter().map(|(k, v)| format!("{k}={v}")).collect();
             request_path = format!("{}?{}", path, query.join("&"));
         }
 
         let body_str = body.unwrap_or("");
-        let sign_str = format!("{}{}{}{}", timestamp, method.to_uppercase(), request_path, body_str);
+        let sign_str = format!(
+            "{}{}{}{}",
+            timestamp,
+            method.to_uppercase(),
+            request_path,
+            body_str
+        );
 
         let mut result_headers = headers.unwrap_or_default();
 
@@ -1124,7 +1284,10 @@ mod tests {
     fn test_timeframes() {
         let exchange = create_test_exchange();
         let timeframes = exchange.timeframes();
-        assert_eq!(timeframes.get(&Timeframe::Minute1), Some(&"1min".to_string()));
+        assert_eq!(
+            timeframes.get(&Timeframe::Minute1),
+            Some(&"1min".to_string())
+        );
         assert_eq!(timeframes.get(&Timeframe::Hour1), Some(&"1h".to_string()));
         assert_eq!(timeframes.get(&Timeframe::Day1), Some(&"1day".to_string()));
     }

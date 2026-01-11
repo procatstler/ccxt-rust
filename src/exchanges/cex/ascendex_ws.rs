@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -13,14 +14,13 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent,
-    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -90,13 +90,18 @@ impl AscendexWs {
         }
 
         // Fetch account info from REST API
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let url = format!("{REST_BASE_URL}/api/pro/v1/info");
         let timestamp = Utc::now().timestamp_millis().to_string();
@@ -123,10 +128,11 @@ impl AscendexWs {
             });
         }
 
-        let data: AscendexAccountInfoResponse = response.json().await.map_err(|e| CcxtError::ParseError {
-            data_type: "AscendexAccountInfoResponse".to_string(),
-            message: e.to_string(),
-        })?;
+        let data: AscendexAccountInfoResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
+                data_type: "AscendexAccountInfoResponse".to_string(),
+                message: e.to_string(),
+            })?;
 
         let group_id = data.data.account_group.to_string();
 
@@ -138,20 +144,26 @@ impl AscendexWs {
 
     /// Sign request with HMAC SHA256
     fn sign_request(&self, timestamp: &str, path: &str) -> CcxtResult<String> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Config required".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Config required".into(),
+            })?;
 
-        let secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         let message = format!("{timestamp}+{path}");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = mac.finalize().into_bytes();
 
@@ -159,7 +171,10 @@ impl AscendexWs {
     }
 
     /// Subscribe to private stream
-    async fn subscribe_private_stream(&mut self, channel: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_private_stream(
+        &mut self,
+        channel: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let account_group = self.get_account_group().await?;
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -176,6 +191,7 @@ impl AscendexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -184,7 +200,10 @@ impl AscendexWs {
         // Store subscription
         {
             let key = format!("private:{channel}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Authenticate
@@ -231,19 +250,19 @@ impl AscendexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -261,13 +280,13 @@ impl AscendexWs {
                 if let Ok(data) = serde_json::from_str::<AscendexOrderMessage>(msg) {
                     return Some(WsMessage::Order(Self::parse_order_message(&data)));
                 }
-            }
+            },
             "balance" | "futures-account-update" => {
                 if let Ok(data) = serde_json::from_str::<AscendexBalanceMessage>(msg) {
                     return Some(WsMessage::Balance(Self::parse_balance_message(&data)));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -391,7 +410,10 @@ impl AscendexWs {
     /// Parse ticker message
     fn parse_ticker(data: &AscendexBboMessage) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.data.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .data
+            .ts
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
@@ -427,29 +449,42 @@ impl AscendexWs {
 
     /// Parse order book message
     fn parse_order_book(data: &AscendexDepthMessage, symbol: &str) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.data.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .data
+            .ts
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.to_string(),
@@ -462,6 +497,7 @@ impl AscendexWs {
             nonce: data.data.seqnum,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -492,7 +528,11 @@ impl AscendexWs {
                 ),
                 symbol: symbol.clone(),
                 trade_type: None,
-                side: if trade_data.bm { Some("sell".into()) } else { Some("buy".into()) },
+                side: if trade_data.bm {
+                    Some("sell".into())
+                } else {
+                    Some("buy".into())
+                },
                 taker_or_maker: None,
                 price,
                 amount,
@@ -538,18 +578,18 @@ impl AscendexWs {
                 if let Ok(data) = serde_json::from_str::<AscendexBboMessage>(msg) {
                     return Some(WsMessage::Ticker(Self::parse_ticker(&data)));
                 }
-            }
+            },
             "depth" => {
                 if let Ok(data) = serde_json::from_str::<AscendexDepthMessage>(msg) {
                     let symbol = Self::to_unified_symbol(&data.symbol);
                     return Some(WsMessage::OrderBook(Self::parse_order_book(&data, &symbol)));
                 }
-            }
+            },
             "trades" => {
                 if let Ok(data) = serde_json::from_str::<AscendexTradesMessage>(msg) {
                     return Some(WsMessage::Trade(Self::parse_trade(&data)));
                 }
-            }
+            },
             "bar" => {
                 if let Ok(data) = serde_json::from_str::<AscendexBarMessage>(msg) {
                     // Extract interval from data
@@ -568,15 +608,19 @@ impl AscendexWs {
                     };
                     return Some(WsMessage::Ohlcv(Self::parse_ohlcv(&data, timeframe)));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
     }
 
     /// Subscribe to stream
-    async fn subscribe_stream(&mut self, channel: &str, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        channel: &str,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -591,6 +635,7 @@ impl AscendexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -599,7 +644,10 @@ impl AscendexWs {
         // Store subscription
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Subscribe message
@@ -620,19 +668,19 @@ impl AscendexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -668,13 +716,20 @@ impl WsExchange for AscendexWs {
         client.subscribe_stream(&channel, Some(symbol)).await
     }
 
-    async fn watch_tickers(&self, _symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        _symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "watch_tickers not supported by AscendEX".into(),
         })
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let channel = format!("depth:{}", Self::format_symbol(symbol));
         client.subscribe_stream(&channel, Some(symbol)).await
@@ -686,7 +741,11 @@ impl WsExchange for AscendexWs {
         client.subscribe_stream(&channel, Some(symbol)).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let interval = match timeframe {
             Timeframe::Minute1 => "1",
@@ -737,12 +796,18 @@ impl WsExchange for AscendexWs {
         client.subscribe_private_stream("order:CASH").await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("order:CASH").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "watch_my_trades not directly supported by AscendEX".into(),
         })

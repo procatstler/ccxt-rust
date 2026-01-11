@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -112,21 +112,36 @@ impl Bitso {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
         let request_path = format!("/v3{path}");
         let body_str = body.unwrap_or("");
 
-        let message = format!("{}{}{}{}", nonce, method.to_uppercase(), request_path, body_str);
+        let message = format!(
+            "{}{}{}{}",
+            nonce,
+            method.to_uppercase(),
+            request_path,
+            body_str
+        );
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -145,7 +160,7 @@ impl Bitso {
                     Some(serde_json::from_str(body_str).unwrap_or(serde_json::Value::Null))
                 };
                 self.client.post(path, body_value, Some(headers)).await
-            }
+            },
             "DELETE" => self.client.delete(path, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method {method}"),
@@ -431,10 +446,16 @@ impl Exchange for Bitso {
             nonce: data.sequence,
             bids: parse_entries(&data.bids),
             asks: parse_entries(&data.asks),
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.market_id(symbol).ok_or_else(|| CcxtError::BadSymbol {
             symbol: symbol.to_string(),
         })?;
@@ -457,10 +478,13 @@ impl Exchange for Bitso {
         }
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.payload.iter()
+        let trades: Vec<Trade> = response
+            .payload
+            .iter()
             .take(limit)
             .map(|t| {
-                let timestamp = t.created_at
+                let timestamp = t
+                    .created_at
                     .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis());
@@ -574,10 +598,9 @@ impl Exchange for Bitso {
             order_data["price"] = serde_json::json!(p.to_string());
         }
 
-        let body = serde_json::to_string(&order_data)
-            .map_err(|e| CcxtError::ExchangeError {
-                message: format!("Failed to serialize order: {e}"),
-            })?;
+        let body = serde_json::to_string(&order_data).map_err(|e| CcxtError::ExchangeError {
+            message: format!("Failed to serialize order: {e}"),
+        })?;
 
         #[derive(Deserialize)]
         struct Response {
@@ -689,13 +712,16 @@ impl Exchange for Bitso {
         }
 
         let o = &response.payload[0];
-        let timestamp = o.created_at
+        let timestamp = o
+            .created_at
             .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis());
 
         let status = match o.status.as_deref() {
-            Some("queued") | Some("active") | Some("open") | Some("partially_filled") => OrderStatus::Open,
+            Some("queued") | Some("active") | Some("open") | Some("partially_filled") => {
+                OrderStatus::Open
+            },
             Some("complete") | Some("completed") => OrderStatus::Closed,
             Some("cancelled") | Some("canceled") => OrderStatus::Canceled,
             _ => OrderStatus::Open,
@@ -725,7 +751,8 @@ impl Exchange for Bitso {
                     .unwrap_or_default()
             }),
             last_trade_timestamp: None,
-            last_update_timestamp: o.updated_at
+            last_update_timestamp: o
+                .updated_at
                 .as_ref()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.timestamp_millis()),
@@ -782,12 +809,15 @@ impl Exchange for Bitso {
         }
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let orders: Vec<Order> = response.payload.iter()
+        let orders: Vec<Order> = response
+            .payload
+            .iter()
             .filter_map(|o| {
                 let market_id = o.book.as_ref()?;
                 let sym = markets_by_id.get(market_id)?;
 
-                let timestamp = o.created_at
+                let timestamp = o
+                    .created_at
                     .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis());
@@ -816,7 +846,8 @@ impl Exchange for Bitso {
                             .unwrap_or_default()
                     }),
                     last_trade_timestamp: None,
-                    last_update_timestamp: o.updated_at
+                    last_update_timestamp: o
+                        .updated_at
                         .as_ref()
                         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                         .map(|dt| dt.timestamp_millis()),

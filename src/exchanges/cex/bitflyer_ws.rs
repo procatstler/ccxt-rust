@@ -17,13 +17,13 @@ use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://ws.lightstream.bitflyer.com/json-rpc";
@@ -112,21 +112,17 @@ impl BitflyerWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::process_message(
-                                    &data,
-                                    &subscriptions,
-                                    &orderbook_cache,
-                                )
-                                .await;
+                                Self::process_message(&data, &subscriptions, &orderbook_cache)
+                                    .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -174,7 +170,9 @@ impl BitflyerWs {
             let symbol = product_code.replace("_", "/");
             Self::process_executions(&symbol, message, subscriptions).await;
         } else if channel.starts_with("lightning_board_snapshot_") {
-            let product_code = channel.strip_prefix("lightning_board_snapshot_").unwrap_or("");
+            let product_code = channel
+                .strip_prefix("lightning_board_snapshot_")
+                .unwrap_or("");
             let symbol = product_code.replace("_", "/");
             Self::process_board_snapshot(&symbol, message, subscriptions, orderbook_cache).await;
         } else if channel.starts_with("lightning_board_") && !channel.contains("snapshot") {
@@ -195,7 +193,8 @@ impl BitflyerWs {
         //  "best_bid": 1234567, "best_ask": 1234568, "best_bid_size": 0.1, "best_ask_size": 0.2,
         //  "total_bid_depth": 100, "total_ask_depth": 100, "ltp": 1234567.5,
         //  "volume": 1000, "volume_by_product": 500}
-        let timestamp = message.get("timestamp")
+        let timestamp = message
+            .get("timestamp")
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
@@ -204,23 +203,50 @@ impl BitflyerWs {
         let ticker = Ticker {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: message.get("timestamp").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            datetime: message
+                .get("timestamp")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
             high: None,
             low: None,
-            bid: message.get("best_bid").and_then(|v| v.as_f64()).map(|f| Decimal::from_f64(f).unwrap_or_default()),
-            bid_volume: message.get("best_bid_size").and_then(|v| v.as_f64()).map(|f| Decimal::from_f64(f).unwrap_or_default()),
-            ask: message.get("best_ask").and_then(|v| v.as_f64()).map(|f| Decimal::from_f64(f).unwrap_or_default()),
-            ask_volume: message.get("best_ask_size").and_then(|v| v.as_f64()).map(|f| Decimal::from_f64(f).unwrap_or_default()),
+            bid: message
+                .get("best_bid")
+                .and_then(|v| v.as_f64())
+                .map(|f| Decimal::from_f64(f).unwrap_or_default()),
+            bid_volume: message
+                .get("best_bid_size")
+                .and_then(|v| v.as_f64())
+                .map(|f| Decimal::from_f64(f).unwrap_or_default()),
+            ask: message
+                .get("best_ask")
+                .and_then(|v| v.as_f64())
+                .map(|f| Decimal::from_f64(f).unwrap_or_default()),
+            ask_volume: message
+                .get("best_ask_size")
+                .and_then(|v| v.as_f64())
+                .map(|f| Decimal::from_f64(f).unwrap_or_default()),
             vwap: None,
             open: None,
-            close: message.get("ltp").and_then(|v| v.as_f64()).map(|f| Decimal::from_f64(f).unwrap_or_default()),
-            last: message.get("ltp").and_then(|v| v.as_f64()).map(|f| Decimal::from_f64(f).unwrap_or_default()),
+            close: message
+                .get("ltp")
+                .and_then(|v| v.as_f64())
+                .map(|f| Decimal::from_f64(f).unwrap_or_default()),
+            last: message
+                .get("ltp")
+                .and_then(|v| v.as_f64())
+                .map(|f| Decimal::from_f64(f).unwrap_or_default()),
             previous_close: None,
             change: None,
             percentage: None,
             average: None,
-            base_volume: message.get("volume").and_then(|v| v.as_f64()).map(|f| Decimal::from_f64(f).unwrap_or_default()),
-            quote_volume: message.get("volume_by_product").and_then(|v| v.as_f64()).map(|f| Decimal::from_f64(f).unwrap_or_default()),
+            base_volume: message
+                .get("volume")
+                .and_then(|v| v.as_f64())
+                .map(|f| Decimal::from_f64(f).unwrap_or_default()),
+            quote_volume: message
+                .get("volume_by_product")
+                .and_then(|v| v.as_f64())
+                .map(|f| Decimal::from_f64(f).unwrap_or_default()),
             index_price: None,
             mark_price: None,
             info: message.clone(),
@@ -254,28 +280,33 @@ impl BitflyerWs {
         let trades: Vec<Trade> = trades_data
             .iter()
             .map(|t| {
-                let id = t.get("id")
+                let id = t
+                    .get("id")
                     .and_then(|v| v.as_i64())
                     .map(|i| i.to_string())
                     .unwrap_or_default();
 
-                let timestamp = t.get("exec_date")
+                let timestamp = t
+                    .get("exec_date")
                     .and_then(|v| v.as_str())
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-                let price = t.get("price")
+                let price = t
+                    .get("price")
                     .and_then(|v| v.as_f64())
                     .map(|f| Decimal::from_f64(f).unwrap_or_default())
                     .unwrap_or_default();
 
-                let amount = t.get("size")
+                let amount = t
+                    .get("size")
                     .and_then(|v| v.as_f64())
                     .map(|f| Decimal::from_f64(f).unwrap_or_default())
                     .unwrap_or_default();
 
-                let side = t.get("side")
+                let side = t
+                    .get("side")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_lowercase());
 
@@ -283,7 +314,10 @@ impl BitflyerWs {
                     id,
                     order: None,
                     timestamp: Some(timestamp),
-                    datetime: t.get("exec_date").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    datetime: t
+                        .get("exec_date")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
                     symbol: symbol.to_string(),
                     trade_type: None,
                     side,
@@ -329,9 +363,10 @@ impl BitflyerWs {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
             datetime: Some(chrono::Utc::now().to_rfc3339()),
-            nonce: None,
             bids,
             asks,
+            nonce: None,
+            checksum: None,
         };
 
         // Update cache
@@ -367,20 +402,25 @@ impl BitflyerWs {
         let ask_updates = Self::parse_orderbook_side(message.get("asks"));
 
         let mut cache = orderbook_cache.write().await;
-        let orderbook = cache.entry(symbol.to_string()).or_insert_with(|| OrderBook {
-            symbol: symbol.to_string(),
-            timestamp: None,
-            datetime: None,
-            nonce: None,
-            bids: Vec::new(),
-            asks: Vec::new(),
-        });
+        let orderbook = cache
+            .entry(symbol.to_string())
+            .or_insert_with(|| OrderBook {
+                symbol: symbol.to_string(),
+                timestamp: None,
+                datetime: None,
+                nonce: None,
+                checksum: None,
+                bids: Vec::new(),
+                asks: Vec::new(),
+            });
 
         // Apply bid updates
         for update in bid_updates {
             if update.amount.is_zero() {
                 orderbook.bids.retain(|e| e.price != update.price);
-            } else if let Some(existing) = orderbook.bids.iter_mut().find(|e| e.price == update.price) {
+            } else if let Some(existing) =
+                orderbook.bids.iter_mut().find(|e| e.price == update.price)
+            {
                 existing.amount = update.amount;
             } else {
                 orderbook.bids.push(update);
@@ -393,7 +433,9 @@ impl BitflyerWs {
         for update in ask_updates {
             if update.amount.is_zero() {
                 orderbook.asks.retain(|e| e.price != update.price);
-            } else if let Some(existing) = orderbook.asks.iter_mut().find(|e| e.price == update.price) {
+            } else if let Some(existing) =
+                orderbook.asks.iter_mut().find(|e| e.price == update.price)
+            {
                 existing.amount = update.amount;
             } else {
                 orderbook.asks.push(update);
@@ -431,10 +473,12 @@ impl BitflyerWs {
 
         arr.iter()
             .filter_map(|item| {
-                let price = item.get("price")
+                let price = item
+                    .get("price")
                     .and_then(|v| v.as_f64())
                     .map(|f| Decimal::from_f64(f).unwrap_or_default())?;
-                let amount = item.get("size")
+                let amount = item
+                    .get("size")
                     .and_then(|v| v.as_f64())
                     .map(|f| Decimal::from_f64(f).unwrap_or_default())?;
                 Some(OrderBookEntry { price, amount })
@@ -493,7 +537,10 @@ impl WsExchange for BitflyerWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -527,7 +574,10 @@ impl WsExchange for BitflyerWs {
         Ok(rx)
     }
 
-    async fn watch_trades_for_symbols(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades_for_symbols(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -545,7 +595,11 @@ impl WsExchange for BitflyerWs {
         Ok(rx)
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
         let sub_key = format!("orderbook:{symbol}");
 
@@ -566,7 +620,11 @@ impl WsExchange for BitflyerWs {
         Ok(rx)
     }
 
-    async fn watch_order_book_for_symbols(&self, symbols: &[&str], _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book_for_symbols(
+        &self,
+        symbols: &[&str],
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -588,14 +646,22 @@ impl WsExchange for BitflyerWs {
         Ok(rx)
     }
 
-    async fn watch_ohlcv(&self, _symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        _symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // bitFlyer does not support OHLCV via WebSocket
         Err(CcxtError::NotSupported {
             feature: "watch_ohlcv".to_string(),
         })
     }
 
-    async fn watch_ohlcv_for_symbols(&self, _symbols: &[&str], _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv_for_symbols(
+        &self,
+        _symbols: &[&str],
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "watch_ohlcv_for_symbols".to_string(),
         })

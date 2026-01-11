@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::ExchangeConfig;
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, OHLCV,
-    WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent, WsTickerEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, WsExchange, WsMessage, WsOhlcvEvent,
+    WsOrderBookEvent, WsTickerEvent, OHLCV,
 };
 
 const WS_BASE_URL: &str = "wss://streams.onetrading.com/";
@@ -107,18 +107,21 @@ impl OnetradingWs {
         let unified_symbol = Self::to_unified_symbol(&data.instrument);
         let timestamp = Utc::now().timestamp_millis();
 
-        let last_price = data.last_price.as_ref()
+        let last_price = data
+            .last_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let high = data.high.as_ref()
+        let high = data.high.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let low = data.low.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let change = data
+            .price_change
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let low = data.low.as_ref()
+        let percentage = data
+            .price_change_percentage
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let change = data.price_change.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-        let percentage = data.price_change_percentage.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-        let volume = data.volume.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
+        let volume = data.volume.as_ref().and_then(|s| Decimal::from_str(s).ok());
 
         let ticker = Ticker {
             symbol: unified_symbol.clone(),
@@ -154,7 +157,9 @@ impl OnetradingWs {
     /// 호가창 스냅샷 파싱
     fn parse_order_book_snapshot(data: &OnetradingWsOrderBookSnapshot) -> WsOrderBookEvent {
         let unified_symbol = Self::to_unified_symbol(&data.instrument_code);
-        let timestamp = data.time.as_ref()
+        let timestamp = data
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -189,6 +194,7 @@ impl OnetradingWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -204,7 +210,9 @@ impl OnetradingWs {
         current_book: &OrderBook,
     ) -> WsOrderBookEvent {
         let unified_symbol = Self::to_unified_symbol(&data.instrument_code);
-        let timestamp = data.time.as_ref()
+        let timestamp = data
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -252,6 +260,7 @@ impl OnetradingWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -264,26 +273,38 @@ impl OnetradingWs {
     /// OHLCV 캔들 메시지 파싱
     fn parse_ohlcv(data: &OnetradingWsOhlcv, timeframe: Timeframe) -> WsOhlcvEvent {
         let unified_symbol = Self::to_unified_symbol(&data.instrument_code);
-        let timestamp = data.time.as_ref()
+        let timestamp = data
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ohlcv = OHLCV {
             timestamp,
-            open: data.open.as_ref()
+            open: data
+                .open
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default(),
-            high: data.high.as_ref()
+            high: data
+                .high
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default(),
-            low: data.low.as_ref()
+            low: data
+                .low
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default(),
-            close: data.close.as_ref()
+            close: data
+                .close
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default(),
-            volume: data.volume.as_ref()
+            volume: data
+                .volume
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default(),
         };
@@ -311,9 +332,11 @@ impl OnetradingWs {
                             let _ = tx.send(WsMessage::Ticker(event));
                         }
                     }
-                }
+                },
                 Some("ORDER_BOOK_SNAPSHOT") => {
-                    if let Ok(snapshot) = serde_json::from_str::<OnetradingWsOrderBookSnapshot>(message) {
+                    if let Ok(snapshot) =
+                        serde_json::from_str::<OnetradingWsOrderBookSnapshot>(message)
+                    {
                         let event = Self::parse_order_book_snapshot(&snapshot);
                         // Store the order book for updates
                         let symbol = event.symbol.clone();
@@ -323,9 +346,10 @@ impl OnetradingWs {
                         }
                         let _ = tx.send(WsMessage::OrderBook(event));
                     }
-                }
+                },
                 Some("ORDER_BOOK_UPDATE") => {
-                    if let Ok(update) = serde_json::from_str::<OnetradingWsOrderBookUpdate>(message) {
+                    if let Ok(update) = serde_json::from_str::<OnetradingWsOrderBookUpdate>(message)
+                    {
                         let unified_symbol = Self::to_unified_symbol(&update.instrument_code);
                         let books = order_books.read().await;
                         if let Some(current_book) = books.get(&unified_symbol) {
@@ -338,23 +362,23 @@ impl OnetradingWs {
                             let _ = tx.send(WsMessage::OrderBook(event));
                         }
                     }
-                }
+                },
                 Some("CANDLESTICK_SNAPSHOT") | Some("CANDLESTICK") => {
                     if let Ok(ohlcv_data) = serde_json::from_str::<OnetradingWsOhlcv>(message) {
                         let tf = timeframe.unwrap_or(Timeframe::Minute1);
                         let event = Self::parse_ohlcv(&ohlcv_data, tf);
                         let _ = tx.send(WsMessage::Ohlcv(event));
                     }
-                }
+                },
                 Some("SUBSCRIPTIONS") | Some("SUBSCRIPTION_UPDATED") | Some("HEARTBEAT") => {
                     // Subscription confirmations and heartbeats - ignore
-                }
+                },
                 Some("ERROR") => {
                     if let Some(error) = msg.error {
                         let _ = tx.send(WsMessage::Error(error));
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     }
@@ -367,27 +391,28 @@ impl OnetradingWs {
         tx: mpsc::UnboundedSender<WsMessage>,
         timeframe: Option<Timeframe>,
     ) -> CcxtResult<()> {
-        use tokio_tungstenite::connect_async;
         use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::connect_async;
 
         let url = WS_BASE_URL.to_string();
 
-        let (ws_stream, _) = connect_async(url).await.map_err(|e| CcxtError::NetworkError {
-            url: WS_BASE_URL.to_string(),
-            message: e.to_string(),
-        })?;
+        let (ws_stream, _) = connect_async(url)
+            .await
+            .map_err(|e| CcxtError::NetworkError {
+                url: WS_BASE_URL.to_string(),
+                message: e.to_string(),
+            })?;
 
         let (mut write, mut read) = ws_stream.split();
         let _ = tx.send(WsMessage::Connected);
 
         // Build subscription message
-        let market_ids: Vec<String> = symbols.iter()
-            .map(|s| Self::format_symbol(s))
-            .collect();
+        let market_ids: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
 
         let subscribe_msg = if channel == "CANDLESTICKS" {
             let tf = timeframe.unwrap_or(Timeframe::Minute1);
-            let properties: Vec<serde_json::Value> = market_ids.iter()
+            let properties: Vec<serde_json::Value> = market_ids
+                .iter()
                 .map(|id| {
                     serde_json::json!({
                         "instrument_code": id,
@@ -440,17 +465,17 @@ impl OnetradingWs {
                 match msg {
                     Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
                         Self::handle_message(&text, &tx, order_books.clone(), timeframe).await;
-                    }
+                    },
                     Ok(tokio_tungstenite::tungstenite::Message::Ping(data)) => {
                         let _ = write
                             .send(tokio_tungstenite::tungstenite::Message::Pong(data))
                             .await;
-                    }
+                    },
                     Err(e) => {
                         let _ = tx.send(WsMessage::Error(e.to_string()));
                         break;
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -504,8 +529,13 @@ impl WsExchange for OnetradingWs {
         timeframe: Timeframe,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
-        self.connect_and_subscribe("CANDLESTICKS", vec![symbol.to_string()], tx, Some(timeframe))
-            .await?;
+        self.connect_and_subscribe(
+            "CANDLESTICKS",
+            vec![symbol.to_string()],
+            tx,
+            Some(timeframe),
+        )
+        .await?;
         Ok(rx)
     }
 
@@ -626,9 +656,18 @@ mod tests {
 
         let event = OnetradingWs::parse_ticker(&ticker_data);
         assert_eq!(event.symbol, "BTC/EUR");
-        assert_eq!(event.ticker.last, Some(Decimal::from_str("45000.50").unwrap()));
-        assert_eq!(event.ticker.high, Some(Decimal::from_str("46000.00").unwrap()));
-        assert_eq!(event.ticker.low, Some(Decimal::from_str("44000.00").unwrap()));
+        assert_eq!(
+            event.ticker.last,
+            Some(Decimal::from_str("45000.50").unwrap())
+        );
+        assert_eq!(
+            event.ticker.high,
+            Some(Decimal::from_str("46000.00").unwrap())
+        );
+        assert_eq!(
+            event.ticker.low,
+            Some(Decimal::from_str("44000.00").unwrap())
+        );
     }
 
     #[test]

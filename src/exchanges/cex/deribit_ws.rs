@@ -182,22 +182,38 @@ impl DeribitWs {
             ),
             high,
             low,
-            bid: data.best_bid_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            bid_volume: data.best_bid_amount.map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
-            ask: data.best_ask_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            ask_volume: data.best_ask_amount.map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
+            bid: data
+                .best_bid_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            bid_volume: data
+                .best_bid_amount
+                .map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
+            ask: data
+                .best_ask_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            ask_volume: data
+                .best_ask_amount
+                .map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
             vwap: None,
             open: None,
-            close: data.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            last: data.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            close: data
+                .last_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            last: data
+                .last_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             previous_close: None,
             change: None,
             percentage,
             average: None,
             base_volume: volume,
             quote_volume: None,
-            index_price: data.index_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            mark_price: data.mark_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            index_price: data
+                .index_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            mark_price: data
+                .mark_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
@@ -208,7 +224,9 @@ impl DeribitWs {
     fn parse_order_book(data: &DeribitOrderBookData, symbol: &str) -> WsOrderBookEvent {
         let is_snapshot = data.r#type.as_deref() == Some("snapshot");
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|b| {
                 if b.len() >= 3 {
                     // Format: ["new"|"change"|"delete", price, amount]
@@ -222,7 +240,9 @@ impl DeribitWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|a| {
                 if a.len() >= 3 {
                     Some(OrderBookEntry {
@@ -246,6 +266,7 @@ impl DeribitWs {
             nonce: data.change_id,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -307,7 +328,9 @@ impl DeribitWs {
     /// Parse order update from WebSocket
     fn parse_order_update(data: &DeribitWsOrderData) -> WsOrderEvent {
         let symbol = Self::to_unified_symbol(&data.instrument_name);
-        let timestamp = data.last_update_timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .last_update_timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let side = match data.direction.as_deref() {
             Some("buy") => OrderSide::Buy,
@@ -335,8 +358,14 @@ impl DeribitWs {
         };
 
         let price = data.price.and_then(Decimal::from_f64_retain);
-        let amount = data.amount.and_then(Decimal::from_f64_retain).unwrap_or_default();
-        let filled = data.filled_amount.and_then(Decimal::from_f64_retain).unwrap_or_default();
+        let amount = data
+            .amount
+            .and_then(Decimal::from_f64_retain)
+            .unwrap_or_default();
+        let filled = data
+            .filled_amount
+            .and_then(Decimal::from_f64_retain)
+            .unwrap_or_default();
         let remaining = Some(amount - filled);
         let average = data.average_price.and_then(Decimal::from_f64_retain);
         let stop_price = data.stop_price.and_then(Decimal::from_f64_retain);
@@ -347,23 +376,26 @@ impl DeribitWs {
             client_order_id: data.label.clone(),
             timestamp: Some(data.creation_timestamp.unwrap_or(timestamp)),
             datetime: Some(
-                chrono::DateTime::from_timestamp_millis(data.creation_timestamp.unwrap_or(timestamp))
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default(),
+                chrono::DateTime::from_timestamp_millis(
+                    data.creation_timestamp.unwrap_or(timestamp),
+                )
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default(),
             ),
             last_trade_timestamp: None,
             last_update_timestamp: Some(timestamp),
             status,
             symbol,
             order_type,
-            time_in_force: data.time_in_force.as_ref().and_then(|tif| {
-                match tif.as_str() {
+            time_in_force: data
+                .time_in_force
+                .as_ref()
+                .and_then(|tif| match tif.as_str() {
                     "GTC" | "good_til_cancelled" => Some(TimeInForce::GTC),
                     "IOC" | "immediate_or_cancel" => Some(TimeInForce::IOC),
                     "FOK" | "fill_or_kill" => Some(TimeInForce::FOK),
                     _ => None,
-                }
-            }),
+                }),
             side,
             price,
             average,
@@ -468,7 +500,9 @@ impl DeribitWs {
                     contract_size: None,
                     side,
                     notional: None,
-                    leverage: pos.leverage.and_then(|l| Decimal::from_f64_retain(l as f64)),
+                    leverage: pos
+                        .leverage
+                        .and_then(|l| Decimal::from_f64_retain(l as f64)),
                     collateral: None,
                     initial_margin: pos.initial_margin.and_then(Decimal::from_f64_retain),
                     initial_margin_percentage: None,
@@ -476,7 +510,9 @@ impl DeribitWs {
                     maintenance_margin_percentage: None,
                     entry_price: pos.average_price.and_then(Decimal::from_f64_retain),
                     mark_price: pos.mark_price.and_then(Decimal::from_f64_retain),
-                    liquidation_price: pos.estimated_liquidation_price.and_then(Decimal::from_f64_retain),
+                    liquidation_price: pos
+                        .estimated_liquidation_price
+                        .and_then(Decimal::from_f64_retain),
                     unrealized_pnl: pos.floating_profit_loss.and_then(Decimal::from_f64_retain),
                     realized_pnl: pos.realized_profit_loss.and_then(Decimal::from_f64_retain),
                     last_price: None,
@@ -578,6 +614,7 @@ impl DeribitWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -601,10 +638,11 @@ impl DeribitWs {
         });
 
         if let Some(client) = &self.ws_client {
-            let msg_str = serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
-                data_type: "SubscribeMessage".to_string(),
-                message: e.to_string(),
-            })?;
+            let msg_str =
+                serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
+                    data_type: "SubscribeMessage".to_string(),
+                    message: e.to_string(),
+                })?;
             client.send(&msg_str)?;
         }
 
@@ -623,19 +661,19 @@ impl DeribitWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -652,7 +690,10 @@ impl DeribitWs {
 
         // Check for errors
         if let Some(error) = json.error {
-            return Some(WsMessage::Error(format!("{}: {}", error.code, error.message)));
+            return Some(WsMessage::Error(format!(
+                "{}: {}",
+                error.code, error.message
+            )));
         }
 
         // Handle subscription notifications
@@ -664,21 +705,31 @@ impl DeribitWs {
 
                     match *channel_type {
                         "ticker" => {
-                            if let Ok(data) = serde_json::from_value::<DeribitTickerData>(params.data) {
+                            if let Ok(data) =
+                                serde_json::from_value::<DeribitTickerData>(params.data)
+                            {
                                 return Some(WsMessage::Ticker(Self::parse_ticker(&data)));
                             }
-                        }
+                        },
                         "book" => {
-                            if let Ok(data) = serde_json::from_value::<DeribitOrderBookData>(params.data) {
+                            if let Ok(data) =
+                                serde_json::from_value::<DeribitOrderBookData>(params.data)
+                            {
                                 let symbol = Self::to_unified_symbol(&data.instrument_name);
-                                return Some(WsMessage::OrderBook(Self::parse_order_book(&data, &symbol)));
+                                return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                    &data, &symbol,
+                                )));
                             }
-                        }
+                        },
                         "trades" => {
-                            if let Ok(trades) = serde_json::from_value::<Vec<DeribitTradeData>>(params.data) {
+                            if let Ok(trades) =
+                                serde_json::from_value::<Vec<DeribitTradeData>>(params.data)
+                            {
                                 if let Some(first_trade) = trades.first() {
-                                    let symbol = Self::to_unified_symbol(&first_trade.instrument_name);
-                                    let parsed_trades: Vec<Trade> = trades.iter()
+                                    let symbol =
+                                        Self::to_unified_symbol(&first_trade.instrument_name);
+                                    let parsed_trades: Vec<Trade> = trades
+                                        .iter()
                                         .map(|t| Self::parse_trade(t, &symbol))
                                         .collect();
                                     return Some(WsMessage::Trade(WsTradeEvent {
@@ -687,9 +738,11 @@ impl DeribitWs {
                                     }));
                                 }
                             }
-                        }
+                        },
                         "chart" => {
-                            if let Ok(data) = serde_json::from_value::<DeribitOhlcvData>(params.data) {
+                            if let Ok(data) =
+                                serde_json::from_value::<DeribitOhlcvData>(params.data)
+                            {
                                 // Extract timeframe from channel (e.g., "chart.trades.BTC-PERPETUAL.1")
                                 let timeframe = if parts.len() >= 4 {
                                     match parts[3] {
@@ -719,7 +772,7 @@ impl DeribitWs {
                                     }));
                                 }
                             }
-                        }
+                        },
                         // === Private Channels ===
                         "user" => {
                             // user.orders.{instrument_name} - order updates
@@ -729,41 +782,71 @@ impl DeribitWs {
                             if parts.len() >= 2 {
                                 match parts[1] {
                                     "orders" => {
-                                        if let Ok(orders) = serde_json::from_value::<Vec<DeribitWsOrderData>>(params.data.clone()) {
+                                        if let Ok(orders) =
+                                            serde_json::from_value::<Vec<DeribitWsOrderData>>(
+                                                params.data.clone(),
+                                            )
+                                        {
                                             if let Some(order) = orders.first() {
-                                                return Some(WsMessage::Order(Self::parse_order_update(order)));
+                                                return Some(WsMessage::Order(
+                                                    Self::parse_order_update(order),
+                                                ));
                                             }
                                         }
                                         // Single order format
-                                        if let Ok(order) = serde_json::from_value::<DeribitWsOrderData>(params.data) {
-                                            return Some(WsMessage::Order(Self::parse_order_update(&order)));
+                                        if let Ok(order) =
+                                            serde_json::from_value::<DeribitWsOrderData>(
+                                                params.data,
+                                            )
+                                        {
+                                            return Some(WsMessage::Order(
+                                                Self::parse_order_update(&order),
+                                            ));
                                         }
-                                    }
+                                    },
                                     "trades" => {
-                                        if let Ok(trades) = serde_json::from_value::<Vec<DeribitWsUserTradeData>>(params.data) {
+                                        if let Ok(trades) =
+                                            serde_json::from_value::<Vec<DeribitWsUserTradeData>>(
+                                                params.data,
+                                            )
+                                        {
                                             if let Some(trade) = trades.first() {
-                                                return Some(WsMessage::MyTrade(Self::parse_my_trade(trade)));
+                                                return Some(WsMessage::MyTrade(
+                                                    Self::parse_my_trade(trade),
+                                                ));
                                             }
                                         }
-                                    }
+                                    },
                                     "portfolio" => {
-                                        if let Ok(data) = serde_json::from_value::<DeribitWsPortfolioData>(params.data) {
-                                            return Some(WsMessage::Balance(Self::parse_portfolio_update(&data)));
+                                        if let Ok(data) =
+                                            serde_json::from_value::<DeribitWsPortfolioData>(
+                                                params.data,
+                                            )
+                                        {
+                                            return Some(WsMessage::Balance(
+                                                Self::parse_portfolio_update(&data),
+                                            ));
                                         }
-                                    }
+                                    },
                                     "changes" => {
                                         // Position changes
-                                        if let Ok(changes) = serde_json::from_value::<DeribitWsChangesData>(params.data) {
+                                        if let Ok(changes) =
+                                            serde_json::from_value::<DeribitWsChangesData>(
+                                                params.data,
+                                            )
+                                        {
                                             if !changes.positions.is_empty() {
-                                                return Some(WsMessage::Position(Self::parse_position_update(&changes.positions)));
+                                                return Some(WsMessage::Position(
+                                                    Self::parse_position_update(&changes.positions),
+                                                ));
                                             }
                                         }
-                                    }
-                                    _ => {}
+                                    },
+                                    _ => {},
                                 }
                             }
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
             }
@@ -780,7 +863,10 @@ impl DeribitWs {
     }
 
     /// Subscribe to channel and return event receiver
-    async fn subscribe_channel(&mut self, channels: Vec<String>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_channel(
+        &mut self,
+        channels: Vec<String>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -793,6 +879,7 @@ impl DeribitWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -810,8 +897,8 @@ impl DeribitWs {
         });
 
         if let Some(client) = &self.ws_client {
-            let msg_str = serde_json::to_string(&subscribe_msg)
-                .map_err(|e| CcxtError::ParseError {
+            let msg_str =
+                serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                     data_type: "SubscribeMessage".to_string(),
                     message: e.to_string(),
                 })?;
@@ -820,7 +907,10 @@ impl DeribitWs {
 
         // Store subscriptions
         for channel in channels {
-            self.subscriptions.write().await.insert(channel.clone(), channel);
+            self.subscriptions
+                .write()
+                .await
+                .insert(channel.clone(), channel);
         }
 
         // Event processing task
@@ -830,19 +920,19 @@ impl DeribitWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -867,7 +957,10 @@ impl WsExchange for DeribitWs {
         client.subscribe_channel(vec![channel]).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let channels: Vec<String> = symbols
             .iter()
@@ -879,7 +972,11 @@ impl WsExchange for DeribitWs {
         client.subscribe_channel(channels).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let instrument = symbol.replace("/USD:", "-").replace("/", "-");
         let depth = limit.unwrap_or(20);
@@ -896,7 +993,11 @@ impl WsExchange for DeribitWs {
         client.subscribe_channel(vec![channel]).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let instrument = symbol.replace("/USD:", "-").replace("/", "-");
         let interval = Self::format_interval(timeframe);
@@ -931,7 +1032,10 @@ impl WsExchange for DeribitWs {
         self.authenticate().await
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = if let Some(config) = &self.config {
             Self::with_config(config.clone())
         } else {
@@ -950,7 +1054,10 @@ impl WsExchange for DeribitWs {
         client.subscribe_private_channel(vec![channel]).await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = if let Some(config) = &self.config {
             Self::with_config(config.clone())
         } else {
@@ -987,7 +1094,10 @@ impl WsExchange for DeribitWs {
         client.subscribe_private_channel(channels).await
     }
 
-    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = if let Some(config) = &self.config {
             Self::with_config(config.clone())
         } else {
@@ -1586,7 +1696,8 @@ mod tests {
         assert_eq!(trade.direction, "buy");
 
         // Test position data deserialization
-        let pos_json = r#"{"instrument_name":"BTC-PERPETUAL","size":1000.0,"average_price":50000.0}"#;
+        let pos_json =
+            r#"{"instrument_name":"BTC-PERPETUAL","size":1000.0,"average_price":50000.0}"#;
         let pos: DeribitWsPositionData = serde_json::from_str(pos_json).unwrap();
         assert_eq!(pos.instrument_name, "BTC-PERPETUAL");
         assert_eq!(pos.size, Some(1000.0));

@@ -17,9 +17,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketType,
+    Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, SignedRequest, Ticker,
+    Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -207,7 +207,10 @@ impl Defx {
         };
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/4e92bace-d7a9-45ea-92be-122168dc87e4".to_string()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/4e92bace-d7a9-45ea-92be-122168dc87e4"
+                    .to_string(),
+            ),
             api: HashMap::from([
                 ("public".to_string(), "https://api.defx.com".to_string()),
                 ("private".to_string(), "https://api.defx.com".to_string()),
@@ -263,38 +266,66 @@ impl Defx {
     }
 
     fn parse_ticker(&self, ticker_data: &DefxTicker) -> Ticker {
-        let symbol = ticker_data.symbol.as_ref()
+        let symbol = ticker_data
+            .symbol
+            .as_ref()
             .map(|s| self.safe_symbol(s))
             .unwrap_or_default();
 
-        let last = ticker_data.last_price.as_ref()
+        let last = ticker_data
+            .last_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let open = ticker_data.open_price.as_ref()
+        let open = ticker_data
+            .open_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let high = ticker_data.high_price.as_ref()
+        let high = ticker_data
+            .high_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let low = ticker_data.low_price.as_ref()
+        let low = ticker_data
+            .low_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let base_volume = ticker_data.volume.as_ref()
+        let base_volume = ticker_data
+            .volume
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let quote_volume = ticker_data.quote_volume.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-
-        let change = ticker_data.price_change.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-        let percentage = ticker_data.price_change_percent.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-
-        let bid = ticker_data.best_bid_price.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-        let bid_volume = ticker_data.best_bid_qty.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-        let ask = ticker_data.best_ask_price.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-        let ask_volume = ticker_data.best_ask_qty.as_ref()
+        let quote_volume = ticker_data
+            .quote_volume
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
-        let timestamp = ticker_data.close_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let change = ticker_data
+            .price_change
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let percentage = ticker_data
+            .price_change_percent
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+
+        let bid = ticker_data
+            .best_bid_price
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let bid_volume = ticker_data
+            .best_bid_qty
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let ask = ticker_data
+            .best_ask_price
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let ask_volume = ticker_data
+            .best_ask_qty
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+
+        let timestamp = ticker_data
+            .close_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol,
@@ -327,7 +358,9 @@ impl Defx {
     }
 
     fn parse_order(&self, order_data: &DefxOrder) -> Order {
-        let symbol = order_data.symbol.as_ref()
+        let symbol = order_data
+            .symbol
+            .as_ref()
             .map(|s| self.safe_symbol(s))
             .unwrap_or_default();
 
@@ -353,15 +386,23 @@ impl Defx {
             _ => OrderStatus::Open,
         };
 
-        let amount = order_data.quantity.as_ref()
+        let amount = order_data
+            .quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let price = order_data.price.as_ref()
+        let price = order_data
+            .price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let filled = order_data.filled_quantity.as_ref()
+        let filled = order_data
+            .filled_quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let remaining = order_data.remaining_quantity.as_ref()
+        let remaining = order_data
+            .remaining_quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
         let cost = price.map(|p| filled * p);
 
@@ -403,10 +444,14 @@ impl Defx {
     }
 
     fn parse_trade(&self, trade_data: &DefxTrade, symbol: &str) -> Trade {
-        let price = trade_data.price.as_ref()
+        let price = trade_data
+            .price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let amount = trade_data.qty.as_ref()
+        let amount = trade_data
+            .qty
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
@@ -425,7 +470,11 @@ impl Defx {
             symbol: symbol.to_string(),
             order: None,
             trade_type: None,
-            side: if side_str.is_empty() { None } else { Some(side_str.to_lowercase()) },
+            side: if side_str.is_empty() {
+                None
+            } else {
+                Some(side_str.to_lowercase())
+            },
             taker_or_maker: trade_data.is_buyer_maker.map(|is_maker| {
                 if is_maker {
                     crate::types::TakerOrMaker::Maker
@@ -441,18 +490,30 @@ impl Defx {
         }
     }
 
-    async fn public_get<T: serde::de::DeserializeOwned>(&self, path: &str, params: Option<HashMap<String, String>>) -> CcxtResult<T> {
+    async fn public_get<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        params: Option<HashMap<String, String>>,
+    ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
         let full_path = format!("/v1/open/{path}");
         self.client.get(&full_path, params, None).await
     }
 
-    async fn private_request<T: serde::de::DeserializeOwned>(&self, method: &str, path: &str, params: Option<HashMap<String, String>>) -> CcxtResult<T> {
+    async fn private_request<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        params: Option<HashMap<String, String>>,
+    ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key not configured".to_string(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key not configured".to_string(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let full_path = format!("/v1/auth/{path}");
@@ -464,11 +525,13 @@ impl Defx {
 
         if method == "GET" {
             // For GET requests, payload is timestamp + query string
-            let query_string = params.as_ref()
+            let query_string = params
+                .as_ref()
                 .map(|p| {
                     let mut pairs: Vec<_> = p.iter().collect();
                     pairs.sort_by_key(|(k, _)| *k);
-                    pairs.iter()
+                    pairs
+                        .iter()
                         .map(|(k, v)| format!("{k}={v}"))
                         .collect::<Vec<_>>()
                         .join("&")
@@ -480,9 +543,11 @@ impl Defx {
             self.client.get(&full_path, params, Some(headers)).await
         } else {
             // For POST/DELETE requests, payload is timestamp + body
-            let body_json = params.as_ref()
+            let body_json = params
+                .as_ref()
                 .map(|p| serde_json::to_value(p).unwrap_or(serde_json::json!({})));
-            let body_str = body_json.as_ref()
+            let body_str = body_json
+                .as_ref()
                 .map(|v| v.to_string())
                 .unwrap_or_default();
             let payload = format!("{timestamp}{body_str}");
@@ -493,7 +558,9 @@ impl Defx {
             match method {
                 "POST" => self.client.post(&full_path, body_json, Some(headers)).await,
                 "DELETE" => self.client.delete(&full_path, None, Some(headers)).await,
-                _ => Err(CcxtError::NotSupported { feature: format!("HTTP method {method}") }),
+                _ => Err(CcxtError::NotSupported {
+                    feature: format!("HTTP method {method}"),
+                }),
             }
         }
     }
@@ -543,7 +610,8 @@ impl Exchange for Defx {
 
         if let Some(api_key) = self.config.api_key() {
             let timestamp = Utc::now().timestamp_millis().to_string();
-            let query_string = params.iter()
+            let query_string = params
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -565,7 +633,8 @@ impl Exchange for Defx {
     }
 
     async fn load_markets(&self, _reload: bool) -> CcxtResult<HashMap<String, Market>> {
-        let response: DefxResponse<Vec<DefxMarket>> = self.public_get("c/markets?type=perps", None).await?;
+        let response: DefxResponse<Vec<DefxMarket>> =
+            self.public_get("c/markets?type=perps", None).await?;
 
         let markets_data = response.data.unwrap_or_default();
         let mut markets = HashMap::new();
@@ -589,18 +658,32 @@ impl Exchange for Defx {
                 for filter in filters {
                     match filter.filter_type.as_deref() {
                         Some("LOT_SIZE") => {
-                            if let Some(step) = filter.step_size.as_ref().and_then(|s| Decimal::from_str(s).ok()) {
+                            if let Some(step) = filter
+                                .step_size
+                                .as_ref()
+                                .and_then(|s| Decimal::from_str(s).ok())
+                            {
                                 step_size = step;
                             }
-                            min_amount = filter.min_qty.as_ref().and_then(|s| Decimal::from_str(s).ok());
-                            max_amount = filter.max_qty.as_ref().and_then(|s| Decimal::from_str(s).ok());
-                        }
+                            min_amount = filter
+                                .min_qty
+                                .as_ref()
+                                .and_then(|s| Decimal::from_str(s).ok());
+                            max_amount = filter
+                                .max_qty
+                                .as_ref()
+                                .and_then(|s| Decimal::from_str(s).ok());
+                        },
                         Some("PRICE_FILTER") => {
-                            if let Some(tick) = filter.tick_size.as_ref().and_then(|s| Decimal::from_str(s).ok()) {
+                            if let Some(tick) = filter
+                                .tick_size
+                                .as_ref()
+                                .and_then(|s| Decimal::from_str(s).ok())
+                            {
                                 tick_size = tick;
                             }
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
             }
@@ -655,8 +738,14 @@ impl Exchange for Defx {
                         min: Some(tick_size),
                         max: None,
                     },
-                    cost: crate::types::MinMax { min: None, max: None },
-                    leverage: crate::types::MinMax { min: None, max: None },
+                    cost: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    leverage: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
                 },
                 margin_modes: None,
                 created: None,
@@ -698,7 +787,11 @@ impl Exchange for Defx {
         let mut tickers = HashMap::new();
         for ticker_data in response {
             let ticker = self.parse_ticker(&ticker_data);
-            if symbols.is_none() || symbols.map(|s| s.contains(&ticker.symbol.as_str())).unwrap_or(false) {
+            if symbols.is_none()
+                || symbols
+                    .map(|s| s.contains(&ticker.symbol.as_str()))
+                    .unwrap_or(false)
+            {
                 tickers.insert(ticker.symbol.clone(), ticker);
             }
         }
@@ -708,7 +801,17 @@ impl Exchange for Defx {
 
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
         let market_id = self.safe_market_id(symbol);
-        let level = limit.map(|l| if l <= 5 { "5" } else if l <= 10 { "10" } else { "20" }).unwrap_or("20");
+        let level = limit
+            .map(|l| {
+                if l <= 5 {
+                    "5"
+                } else if l <= 10 {
+                    "10"
+                } else {
+                    "20"
+                }
+            })
+            .unwrap_or("20");
         let path = format!("symbols/{market_id}/depth/{level}/0.01");
         let response: DefxOrderBookData = self.public_get(&path, None).await?;
 
@@ -718,10 +821,9 @@ impl Exchange for Defx {
         if let Some(bid_data) = response.bids {
             for entry in bid_data {
                 if entry.len() >= 2 {
-                    if let (Ok(price), Ok(amount)) = (
-                        Decimal::from_str(&entry[0]),
-                        Decimal::from_str(&entry[1]),
-                    ) {
+                    if let (Ok(price), Ok(amount)) =
+                        (Decimal::from_str(&entry[0]), Decimal::from_str(&entry[1]))
+                    {
                         bids.push(OrderBookEntry { price, amount });
                     }
                 }
@@ -731,10 +833,9 @@ impl Exchange for Defx {
         if let Some(ask_data) = response.asks {
             for entry in ask_data {
                 if entry.len() >= 2 {
-                    if let (Ok(price), Ok(amount)) = (
-                        Decimal::from_str(&entry[0]),
-                        Decimal::from_str(&entry[1]),
-                    ) {
+                    if let (Ok(price), Ok(amount)) =
+                        (Decimal::from_str(&entry[0]), Decimal::from_str(&entry[1]))
+                    {
                         asks.push(OrderBookEntry { price, amount });
                     }
                 }
@@ -745,13 +846,19 @@ impl Exchange for Defx {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: Some(Utc::now().timestamp_millis()),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: response.last_update_id,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.safe_market_id(symbol);
         let path = format!("symbols/{market_id}/trades");
         let mut params = HashMap::new();
@@ -760,7 +867,10 @@ impl Exchange for Defx {
         }
 
         let response: Vec<DefxTrade> = self.public_get(&path, Some(params)).await?;
-        Ok(response.iter().map(|t| self.parse_trade(t, symbol)).collect())
+        Ok(response
+            .iter()
+            .map(|t| self.parse_trade(t, symbol))
+            .collect())
     }
 
     async fn fetch_ohlcv(
@@ -771,8 +881,12 @@ impl Exchange for Defx {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.safe_market_id(symbol);
-        let tf_str = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::NotSupported { feature: format!("Timeframe {timeframe:?}") })?;
+        let tf_str = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::NotSupported {
+                feature: format!("Timeframe {timeframe:?}"),
+            })?;
 
         let path = format!("symbols/{market_id}/ohlc");
         let mut params = HashMap::new();
@@ -786,42 +900,74 @@ impl Exchange for Defx {
 
         let response: Vec<DefxOHLC> = self.public_get(&path, Some(params)).await?;
 
-        Ok(response.iter().map(|c| {
-            OHLCV {
+        Ok(response
+            .iter()
+            .map(|c| OHLCV {
                 timestamp: c.open_time.unwrap_or(0),
-                open: c.open.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-                high: c.high.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-                low: c.low.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-                close: c.close.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-                volume: c.volume.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or(Decimal::ZERO),
-            }
-        }).collect())
+                open: c
+                    .open
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO),
+                high: c
+                    .high
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO),
+                low: c
+                    .low
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO),
+                close: c
+                    .close
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO),
+                volume: c
+                    .volume
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO),
+            })
+            .collect())
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: DefxBalanceResponse = self.private_request("GET", "api/wallet/balance", None).await?;
+        let response: DefxBalanceResponse = self
+            .private_request("GET", "api/wallet/balance", None)
+            .await?;
 
         let mut currencies = HashMap::new();
 
         if let Some(balances) = response.balances {
             for balance_data in balances {
                 if let Some(asset) = &balance_data.asset {
-                    let free = balance_data.free.as_ref()
+                    let free = balance_data
+                        .free
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok())
                         .unwrap_or(Decimal::ZERO);
-                    let locked = balance_data.locked.as_ref()
+                    let locked = balance_data
+                        .locked
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok())
                         .unwrap_or(Decimal::ZERO);
-                    let total = balance_data.total.as_ref()
+                    let total = balance_data
+                        .total
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok())
                         .unwrap_or(free + locked);
 
-                    currencies.insert(asset.clone(), Balance {
-                        free: Some(free),
-                        used: Some(locked),
-                        total: Some(total),
-                        debt: None,
-                    });
+                    currencies.insert(
+                        asset.clone(),
+                        Balance {
+                            free: Some(free),
+                            used: Some(locked),
+                            total: Some(total),
+                            debt: None,
+                        },
+                    );
                 }
             }
         }
@@ -846,22 +992,30 @@ impl Exchange for Defx {
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
-        params.insert("side".to_string(), match side {
-            OrderSide::Buy => "BUY".to_string(),
-            OrderSide::Sell => "SELL".to_string(),
-        });
-        params.insert("type".to_string(), match order_type {
-            OrderType::Limit => "LIMIT".to_string(),
-            OrderType::Market => "MARKET".to_string(),
-            _ => "LIMIT".to_string(),
-        });
+        params.insert(
+            "side".to_string(),
+            match side {
+                OrderSide::Buy => "BUY".to_string(),
+                OrderSide::Sell => "SELL".to_string(),
+            },
+        );
+        params.insert(
+            "type".to_string(),
+            match order_type {
+                OrderType::Limit => "LIMIT".to_string(),
+                OrderType::Market => "MARKET".to_string(),
+                _ => "LIMIT".to_string(),
+            },
+        );
         params.insert("quantity".to_string(), amount.to_string());
 
         if let Some(p) = price {
             params.insert("price".to_string(), p.to_string());
         }
 
-        let response: DefxOrder = self.private_request("POST", "api/order", Some(params)).await?;
+        let response: DefxOrder = self
+            .private_request("POST", "api/order", Some(params))
+            .await?;
         Ok(self.parse_order(&response))
     }
 
@@ -877,19 +1031,31 @@ impl Exchange for Defx {
         Ok(self.parse_order(&response))
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         params.insert("status".to_string(), "OPEN".to_string());
         if let Some(s) = symbol {
             params.insert("symbol".to_string(), self.safe_market_id(s));
         }
 
-        let response: DefxResponse<Vec<DefxOrder>> = self.private_request("GET", "api/orders", Some(params)).await?;
+        let response: DefxResponse<Vec<DefxOrder>> = self
+            .private_request("GET", "api/orders", Some(params))
+            .await?;
         let orders = response.data.unwrap_or_default();
         Ok(orders.iter().map(|o| self.parse_order(o)).collect())
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             params.insert("symbol".to_string(), self.safe_market_id(s));
@@ -898,53 +1064,64 @@ impl Exchange for Defx {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let response: DefxResponse<Vec<DefxMyTrade>> = self.private_request("GET", "api/trades", Some(params)).await?;
+        let response: DefxResponse<Vec<DefxMyTrade>> = self
+            .private_request("GET", "api/trades", Some(params))
+            .await?;
         let trades_data = response.data.unwrap_or_default();
 
-        Ok(trades_data.iter().map(|t| {
-            let sym = t.symbol.as_ref()
-                .map(|s| self.safe_symbol(s))
-                .unwrap_or_default();
-            let price = t.price.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or(Decimal::ZERO);
-            let amount = t.qty.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or(Decimal::ZERO);
+        Ok(trades_data
+            .iter()
+            .map(|t| {
+                let sym = t
+                    .symbol
+                    .as_ref()
+                    .map(|s| self.safe_symbol(s))
+                    .unwrap_or_default();
+                let price = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO);
+                let amount = t
+                    .qty
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO);
 
-            Trade {
-                id: t.trade_id.clone().unwrap_or_default(),
-                info: serde_json::to_value(t).unwrap_or_default(),
-                timestamp: t.time,
-                datetime: t.time.map(|ts| {
-                    chrono::DateTime::from_timestamp_millis(ts)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                }),
-                symbol: sym,
-                order: t.order_id.clone(),
-                trade_type: None,
-                side: t.side.as_ref().map(|s| s.to_lowercase()),
-                taker_or_maker: t.is_maker.map(|is_maker| {
-                    if is_maker {
-                        crate::types::TakerOrMaker::Maker
-                    } else {
-                        crate::types::TakerOrMaker::Taker
-                    }
-                }),
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: t.commission.as_ref().and_then(|c| {
-                    Decimal::from_str(c).ok().map(|cost| crate::types::Fee {
-                        currency: t.commission_asset.clone(),
-                        cost: Some(cost),
-                        rate: None,
-                    })
-                }),
-                fees: vec![],
-            }
-        }).collect())
+                Trade {
+                    id: t.trade_id.clone().unwrap_or_default(),
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                    timestamp: t.time,
+                    datetime: t.time.map(|ts| {
+                        chrono::DateTime::from_timestamp_millis(ts)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    }),
+                    symbol: sym,
+                    order: t.order_id.clone(),
+                    trade_type: None,
+                    side: t.side.as_ref().map(|s| s.to_lowercase()),
+                    taker_or_maker: t.is_maker.map(|is_maker| {
+                        if is_maker {
+                            crate::types::TakerOrMaker::Maker
+                        } else {
+                            crate::types::TakerOrMaker::Taker
+                        }
+                    }),
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: t.commission.as_ref().and_then(|c| {
+                        Decimal::from_str(c).ok().map(|cost| crate::types::Fee {
+                            currency: t.commission_asset.clone(),
+                            cost: Some(cost),
+                            rate: None,
+                        })
+                    }),
+                    fees: vec![],
+                }
+            })
+            .collect())
     }
 }
 

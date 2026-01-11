@@ -16,10 +16,10 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Position, PositionSide, MarginMode, Ticker, Timeframe, Trade, OHLCV, TakerOrMaker,
-    WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOrderBookEvent, WsOrderEvent,
-    WsPositionEvent, WsTickerEvent, WsTradeEvent, WsOhlcvEvent,
+    Balance, Balances, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent,
+    WsExchange, WsMessage, WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent,
+    WsPositionEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 /// KuCoin Futures WebSocket 클라이언트
@@ -364,22 +364,32 @@ impl KucoinfuturesWs {
             .post(url)
             .send()
             .await
-            .map_err(|e| CcxtError::NetworkError { url: url.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: url.to_string(),
+                message: e.to_string(),
+            })?;
 
-        let token_response: KfWsTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| CcxtError::ParseError { data_type: "KfWsTokenResponse".to_string(), message: e.to_string() })?;
+        let token_response: KfWsTokenResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
+                data_type: "KfWsTokenResponse".to_string(),
+                message: e.to_string(),
+            })?;
 
-        let data = token_response.data.ok_or_else(|| CcxtError::ExchangeError {
-            message: "Failed to get WebSocket token".into(),
-        })?;
+        let data = token_response
+            .data
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "Failed to get WebSocket token".into(),
+            })?;
 
-        let server = data.instance_servers.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No WebSocket server available".into(),
-        })?;
+        let server = data
+            .instance_servers
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No WebSocket server available".into(),
+            })?;
 
-        let ws_url = format!("{}?token={}&connectId={}",
+        let ws_url = format!(
+            "{}?token={}&connectId={}",
             server.endpoint,
             data.token,
             uuid::Uuid::new_v4()
@@ -393,38 +403,50 @@ impl KucoinfuturesWs {
         let url = "https://api-futures.kucoin.com/api/v1/bullet-private";
         let timestamp = Utc::now().timestamp_millis().to_string();
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private WebSocket".to_string(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private WebSocket".to_string(),
+            })?;
 
-        let api_secret = self.config.api_secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private WebSocket".to_string(),
-        })?;
+        let api_secret =
+            self.config
+                .api_secret()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for private WebSocket".to_string(),
+                })?;
 
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required for KuCoin Futures private WebSocket".to_string(),
-        })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required for KuCoin Futures private WebSocket".to_string(),
+            })?;
 
         // Create signature: timestamp + method + endpoint
         let str_to_sign = format!("{timestamp}POST/api/v1/bullet-private");
 
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
 
         type HmacSha256 = Hmac<Sha256>;
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("Failed to create HMAC: {e}"),
-            })?;
+            }
+        })?;
         mac.update(str_to_sign.as_bytes());
         let signature = STANDARD.encode(mac.finalize().into_bytes());
 
         // Sign passphrase as well
-        let mut passphrase_mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
-                message: format!("Failed to create HMAC for passphrase: {e}"),
+        let mut passphrase_mac =
+            HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|e| {
+                CcxtError::AuthenticationError {
+                    message: format!("Failed to create HMAC for passphrase: {e}"),
+                }
             })?;
         passphrase_mac.update(passphrase.as_bytes());
         let signed_passphrase = STANDARD.encode(passphrase_mac.finalize().into_bytes());
@@ -439,12 +461,16 @@ impl KucoinfuturesWs {
             .header("KC-API-KEY-VERSION", "2")
             .send()
             .await
-            .map_err(|e| CcxtError::NetworkError { url: url.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: url.to_string(),
+                message: e.to_string(),
+            })?;
 
-        let token_response: KfWsTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| CcxtError::ParseError { data_type: "KfWsTokenResponse".to_string(), message: e.to_string() })?;
+        let token_response: KfWsTokenResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
+                data_type: "KfWsTokenResponse".to_string(),
+                message: e.to_string(),
+            })?;
 
         if token_response.code != "200000" {
             return Err(CcxtError::AuthenticationError {
@@ -452,15 +478,21 @@ impl KucoinfuturesWs {
             });
         }
 
-        let data = token_response.data.ok_or_else(|| CcxtError::ExchangeError {
-            message: "Failed to get WebSocket token data".into(),
-        })?;
+        let data = token_response
+            .data
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "Failed to get WebSocket token data".into(),
+            })?;
 
-        let server = data.instance_servers.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No WebSocket server available".into(),
-        })?;
+        let server = data
+            .instance_servers
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No WebSocket server available".into(),
+            })?;
 
-        let ws_url = format!("{}?token={}&connectId={}",
+        let ws_url = format!(
+            "{}?token={}&connectId={}",
             server.endpoint,
             data.token,
             uuid::Uuid::new_v4()
@@ -472,7 +504,10 @@ impl KucoinfuturesWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &KfWsTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.ts.map(|t| t / 1_000_000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .ts
+            .map(|t| t / 1_000_000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
@@ -507,31 +542,42 @@ impl KucoinfuturesWs {
     }
 
     /// 호가창 스냅샷 파싱
-    fn parse_order_book_snapshot(data: &KfWsOrderBookSnapshot, market_id: &str) -> WsOrderBookEvent {
+    fn parse_order_book_snapshot(
+        data: &KfWsOrderBookSnapshot,
+        market_id: &str,
+    ) -> WsOrderBookEvent {
         let symbol = Self::to_unified_symbol(market_id);
         let timestamp = data.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let order_book = OrderBook {
             symbol: symbol.clone(),
@@ -544,6 +590,7 @@ impl KucoinfuturesWs {
             nonce: data.sequence,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -555,7 +602,10 @@ impl KucoinfuturesWs {
 
     /// 체결 메시지 파싱
     fn parse_trade(data: &KfWsTradeData, market_id: &str) -> Trade {
-        let symbol = data.symbol.as_ref().map(|s| Self::to_unified_symbol(s))
+        let symbol = data
+            .symbol
+            .as_ref()
+            .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_else(|| Self::to_unified_symbol(market_id));
         let timestamp = data.ts;
         let price: Decimal = data.price.parse().unwrap_or_default();
@@ -622,7 +672,11 @@ impl KucoinfuturesWs {
             volume: data.candles[5].parse().ok()?,
         };
 
-        Some(WsOhlcvEvent { symbol, timeframe, ohlcv })
+        Some(WsOhlcvEvent {
+            symbol,
+            timeframe,
+            ohlcv,
+        })
     }
 
     // ========================================================================
@@ -632,7 +686,10 @@ impl KucoinfuturesWs {
     /// 주문 업데이트 파싱
     fn parse_order_update(data: &KfWsOrderData) -> WsOrderEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.or(data.order_time).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .or(data.order_time)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let side = match data.side.to_lowercase().as_str() {
             "buy" => OrderSide::Buy,
@@ -656,8 +713,16 @@ impl KucoinfuturesWs {
         };
 
         let price = data.price.as_ref().and_then(|p| p.parse().ok());
-        let amount = data.size.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-        let filled = data.filled_size.as_ref().and_then(|f| f.parse().ok()).unwrap_or_default();
+        let amount = data
+            .size
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let filled = data
+            .filled_size
+            .as_ref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
 
         let order = Order {
             id: data.order_id.clone(),
@@ -698,14 +763,20 @@ impl KucoinfuturesWs {
 
     /// 잔고 업데이트 파싱
     fn parse_balance_update(data: &KfWsBalanceData) -> WsBalanceEvent {
-        let free: Decimal = data.available_balance.as_ref()
+        let free: Decimal = data
+            .available_balance
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let used: Decimal = data.hold_balance.as_ref()
+        let used: Decimal = data
+            .hold_balance
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
         let total = free + used;
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let mut balances = HashMap::new();
         balances.insert(
@@ -735,9 +806,13 @@ impl KucoinfuturesWs {
     /// 포지션 업데이트 파싱
     fn parse_position_update(data: &KfWsPositionData) -> WsPositionEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let contracts: Decimal = data.current_qty.as_ref()
+        let contracts: Decimal = data
+            .current_qty
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
 
@@ -790,7 +865,9 @@ impl KucoinfuturesWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsPositionEvent { positions: vec![position] }
+        WsPositionEvent {
+            positions: vec![position],
+        }
     }
 
     /// 체결 업데이트 파싱 (내 거래)
@@ -811,13 +888,15 @@ impl KucoinfuturesWs {
             _ => TakerOrMaker::Taker,
         };
 
-        let fee = data.fee.as_ref().and_then(|f| f.parse().ok()).map(|cost: Decimal| {
-            crate::types::Fee {
+        let fee = data
+            .fee
+            .as_ref()
+            .and_then(|f| f.parse().ok())
+            .map(|cost: Decimal| crate::types::Fee {
                 currency: data.fee_currency.clone(),
                 cost: Some(cost),
                 rate: None,
-            }
-        });
+            });
 
         let trade = Trade {
             id: data.trade_id.clone(),
@@ -840,7 +919,10 @@ impl KucoinfuturesWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsMyTradeEvent { symbol, trades: vec![trade] }
+        WsMyTradeEvent {
+            symbol,
+            trades: vec![trade],
+        }
     }
 
     /// 메시지 처리
@@ -864,30 +946,39 @@ impl KucoinfuturesWs {
                 if let Ok(ticker_data) = serde_json::from_value::<KfWsTickerData>(data.clone()) {
                     return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                 }
-            }
+            },
             Some("level2") => {
                 if topic.contains("level2Depth") {
-                    if let Ok(snapshot) = serde_json::from_value::<KfWsOrderBookSnapshot>(data.clone()) {
-                        return Some(WsMessage::OrderBook(Self::parse_order_book_snapshot(&snapshot, market_id)));
+                    if let Ok(snapshot) =
+                        serde_json::from_value::<KfWsOrderBookSnapshot>(data.clone())
+                    {
+                        return Some(WsMessage::OrderBook(Self::parse_order_book_snapshot(
+                            &snapshot, market_id,
+                        )));
                     }
                 }
-            }
+            },
             // Private channels - check first with specific topic conditions
             Some("orderChange") | Some("orderUpdate") => {
                 if let Ok(order_data) = serde_json::from_value::<KfWsOrderData>(data.clone()) {
                     return Some(WsMessage::Order(Self::parse_order_update(&order_data)));
                 }
-            }
+            },
             Some("availableBalance") | Some("orderMargin") => {
                 if let Ok(balance_data) = serde_json::from_value::<KfWsBalanceData>(data.clone()) {
-                    return Some(WsMessage::Balance(Self::parse_balance_update(&balance_data)));
+                    return Some(WsMessage::Balance(Self::parse_balance_update(
+                        &balance_data,
+                    )));
                 }
-            }
+            },
             Some("position.change") | Some("position") => {
-                if let Ok(position_data) = serde_json::from_value::<KfWsPositionData>(data.clone()) {
-                    return Some(WsMessage::Position(Self::parse_position_update(&position_data)));
+                if let Ok(position_data) = serde_json::from_value::<KfWsPositionData>(data.clone())
+                {
+                    return Some(WsMessage::Position(Self::parse_position_update(
+                        &position_data,
+                    )));
                 }
-            }
+            },
             Some("match") => {
                 // Check if this is a private trade fill first
                 if topic.contains("/contractMarket/tradeOrders") {
@@ -904,15 +995,15 @@ impl KucoinfuturesWs {
                         trades: vec![trade],
                     }));
                 }
-            }
+            },
             Some("candle") => {
                 if let Ok(ohlcv_data) = serde_json::from_value::<KfWsOhlcvData>(data.clone()) {
                     if let Some(event) = Self::parse_ohlcv(&ohlcv_data, topic) {
                         return Some(WsMessage::Ohlcv(event));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         // Also try to match by topic for private channels
@@ -927,12 +1018,17 @@ impl KucoinfuturesWs {
             }
             if topic_str.contains("/contractAccount/wallet") {
                 if let Ok(balance_data) = serde_json::from_value::<KfWsBalanceData>(data.clone()) {
-                    return Some(WsMessage::Balance(Self::parse_balance_update(&balance_data)));
+                    return Some(WsMessage::Balance(Self::parse_balance_update(
+                        &balance_data,
+                    )));
                 }
             }
             if topic_str.contains("/contract/position") {
-                if let Ok(position_data) = serde_json::from_value::<KfWsPositionData>(data.clone()) {
-                    return Some(WsMessage::Position(Self::parse_position_update(&position_data)));
+                if let Ok(position_data) = serde_json::from_value::<KfWsPositionData>(data.clone())
+                {
+                    return Some(WsMessage::Position(Self::parse_position_update(
+                        &position_data,
+                    )));
                 }
             }
         }
@@ -958,6 +1054,7 @@ impl KucoinfuturesWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: (ping_interval / 1000) as u64,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -977,7 +1074,10 @@ impl KucoinfuturesWs {
 
         // 구독 저장
         {
-            self.subscriptions.write().await.insert(topic.clone(), topic.clone());
+            self.subscriptions
+                .write()
+                .await
+                .insert(topic.clone(), topic.clone());
         }
 
         // 이벤트 처리 태스크
@@ -987,19 +1087,19 @@ impl KucoinfuturesWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -1025,6 +1125,7 @@ impl KucoinfuturesWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: (ping_interval / 1000) as u64,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -1045,7 +1146,10 @@ impl KucoinfuturesWs {
 
         // 구독 저장
         {
-            self.subscriptions.write().await.insert(topic.clone(), topic.clone());
+            self.subscriptions
+                .write()
+                .await
+                .insert(topic.clone(), topic.clone());
         }
 
         // 이벤트 처리 태스크
@@ -1055,19 +1159,19 @@ impl KucoinfuturesWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -1091,16 +1195,21 @@ impl WsExchange for KucoinfuturesWs {
         client.subscribe_stream(topic).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
-        let market_ids: Vec<String> = symbols.iter()
-            .map(|s| Self::to_market_id(s))
-            .collect();
+        let market_ids: Vec<String> = symbols.iter().map(|s| Self::to_market_id(s)).collect();
         let topic = format!("/contractMarket/ticker:{}", market_ids.join(","));
         client.subscribe_stream(topic).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         let market_id = Self::to_market_id(symbol);
         let depth = limit.unwrap_or(50);
@@ -1151,14 +1260,20 @@ impl WsExchange for KucoinfuturesWs {
     // Private Channel Methods
     // ========================================================================
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         // KuCoin Futures: /contractMarket/tradeOrders
         let topic = "/contractMarket/tradeOrders".to_string();
         client.subscribe_private_stream(topic).await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         // KuCoin Futures uses tradeOrders for both order updates and fills
         let topic = "/contractMarket/tradeOrders".to_string();
@@ -1172,7 +1287,10 @@ impl WsExchange for KucoinfuturesWs {
         client.subscribe_private_stream(topic).await
     }
 
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         // KuCoin Futures: /contract/position
         let topic = "/contract/position".to_string();
@@ -1195,9 +1313,15 @@ mod tests {
     #[test]
     fn test_to_unified_symbol() {
         assert_eq!(KucoinfuturesWs::to_unified_symbol("XBTUSDM"), "BTC/USD:BTC");
-        assert_eq!(KucoinfuturesWs::to_unified_symbol("XBTUSDTM"), "BTC/USDT:USDT");
+        assert_eq!(
+            KucoinfuturesWs::to_unified_symbol("XBTUSDTM"),
+            "BTC/USDT:USDT"
+        );
         assert_eq!(KucoinfuturesWs::to_unified_symbol("ETHUSDM"), "ETH/USD:ETH");
-        assert_eq!(KucoinfuturesWs::to_unified_symbol("ETHUSDTM"), "ETH/USDT:USDT");
+        assert_eq!(
+            KucoinfuturesWs::to_unified_symbol("ETHUSDTM"),
+            "ETH/USDT:USDT"
+        );
     }
 
     #[test]
@@ -1439,8 +1563,7 @@ mod tests {
 
     #[test]
     fn test_clone() {
-        let config = ExchangeConfig::default()
-            .with_api_key("test_key");
+        let config = ExchangeConfig::default().with_api_key("test_key");
         let client = KucoinfuturesWs::new(config);
         let cloned = client.clone();
         assert_eq!(cloned.config.api_key(), client.config.api_key());
@@ -1459,16 +1582,21 @@ mod tests {
         ];
 
         for (status_str, expected) in test_cases {
-            let json = format!(r#"{{
+            let json = format!(
+                r#"{{
                 "symbol": "XBTUSDTM",
                 "orderId": "123",
                 "side": "buy",
                 "status": "{status_str}"
-            }}"#);
+            }}"#
+            );
 
             let data: KfWsOrderData = serde_json::from_str(&json).unwrap();
             let event = KucoinfuturesWs::parse_order_update(&data);
-            assert_eq!(event.order.status, expected, "Failed for status: {status_str}");
+            assert_eq!(
+                event.order.status, expected,
+                "Failed for status: {status_str}"
+            );
         }
     }
 }

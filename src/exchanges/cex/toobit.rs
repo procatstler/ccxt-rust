@@ -15,9 +15,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarginModes,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, MarginModes, Market,
+    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// Toobit exchange - Spot and perpetuals trading
@@ -82,7 +82,10 @@ impl Toobit {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/0c7a97d5-182c-492e-b921-23540c868e0e".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/0c7a97d5-182c-492e-b921-23540c868e0e"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.toobit.com/".into()),
             doc: vec![
@@ -216,7 +219,7 @@ impl Toobit {
                     if let Some(ref mp) = filter.max_price {
                         max_price = Decimal::from_str(mp).unwrap_or(Decimal::MAX);
                     }
-                }
+                },
                 "LOT_SIZE" => {
                     if let Some(ref ss) = filter.step_size {
                         if let Some(prec) = Self::precision_from_string(ss) {
@@ -230,13 +233,13 @@ impl Toobit {
                     if let Some(ref mq) = filter.max_qty {
                         max_amount = Decimal::from_str(mq).unwrap_or(Decimal::MAX);
                     }
-                }
+                },
                 "MIN_NOTIONAL" => {
                     if let Some(ref mn) = filter.min_notional {
                         min_cost = Decimal::from_str(mn).unwrap_or(Decimal::ZERO);
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -266,7 +269,9 @@ impl Toobit {
             taker: Some(Decimal::from_str("0.001").unwrap()),
             maker: Some(Decimal::from_str("0.001").unwrap()),
             contract_size: if is_swap {
-                market.contract_multiplier.as_ref()
+                market
+                    .contract_multiplier
+                    .as_ref()
                     .and_then(|s| Decimal::from_str(s).ok())
             } else {
                 None
@@ -283,7 +288,10 @@ impl Toobit {
                 quote: None,
             },
             limits: MarketLimits {
-                leverage: MinMax { min: None, max: None },
+                leverage: MinMax {
+                    min: None,
+                    max: None,
+                },
                 amount: MinMax {
                     min: Some(min_amount),
                     max: Some(max_amount),
@@ -309,8 +317,7 @@ impl Toobit {
     /// Parse ticker from API response
     fn parse_ticker(&self, data: &ToobitTicker, symbol: &str) -> Ticker {
         let timestamp = data.t.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let last = data.c.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
+        let last = data.c.as_ref().and_then(|s| Decimal::from_str(s).ok());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -341,10 +348,14 @@ impl Toobit {
     /// Parse trade from API response
     fn parse_trade(&self, data: &ToobitTrade, symbol: &str) -> Trade {
         let timestamp = data.t.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price = data.p.as_ref()
+        let price = data
+            .p
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
-        let amount = data.q.as_ref()
+        let amount = data
+            .q
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
 
@@ -359,9 +370,11 @@ impl Toobit {
             id: data.v.clone().unwrap_or_default(),
             order: None,
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             symbol: symbol.to_string(),
             trade_type: None,
             side,
@@ -390,11 +403,15 @@ impl Toobit {
     fn parse_order_book(&self, data: &ToobitOrderBook, symbol: &str) -> OrderBook {
         let timestamp = data.t.unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.b.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .b
+            .iter()
             .filter_map(|entry| self.parse_order_book_entry(entry))
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.a.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .a
+            .iter()
             .filter_map(|entry| self.parse_order_book_entry(entry))
             .collect();
 
@@ -405,6 +422,7 @@ impl Toobit {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         }
     }
 
@@ -412,11 +430,31 @@ impl Toobit {
     fn parse_ohlcv(&self, data: &ToobitKline) -> OHLCV {
         OHLCV {
             timestamp: data.t.unwrap_or(0),
-            open: data.o.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
-            high: data.h.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
-            low: data.l.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
-            close: data.c.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
-            volume: data.v.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
+            open: data
+                .o
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
+            high: data
+                .h
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
+            low: data
+                .l
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
+            close: data
+                .c
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
+            volume: data
+                .v
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
         }
     }
 }
@@ -468,9 +506,12 @@ impl Exchange for Toobit {
         }
 
         {
-            let mut markets_by_id = self.markets_by_id.write().map_err(|_| CcxtError::ExchangeError {
-                message: "toobit: Failed to acquire write lock".into(),
-            })?;
+            let mut markets_by_id =
+                self.markets_by_id
+                    .write()
+                    .map_err(|_| CcxtError::ExchangeError {
+                        message: "toobit: Failed to acquire write lock".into(),
+                    })?;
             *markets_by_id = markets_by_id_map;
         }
 
@@ -502,7 +543,9 @@ impl Exchange for Toobit {
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
 
-        let response: Vec<ToobitTicker> = self.public_get("quote/v1/ticker/24hr", Some(params)).await?;
+        let response: Vec<ToobitTicker> = self
+            .public_get("quote/v1/ticker/24hr", Some(params))
+            .await?;
 
         if response.is_empty() {
             return Err(CcxtError::BadSymbol {
@@ -548,7 +591,12 @@ impl Exchange for Toobit {
         Ok(self.parse_order_book(&response, symbol))
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.format_symbol(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
@@ -558,7 +606,8 @@ impl Exchange for Toobit {
 
         let response: Vec<ToobitTrade> = self.public_get("quote/v1/trades", Some(params)).await?;
 
-        Ok(response.iter()
+        Ok(response
+            .iter()
             .map(|t| self.parse_trade(t, symbol))
             .collect())
     }
@@ -571,7 +620,9 @@ impl Exchange for Toobit {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.format_symbol(symbol);
-        let tf_str = self.timeframes.get(&timeframe)
+        let tf_str = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("toobit: Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -588,9 +639,7 @@ impl Exchange for Toobit {
 
         let response: Vec<ToobitKline> = self.public_get("quote/v1/klines", Some(params)).await?;
 
-        Ok(response.iter()
-            .map(|k| self.parse_ohlcv(k))
-            .collect())
+        Ok(response.iter().map(|k| self.parse_ohlcv(k)).collect())
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
@@ -671,7 +720,12 @@ impl Exchange for Toobit {
 
         headers.insert("Content-Type".into(), "application/json".into());
 
-        SignedRequest { url, method: "GET".into(), headers, body: None }
+        SignedRequest {
+            url,
+            method: "GET".into(),
+            headers,
+            body: None,
+        }
     }
 }
 

@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -18,9 +18,10 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, Fee, OHLCV,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade,
+    OHLCV,
 };
 
 const BASE_URL: &str = "https://api.hitbtc.com/api/3";
@@ -132,7 +133,9 @@ impl Hitbtc {
         let future = market_type == "futures" && data.expiry.is_some();
         let margin = spot && data.margin_trading.unwrap_or(false);
 
-        let base_id = data.base_currency.clone()
+        let base_id = data
+            .base_currency
+            .clone()
             .or_else(|| data.underlying.clone())
             .unwrap_or_default();
         let quote_id = data.quote_currency.clone().unwrap_or_default();
@@ -145,14 +148,18 @@ impl Hitbtc {
             format!("{base}/{quote}")
         };
 
-        let amount_precision = data.quantity_increment.as_ref()
+        let amount_precision = data
+            .quantity_increment
+            .as_ref()
             .and_then(|s| s.parse::<f64>().ok())
             .map(|v| {
                 let s = format!("{v}");
                 s.split('.').nth(1).map(|d| d.len() as i32).unwrap_or(0)
             });
 
-        let price_precision = data.tick_size.as_ref()
+        let price_precision = data
+            .tick_size
+            .as_ref()
             .and_then(|s| s.parse::<f64>().ok())
             .map(|v| {
                 let s = format!("{v}");
@@ -185,15 +192,31 @@ impl Hitbtc {
             contract: swap || future,
             linear: Some(true),
             inverse: Some(false),
-            settle: if swap || future { Some(quote.clone()) } else { None },
-            settle_id: if swap || future { Some(quote_id.clone()) } else { None },
-            contract_size: if swap || future { Some(Decimal::ONE) } else { None },
+            settle: if swap || future {
+                Some(quote.clone())
+            } else {
+                None
+            },
+            settle_id: if swap || future {
+                Some(quote_id.clone())
+            } else {
+                None
+            },
+            contract_size: if swap || future {
+                Some(Decimal::ONE)
+            } else {
+                None
+            },
             expiry: data.expiry,
             expiry_datetime: None,
             strike: None,
             option_type: None,
-            taker: data.take_rate.and_then(|s| Decimal::from_str(&s.to_string()).ok()),
-            maker: data.make_rate.and_then(|s| Decimal::from_str(&s.to_string()).ok()),
+            taker: data
+                .take_rate
+                .and_then(|s| Decimal::from_str(&s.to_string()).ok()),
+            maker: data
+                .make_rate
+                .and_then(|s| Decimal::from_str(&s.to_string()).ok()),
             precision: MarketPrecision {
                 amount: amount_precision,
                 price: price_precision,
@@ -203,19 +226,25 @@ impl Hitbtc {
             },
             limits: MarketLimits {
                 amount: MinMax {
-                    min: data.quantity_increment.as_ref()
+                    min: data
+                        .quantity_increment
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok()),
                     max: None,
                 },
                 price: MinMax {
-                    min: data.tick_size.as_ref()
+                    min: data
+                        .tick_size
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok()),
                     max: None,
                 },
                 cost: MinMax::default(),
                 leverage: MinMax {
                     min: Some(Decimal::ONE),
-                    max: data.max_initial_leverage.as_ref()
+                    max: data
+                        .max_initial_leverage
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok()),
                 },
             },
@@ -231,7 +260,9 @@ impl Hitbtc {
 
     /// 티커 데이터 파싱
     fn parse_ticker(&self, symbol: &str, data: &HitbtcTicker) -> Ticker {
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis());
 
@@ -254,7 +285,10 @@ impl Hitbtc {
             percentage: None,
             average: None,
             base_volume: data.volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            quote_volume: data.volume_quote.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            quote_volume: data
+                .volume_quote
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             index_price: None,
             mark_price: None,
             info: serde_json::to_value(data).unwrap_or_default(),
@@ -263,7 +297,9 @@ impl Hitbtc {
 
     /// OHLCV 데이터 파싱
     fn parse_ohlcv(&self, data: &HitbtcOHLCV) -> Option<OHLCV> {
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())?;
 
@@ -273,7 +309,9 @@ impl Hitbtc {
             high: Decimal::from_str(&data.max).ok()?,
             low: Decimal::from_str(&data.min).ok()?,
             close: Decimal::from_str(&data.close).ok()?,
-            volume: data.volume.as_ref()
+            volume: data
+                .volume
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default(),
         })
@@ -281,7 +319,9 @@ impl Hitbtc {
 
     /// 체결 데이터 파싱
     fn parse_trade(&self, symbol: &str, data: &HitbtcTrade) -> Option<Trade> {
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis());
 
@@ -296,7 +336,13 @@ impl Hitbtc {
             symbol: symbol.to_string(),
             trade_type: None,
             side: data.side.clone(),
-            taker_or_maker: data.taker.map(|t| if t { TakerOrMaker::Taker } else { TakerOrMaker::Maker }),
+            taker_or_maker: data.taker.map(|t| {
+                if t {
+                    TakerOrMaker::Taker
+                } else {
+                    TakerOrMaker::Maker
+                }
+            }),
             price,
             amount,
             cost: Some(price * amount),
@@ -338,24 +384,31 @@ impl Hitbtc {
             _ => OrderSide::Buy,
         };
 
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis());
 
-        let amount = data.quantity.as_ref()
+        let amount = data
+            .quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
 
-        let filled = data.quantity_cumulative.as_ref()
+        let filled = data
+            .quantity_cumulative
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
 
         let remaining = amount - filled;
 
-        let price = data.price.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
+        let price = data.price.as_ref().and_then(|s| Decimal::from_str(s).ok());
 
-        let average = data.price_average.as_ref()
+        let average = data
+            .price_average
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .filter(|p| *p > Decimal::ZERO);
 
@@ -366,7 +419,9 @@ impl Hitbtc {
             client_order_id: data.client_order_id.clone(),
             timestamp,
             datetime: data.created_at.clone(),
-            last_trade_timestamp: data.updated_at.as_ref()
+            last_trade_timestamp: data
+                .updated_at
+                .as_ref()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.timestamp_millis()),
             last_update_timestamp: None,
@@ -392,7 +447,10 @@ impl Hitbtc {
                 "GTD" | "Day" => Some(TimeInForce::GTC),
                 _ => None,
             }),
-            stop_price: data.stop_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            stop_price: data
+                .stop_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
@@ -410,12 +468,15 @@ impl Hitbtc {
             let reserved = Decimal::from_str(&entry.reserved).unwrap_or_default();
             let total = available + reserved;
 
-            currencies.insert(currency, Balance {
-                free: Some(available),
-                used: Some(reserved),
-                total: Some(total),
-                debt: None,
-            });
+            currencies.insert(
+                currency,
+                Balance {
+                    free: Some(available),
+                    used: Some(reserved),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         Balances {
@@ -428,12 +489,18 @@ impl Hitbtc {
 
     /// API 서명 생성 (HMAC-SHA256 with Basic Auth format)
     fn sign_request(&self, method: &str, path: &str, body: &str) -> CcxtResult<String> {
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -448,10 +515,11 @@ impl Hitbtc {
         let payload_string = payload.join("");
 
         // HMAC-SHA256 signature
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(payload_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -482,7 +550,8 @@ impl Hitbtc {
         self.rate_limiter.throttle(1.0).await;
 
         let path = format!("/api/3/{endpoint}");
-        let body_str = body.as_ref()
+        let body_str = body
+            .as_ref()
             .map(|b| serde_json::to_string(b).unwrap_or_default())
             .unwrap_or_default();
 
@@ -547,7 +616,8 @@ impl Exchange for Hitbtc {
             }
         }
 
-        let response: HashMap<String, HitbtcMarket> = self.public_get("/public/symbol", None).await?;
+        let response: HashMap<String, HitbtcMarket> =
+            self.public_get("/public/symbol", None).await?;
 
         let mut markets_map = HashMap::new();
         let mut markets_by_id_map = HashMap::new();
@@ -568,9 +638,12 @@ impl Exchange for Hitbtc {
             *m = markets_map.clone();
         }
         {
-            let mut m = self.markets_by_id.write().map_err(|_| CcxtError::ExchangeError {
-                message: "Failed to acquire write lock".into(),
-            })?;
+            let mut m = self
+                .markets_by_id
+                .write()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to acquire write lock".into(),
+                })?;
             *m = markets_by_id_map;
         }
 
@@ -597,13 +670,15 @@ impl Exchange for Hitbtc {
 
         let mut params = HashMap::new();
         if let Some(syms) = symbols {
-            let market_ids: Vec<String> = syms.iter()
+            let market_ids: Vec<String> = syms
+                .iter()
                 .map(|s| self.market_id(s).unwrap_or_else(|| s.to_string()))
                 .collect();
             params.insert("symbols".to_string(), market_ids.join(","));
         }
 
-        let response: HashMap<String, HitbtcTicker> = self.public_get("/public/ticker", Some(params)).await?;
+        let response: HashMap<String, HitbtcTicker> =
+            self.public_get("/public/ticker", Some(params)).await?;
 
         let mut tickers = HashMap::new();
         for (market_id, data) in response {
@@ -628,23 +703,33 @@ impl Exchange for Hitbtc {
         let path = format!("/public/orderbook/{market_id}");
         let response: HitbtcOrderBook = self.public_get(&path, Some(params)).await?;
 
-        let timestamp = response.timestamp.as_ref()
+        let timestamp = response
+            .timestamp
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = response.bid.iter().filter_map(|b| {
-            Some(OrderBookEntry {
-                price: Decimal::from_str(&b.price).ok()?,
-                amount: Decimal::from_str(&b.size).ok()?,
+        let bids: Vec<OrderBookEntry> = response
+            .bid
+            .iter()
+            .filter_map(|b| {
+                Some(OrderBookEntry {
+                    price: Decimal::from_str(&b.price).ok()?,
+                    amount: Decimal::from_str(&b.size).ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = response.ask.iter().filter_map(|a| {
-            Some(OrderBookEntry {
-                price: Decimal::from_str(&a.price).ok()?,
-                amount: Decimal::from_str(&a.size).ok()?,
+        let asks: Vec<OrderBookEntry> = response
+            .ask
+            .iter()
+            .filter_map(|a| {
+                Some(OrderBookEntry {
+                    price: Decimal::from_str(&a.price).ok()?,
+                    amount: Decimal::from_str(&a.size).ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
@@ -653,10 +738,16 @@ impl Exchange for Hitbtc {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         self.load_markets(false).await?;
         let market_id = self.market_id(symbol).unwrap_or_else(|| symbol.to_string());
 
@@ -671,7 +762,8 @@ impl Exchange for Hitbtc {
         let path = format!("/public/trades/{market_id}");
         let response: Vec<HitbtcTrade> = self.public_get(&path, Some(params)).await?;
 
-        Ok(response.iter()
+        Ok(response
+            .iter()
             .filter_map(|t| self.parse_trade(symbol, t))
             .collect())
     }
@@ -686,7 +778,9 @@ impl Exchange for Hitbtc {
         self.load_markets(false).await?;
         let market_id = self.market_id(symbol).unwrap_or_else(|| symbol.to_string());
 
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -706,15 +800,15 @@ impl Exchange for Hitbtc {
         let path = format!("/public/candles/{market_id}");
         let response: Vec<HitbtcOHLCV> = self.public_get(&path, Some(params)).await?;
 
-        Ok(response.iter()
+        Ok(response
+            .iter()
             .filter_map(|o| self.parse_ohlcv(o))
             .collect())
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: Vec<HitbtcBalance> = self
-            .private_request("GET", "spot/balance", None)
-            .await?;
+        let response: Vec<HitbtcBalance> =
+            self.private_request("GET", "spot/balance", None).await?;
 
         Ok(self.parse_balance(&response))
     }
@@ -737,9 +831,11 @@ impl Exchange for Hitbtc {
             OrderType::StopLossLimit => "stopLimit",
             OrderType::TakeProfit => "takeProfitMarket",
             OrderType::TakeProfitLimit => "takeProfitLimit",
-            _ => return Err(CcxtError::BadRequest {
-                message: format!("Unsupported order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::BadRequest {
+                    message: format!("Unsupported order type: {order_type:?}"),
+                })
+            },
         };
 
         let side_str = match side {
@@ -767,9 +863,7 @@ impl Exchange for Hitbtc {
 
     async fn cancel_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let path = format!("spot/order/{id}");
-        let response: HitbtcOrder = self
-            .private_request("DELETE", &path, None)
-            .await?;
+        let response: HitbtcOrder = self.private_request("DELETE", &path, None).await?;
 
         self.parse_order(&response)
     }
@@ -779,10 +873,15 @@ impl Exchange for Hitbtc {
         params.insert("client_order_id".to_string(), id.to_string());
 
         let response: Vec<HitbtcOrder> = self
-            .private_request("GET", "spot/history/order", Some(serde_json::to_value(&params)?))
+            .private_request(
+                "GET",
+                "spot/history/order",
+                Some(serde_json::to_value(&params)?),
+            )
             .await?;
 
-        response.into_iter()
+        response
+            .into_iter()
             .next()
             .ok_or_else(|| CcxtError::OrderNotFound {
                 order_id: id.to_string(),
@@ -790,7 +889,12 @@ impl Exchange for Hitbtc {
             .and_then(|order| self.parse_order(&order))
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(sym) = symbol {
             let market_id = self.market_id(sym).unwrap_or_else(|| sym.to_string());
@@ -801,12 +905,18 @@ impl Exchange for Hitbtc {
             .private_request("GET", "spot/order", Some(serde_json::to_value(&params)?))
             .await?;
 
-        response.iter()
+        response
+            .iter()
             .map(|order| self.parse_order(order))
             .collect()
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(sym) = symbol {
             let market_id = self.market_id(sym).unwrap_or_else(|| sym.to_string());
@@ -823,10 +933,15 @@ impl Exchange for Hitbtc {
         }
 
         let response: Vec<HitbtcOrder> = self
-            .private_request("GET", "spot/history/order", Some(serde_json::to_value(&params)?))
+            .private_request(
+                "GET",
+                "spot/history/order",
+                Some(serde_json::to_value(&params)?),
+            )
             .await?;
 
-        response.iter()
+        response
+            .iter()
             .map(|order| self.parse_order(order))
             .collect()
     }

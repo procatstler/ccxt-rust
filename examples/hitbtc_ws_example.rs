@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match msg {
             WsMessage::Connected => {
                 println!("✓ Connected to HitBTC WebSocket");
-            }
+            },
             WsMessage::Ticker(ticker_event) => {
                 count += 1;
                 println!(
@@ -43,16 +43,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("\n✓ Received 5 ticker updates. Stopping...");
                     break;
                 }
-            }
+            },
             WsMessage::Error(err) => {
                 eprintln!("Error: {err}");
                 break;
-            }
+            },
             WsMessage::Disconnected => {
                 println!("Disconnected from WebSocket");
                 break;
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 

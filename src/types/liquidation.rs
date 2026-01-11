@@ -138,8 +138,7 @@ mod tests {
 
     #[test]
     fn test_short_liquidation() {
-        let liq = Liquidation::new("ETH/USDT:USDT", dec!(3200))
-            .with_side(OrderSide::Buy);
+        let liq = Liquidation::new("ETH/USDT:USDT", dec!(3200)).with_side(OrderSide::Buy);
 
         assert!(liq.is_short_liquidation());
         assert!(!liq.is_long_liquidation());

@@ -18,9 +18,10 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, FundingRate,
-    FundingRateHistory, Leverage, Market, MarketLimits, MarketPrecision, MarketType, MarginMode,
-    MarginModeInfo, OHLCV, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Position, PositionSide, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
+    FundingRateHistory, Leverage, MarginMode, MarginModeInfo, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, Position, PositionSide, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe,
+    Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -162,15 +163,24 @@ impl KucoinFutures {
     ) -> CcxtResult<KucoinResponse<T>> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -197,18 +207,20 @@ impl KucoinFutures {
         let sign_string = format!("{timestamp}{method}{full_path}{body}");
 
         // HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret".into(),
-            })?;
+            }
+        })?;
         mac.update(sign_string.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
         // Sign the passphrase
-        let mut passphrase_mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut passphrase_mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret".into(),
-            })?;
+            }
+        })?;
         passphrase_mac.update(passphrase.as_bytes());
         let signed_passphrase = BASE64.encode(passphrase_mac.finalize().into_bytes());
 
@@ -222,9 +234,15 @@ impl KucoinFutures {
 
         match method {
             "GET" => {
-                let query_params = if params.is_empty() { None } else { Some(params) };
-                self.client.get(&full_path, query_params, Some(headers)).await
-            }
+                let query_params = if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                };
+                self.client
+                    .get(&full_path, query_params, Some(headers))
+                    .await
+            },
             "POST" => {
                 let json_body: Option<serde_json::Value> = if body.is_empty() {
                     None
@@ -232,11 +250,17 @@ impl KucoinFutures {
                     Some(serde_json::from_str(&body).unwrap_or_default())
                 };
                 self.client.post(&full_path, json_body, Some(headers)).await
-            }
+            },
             "DELETE" => {
-                let query_params = if params.is_empty() { None } else { Some(params) };
-                self.client.delete(&full_path, query_params, Some(headers)).await
-            }
+                let query_params = if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                };
+                self.client
+                    .delete(&full_path, query_params, Some(headers))
+                    .await
+            },
             _ => Err(CcxtError::BadRequest {
                 message: "Invalid HTTP method".into(),
             }),
@@ -257,14 +281,16 @@ impl KucoinFutures {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &KucoinFuturesTicker, symbol: &str) -> Ticker {
-        let timestamp = data.ts.map(|ts| ts / 1_000_000).or_else(|| Some(Utc::now().timestamp_millis()));
+        let timestamp = data
+            .ts
+            .map(|ts| ts / 1_000_000)
+            .or_else(|| Some(Utc::now().timestamp_millis()));
 
         Ticker {
             symbol: symbol.to_string(),
             timestamp,
-            datetime: timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             high: data.high_price.as_ref().and_then(|v| v.parse().ok()),
             low: data.low_price.as_ref().and_then(|v| v.parse().ok()),
             bid: data.best_bid_price.as_ref().and_then(|v| v.parse().ok()),
@@ -311,18 +337,25 @@ impl KucoinFutures {
             _ => OrderType::Limit,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.size.as_ref()
+        let amount: Decimal = data
+            .size
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.filled_size.as_ref()
+        let filled: Decimal = data
+            .filled_size
+            .as_ref()
             .and_then(|f| f.parse().ok())
             .unwrap_or_default();
         let remaining = Some(amount - filled);
@@ -337,9 +370,9 @@ impl KucoinFutures {
             id: data.id.clone().unwrap_or_default(),
             client_order_id: data.client_oid.clone(),
             timestamp: data.created_at,
-            datetime: data.created_at.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .created_at
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             last_trade_timestamp: None,
             last_update_timestamp: data.updated_at,
             status,
@@ -391,7 +424,9 @@ impl KucoinFutures {
 
     /// 포지션 응답 파싱
     fn parse_position(&self, data: &KucoinFuturesPosition) -> Position {
-        let side = match data.current_qty.as_ref()
+        let side = match data
+            .current_qty
+            .as_ref()
             .and_then(|q| q.parse::<Decimal>().ok())
         {
             Some(qty) if qty < Decimal::ZERO => Some(PositionSide::Short),
@@ -399,7 +434,9 @@ impl KucoinFutures {
             _ => None,
         };
 
-        let contracts: Decimal = data.current_qty.as_ref()
+        let contracts: Decimal = data
+            .current_qty
+            .as_ref()
             .and_then(|q| q.parse::<Decimal>().ok())
             .unwrap_or_default()
             .abs();
@@ -434,7 +471,10 @@ impl KucoinFutures {
             },
             hedged: None,
             maintenance_margin: data.maint_margin.as_ref().and_then(|v| v.parse().ok()),
-            maintenance_margin_percentage: data.maint_margin_req.as_ref().and_then(|v| v.parse().ok()),
+            maintenance_margin_percentage: data
+                .maint_margin_req
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             initial_margin: None,
             initial_margin_percentage: None,
             margin_ratio: None,
@@ -453,9 +493,9 @@ impl KucoinFutures {
             symbol: symbol.to_string(),
             funding_rate: data.value,
             timestamp: data.timepoint,
-            datetime: data.timepoint.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .timepoint
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             funding_timestamp: None,
             funding_datetime: None,
             mark_price: None,
@@ -548,7 +588,10 @@ impl Exchange for KucoinFutures {
 
         for contract in contracts {
             let base = contract.base_currency.clone();
-            let quote = contract.quote_currency.clone().unwrap_or_else(|| "USDT".to_string());
+            let quote = contract
+                .quote_currency
+                .clone()
+                .unwrap_or_else(|| "USDT".to_string());
             let settle = quote.clone();
             let symbol = self.to_symbol(&contract.symbol, &base, &quote, &settle);
 
@@ -586,8 +629,12 @@ impl Exchange for KucoinFutures {
                 strike: None,
                 option_type: None,
                 precision: MarketPrecision {
-                    amount: contract.lot_size.and_then(|v| v.to_string().split('.').nth(1).map(|s| s.len() as i32)),
-                    price: contract.tick_size.and_then(|v| v.to_string().split('.').nth(1).map(|s| s.len() as i32)),
+                    amount: contract
+                        .lot_size
+                        .and_then(|v| v.to_string().split('.').nth(1).map(|s| s.len() as i32)),
+                    price: contract
+                        .tick_size
+                        .and_then(|v| v.to_string().split('.').nth(1).map(|s| s.len() as i32)),
                     cost: None,
                     base: None,
                     quote: None,
@@ -727,12 +774,13 @@ impl Exchange for KucoinFutures {
         Ok(OrderBook {
             symbol: symbol.to_string(),
             timestamp: data.timestamp,
-            datetime: data.timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             nonce: data.sequence,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -753,8 +801,9 @@ impl Exchange for KucoinFutures {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: KucoinResponse<Vec<KucoinFuturesTrade>> =
-            self.public_get("/api/v1/trade/history", Some(params)).await?;
+        let response: KucoinResponse<Vec<KucoinFuturesTrade>> = self
+            .public_get("/api/v1/trade/history", Some(params))
+            .await?;
 
         let trades_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -775,9 +824,16 @@ impl Exchange for KucoinFutures {
                     trade_type: None,
                     side: t.side.clone(),
                     taker_or_maker: None,
-                    price: t.price.as_ref().and_then(|p| p.parse().ok()).unwrap_or_default(),
+                    price: t
+                        .price
+                        .as_ref()
+                        .and_then(|p| p.parse().ok())
+                        .unwrap_or_default(),
                     amount: t.size.unwrap_or_default(),
-                    cost: t.price.as_ref().and_then(|p| p.parse::<Decimal>().ok())
+                    cost: t
+                        .price
+                        .as_ref()
+                        .and_then(|p| p.parse::<Decimal>().ok())
                         .map(|p| p * t.size.unwrap_or_default()),
                     fee: None,
                     fees: Vec::new(),
@@ -804,9 +860,13 @@ impl Exchange for KucoinFutures {
             market.id.clone()
         };
 
-        let granularity = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?.clone();
+        let granularity = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?
+            .clone();
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -856,8 +916,9 @@ impl Exchange for KucoinFutures {
         let mut params = HashMap::new();
         params.insert("currency".into(), currency.to_string());
 
-        let response: KucoinResponse<KucoinFuturesBalance> =
-            self.private_request("GET", "/api/v1/account-overview", params).await?;
+        let response: KucoinResponse<KucoinFuturesBalance> = self
+            .private_request("GET", "/api/v1/account-overview", params)
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -884,17 +945,27 @@ impl Exchange for KucoinFutures {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.to_string());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "limit",
-            OrderType::Market => "market",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.to_string());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .to_string(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "limit",
+                OrderType::Market => "market",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .to_string(),
+        );
 
         // Convert amount to contract size
         let leverage = amount.to_string();
@@ -907,8 +978,9 @@ impl Exchange for KucoinFutures {
             params.insert("price".into(), price_val.to_string());
         }
 
-        let response: KucoinResponse<KucoinFuturesOrderId> =
-            self.private_request("POST", "/api/v1/orders", params).await?;
+        let response: KucoinResponse<KucoinFuturesOrderId> = self
+            .private_request("POST", "/api/v1/orders", params)
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -943,7 +1015,9 @@ impl Exchange for KucoinFutures {
         })?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .and_then(|s| markets_by_id.get(s))
             .cloned()
             .unwrap_or_else(|| _symbol.to_string());
@@ -951,7 +1025,12 @@ impl Exchange for KucoinFutures {
         Ok(self.parse_order(&data, &symbol))
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
 
         if let Some(sym) = symbol {
@@ -964,8 +1043,9 @@ impl Exchange for KucoinFutures {
 
         params.insert("status".into(), "active".to_string());
 
-        let response: KucoinResponse<KucoinFuturesOrderList> =
-            self.private_request("GET", "/api/v1/orders", params).await?;
+        let response: KucoinResponse<KucoinFuturesOrderList> = self
+            .private_request("GET", "/api/v1/orders", params)
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -977,7 +1057,9 @@ impl Exchange for KucoinFutures {
             .items
             .iter()
             .filter_map(|o| {
-                let sym = o.symbol.as_ref()
+                let sym = o
+                    .symbol
+                    .as_ref()
                     .and_then(|s| markets_by_id.get(s))
                     .cloned()?;
                 Some(self.parse_order(o, &sym))
@@ -987,7 +1069,12 @@ impl Exchange for KucoinFutures {
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
 
         if let Some(sym) = symbol {
@@ -1000,8 +1087,9 @@ impl Exchange for KucoinFutures {
 
         params.insert("status".into(), "done".to_string());
 
-        let response: KucoinResponse<KucoinFuturesOrderList> =
-            self.private_request("GET", "/api/v1/orders", params).await?;
+        let response: KucoinResponse<KucoinFuturesOrderList> = self
+            .private_request("GET", "/api/v1/orders", params)
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -1013,7 +1101,9 @@ impl Exchange for KucoinFutures {
             .items
             .iter()
             .filter_map(|o| {
-                let sym = o.symbol.as_ref()
+                let sym = o
+                    .symbol
+                    .as_ref()
                     .and_then(|s| markets_by_id.get(s))
                     .cloned()?;
                 Some(self.parse_order(o, &sym))
@@ -1052,7 +1142,9 @@ impl Exchange for KucoinFutures {
             .items
             .iter()
             .filter_map(|f| {
-                let sym = f.symbol.as_ref()
+                let sym = f
+                    .symbol
+                    .as_ref()
                     .and_then(|s| markets_by_id.get(s))
                     .cloned()?;
 
@@ -1071,15 +1163,17 @@ impl Exchange for KucoinFutures {
                         "maker" => Some(TakerOrMaker::Maker),
                         _ => None,
                     }),
-                    price: f.price.as_ref().and_then(|p| p.parse().ok()).unwrap_or_default(),
+                    price: f
+                        .price
+                        .as_ref()
+                        .and_then(|p| p.parse().ok())
+                        .unwrap_or_default(),
                     amount: f.size.unwrap_or_default(),
                     cost: f.value.as_ref().and_then(|v| v.parse().ok()),
-                    fee: f.fee.as_ref().map(|fee_val| {
-                        crate::types::Fee {
-                            cost: fee_val.parse().ok(),
-                            currency: f.fee_currency.clone(),
-                            rate: None,
-                        }
+                    fee: f.fee.as_ref().map(|fee_val| crate::types::Fee {
+                        cost: fee_val.parse().ok(),
+                        currency: f.fee_currency.clone(),
+                        rate: None,
                     }),
                     fees: Vec::new(),
                     info: serde_json::to_value(f).unwrap_or_default(),
@@ -1102,8 +1196,9 @@ impl Exchange for KucoinFutures {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: KucoinResponse<KucoinFuturesPosition> =
-            self.private_request("GET", "/api/v1/position", params).await?;
+        let response: KucoinResponse<KucoinFuturesPosition> = self
+            .private_request("GET", "/api/v1/position", params)
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -1115,8 +1210,9 @@ impl Exchange for KucoinFutures {
     async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         let params = HashMap::new();
 
-        let response: KucoinResponse<Vec<KucoinFuturesPosition>> =
-            self.private_request("GET", "/api/v1/positions", params).await?;
+        let response: KucoinResponse<Vec<KucoinFuturesPosition>> = self
+            .private_request("GET", "/api/v1/positions", params)
+            .await?;
 
         let positions_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -1146,8 +1242,9 @@ impl Exchange for KucoinFutures {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: KucoinResponse<KucoinFuturesFundingRate> =
-            self.public_get("/api/v1/funding-rate/{symbol}/current", Some(params)).await?;
+        let response: KucoinResponse<KucoinFuturesFundingRate> = self
+            .public_get("/api/v1/funding-rate/{symbol}/current", Some(params))
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -1177,11 +1274,15 @@ impl Exchange for KucoinFutures {
             params.insert("from".into(), s.to_string());
         }
         if let Some(l) = limit {
-            params.insert("to".into(), (since.unwrap_or(0) + (l as i64 * 28800000)).to_string());
+            params.insert(
+                "to".into(),
+                (since.unwrap_or(0) + (l as i64 * 28800000)).to_string(),
+            );
         }
 
-        let response: KucoinResponse<Vec<KucoinFuturesFundingRateHistory>> =
-            self.private_request("GET", "/api/v1/funding-history", params).await?;
+        let response: KucoinResponse<Vec<KucoinFuturesFundingRateHistory>> = self
+            .private_request("GET", "/api/v1/funding-history", params)
+            .await?;
 
         let history_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -1233,8 +1334,9 @@ impl Exchange for KucoinFutures {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: KucoinResponse<Vec<KucoinFuturesPositionHistory>> =
-            self.private_request("GET", "/api/v1/history-positions", params).await?;
+        let response: KucoinResponse<Vec<KucoinFuturesPositionHistory>> = self
+            .private_request("GET", "/api/v1/history-positions", params)
+            .await?;
 
         let history_data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -1303,21 +1405,32 @@ impl Exchange for KucoinFutures {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("marginMode".into(), match margin_mode {
-            MarginMode::Cross => "CROSS",
-            MarginMode::Isolated => "ISOLATED",
-            MarginMode::Unknown => return Err(CcxtError::BadRequest {
-                message: "Unknown margin mode".into(),
-            }),
-        }.to_string());
+        params.insert(
+            "marginMode".into(),
+            match margin_mode {
+                MarginMode::Cross => "CROSS",
+                MarginMode::Isolated => "ISOLATED",
+                MarginMode::Unknown => {
+                    return Err(CcxtError::BadRequest {
+                        message: "Unknown margin mode".into(),
+                    })
+                },
+            }
+            .to_string(),
+        );
 
-        let _response: KucoinResponse<serde_json::Value> =
-            self.private_request("POST", "/api/v2/position/changeMarginMode", params).await?;
+        let _response: KucoinResponse<serde_json::Value> = self
+            .private_request("POST", "/api/v2/position/changeMarginMode", params)
+            .await?;
 
         Ok(MarginModeInfo::new(symbol, margin_mode))
     }
 
-    async fn add_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<crate::types::MarginModification> {
+    async fn add_margin(
+        &self,
+        symbol: &str,
+        amount: Decimal,
+    ) -> CcxtResult<crate::types::MarginModification> {
         let market_id = {
             let markets = self.markets.read().unwrap();
             let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
@@ -1330,8 +1443,9 @@ impl Exchange for KucoinFutures {
         params.insert("symbol".into(), market_id);
         params.insert("margin".into(), amount.to_string());
 
-        let response: KucoinResponse<serde_json::Value> =
-            self.private_request("POST", "/api/v1/position/margin/deposit-margin", params).await?;
+        let response: KucoinResponse<serde_json::Value> = self
+            .private_request("POST", "/api/v1/position/margin/deposit-margin", params)
+            .await?;
 
         let code = response.code.clone();
         Ok(crate::types::MarginModification {
@@ -1342,7 +1456,11 @@ impl Exchange for KucoinFutures {
             amount: Some(amount),
             total: None,
             code: Some(code.clone()),
-            status: Some(if code == "200000" { "ok".to_string() } else { "error".to_string() }),
+            status: Some(if code == "200000" {
+                "ok".to_string()
+            } else {
+                "error".to_string()
+            }),
             timestamp: None,
             datetime: None,
         })
@@ -1360,14 +1478,17 @@ impl Exchange for KucoinFutures {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: KucoinResponse<KucoinFuturesPosition> =
-            self.private_request("GET", "/api/v1/position", params).await?;
+        let response: KucoinResponse<KucoinFuturesPosition> = self
+            .private_request("GET", "/api/v1/position", params)
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
         })?;
 
-        let leverage_value: Decimal = data.real_leverage.as_ref()
+        let leverage_value: Decimal = data
+            .real_leverage
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or(Decimal::ONE);
 
@@ -1391,8 +1512,9 @@ impl Exchange for KucoinFutures {
             params.insert("chain".into(), net.to_string());
         }
 
-        let response: KucoinResponse<KucoinDepositAddress> =
-            self.private_request("GET", "/api/v1/deposit-address", params).await?;
+        let response: KucoinResponse<KucoinDepositAddress> = self
+            .private_request("GET", "/api/v1/deposit-address", params)
+            .await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),

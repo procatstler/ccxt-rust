@@ -35,9 +35,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 3 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -76,9 +76,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 3 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -112,9 +112,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 5 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });

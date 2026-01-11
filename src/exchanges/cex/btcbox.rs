@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -109,12 +109,18 @@ impl Btcbox {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
 
@@ -122,22 +128,31 @@ impl Btcbox {
         post_params.insert("key".into(), api_key.to_string());
         post_params.insert("nonce".into(), nonce);
 
-        let query_string: String = post_params.iter()
+        let query_string: String = post_params
+            .iter()
             .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("&");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(query_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
         post_params.insert("signature".into(), signature);
 
         let mut headers = HashMap::new();
-        headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+        headers.insert(
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
 
-        self.client.post_form(path, &post_params, Some(headers)).await
+        self.client
+            .post_form(path, &post_params, Some(headers))
+            .await
     }
 
     /// 마켓 ID 변환 (BTC/JPY -> btc)
@@ -357,12 +372,18 @@ impl Exchange for Btcbox {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("coin".into(), market_id);
@@ -370,7 +391,8 @@ impl Exchange for Btcbox {
         let response: Vec<BtcboxTrade> = self.public_get("/orders", Some(params)).await?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .take(limit)
             .map(|t| {
                 let timestamp = t.date * 1000;
@@ -514,12 +536,16 @@ impl Exchange for Btcbox {
         params.insert("coin".into(), market_id);
         params.insert("amount".into(), amount.to_string());
         params.insert("price".into(), price.to_string());
-        params.insert("type".into(), match side {
-            OrderSide::Buy => "buy".into(),
-            OrderSide::Sell => "sell".into(),
-        });
+        params.insert(
+            "type".into(),
+            match side {
+                OrderSide::Buy => "buy".into(),
+                OrderSide::Sell => "sell".into(),
+            },
+        );
 
-        let response: BtcboxOrderResponse = self.private_request("/trade_add/", Some(params)).await?;
+        let response: BtcboxOrderResponse =
+            self.private_request("/trade_add/", Some(params)).await?;
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
@@ -560,7 +586,8 @@ impl Exchange for Btcbox {
         params.insert("coin".into(), market_id);
         params.insert("id".into(), id.to_string());
 
-        let _response: BtcboxOrderResponse = self.private_request("/trade_cancel/", Some(params)).await?;
+        let _response: BtcboxOrderResponse =
+            self.private_request("/trade_cancel/", Some(params)).await?;
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
@@ -601,9 +628,12 @@ impl Exchange for Btcbox {
         params.insert("coin".into(), market_id);
         params.insert("id".into(), id.to_string());
 
-        let response: BtcboxOrderDetail = self.private_request("/trade_view/", Some(params)).await?;
+        let response: BtcboxOrderDetail =
+            self.private_request("/trade_view/", Some(params)).await?;
 
-        let timestamp = response.datetime.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .datetime
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let status = if response.status == Some("cancelled".into()) {
             OrderStatus::Canceled
         } else if response.amount_original == response.amount_outstanding {
@@ -639,7 +669,8 @@ impl Exchange for Btcbox {
             price: response.price,
             average: None,
             amount: response.amount_original.unwrap_or_default(),
-            filled: response.amount_original.unwrap_or_default() - response.amount_outstanding.unwrap_or_default(),
+            filled: response.amount_original.unwrap_or_default()
+                - response.amount_outstanding.unwrap_or_default(),
             remaining: response.amount_outstanding,
             cost: None,
             trades: Vec::new(),
@@ -661,16 +692,20 @@ impl Exchange for Btcbox {
         _since: Option<i64>,
         _limit: Option<u32>,
     ) -> CcxtResult<Vec<Order>> {
-        let market_id = symbol.map(|s| self.convert_to_market_id(s)).unwrap_or("btc".into());
+        let market_id = symbol
+            .map(|s| self.convert_to_market_id(s))
+            .unwrap_or("btc".into());
         let symbol_str = symbol.unwrap_or("BTC/JPY");
 
         let mut params = HashMap::new();
         params.insert("coin".into(), market_id);
         params.insert("type".into(), "open".into());
 
-        let response: Vec<BtcboxOrderDetail> = self.private_request("/trade_list/", Some(params)).await?;
+        let response: Vec<BtcboxOrderDetail> =
+            self.private_request("/trade_list/", Some(params)).await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|o| {
                 let timestamp = o.datetime.unwrap_or_else(|| Utc::now().timestamp_millis());
                 let side = match o.order_type.as_deref() {
@@ -698,7 +733,8 @@ impl Exchange for Btcbox {
                     price: o.price,
                     average: None,
                     amount: o.amount_original.unwrap_or_default(),
-                    filled: o.amount_original.unwrap_or_default() - o.amount_outstanding.unwrap_or_default(),
+                    filled: o.amount_original.unwrap_or_default()
+                        - o.amount_outstanding.unwrap_or_default(),
                     remaining: o.amount_outstanding,
                     cost: None,
                     trades: Vec::new(),

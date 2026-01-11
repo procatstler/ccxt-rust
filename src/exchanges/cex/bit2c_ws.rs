@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://ws.bit2c.co.il/";
@@ -84,18 +84,26 @@ impl Bit2cWs {
 
     fn parse_order_book(data: &Bit2cWsOrderBook, symbol: &str) -> OrderBook {
         let timestamp = Utc::now().timestamp_millis();
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|e| {
-            Some(OrderBookEntry {
-                price: e.price?,
-                amount: e.amount?,
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|e| {
+                Some(OrderBookEntry {
+                    price: e.price?,
+                    amount: e.amount?,
+                })
             })
-        }).collect();
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|e| {
-            Some(OrderBookEntry {
-                price: e.price?,
-                amount: e.amount?,
+            .collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|e| {
+                Some(OrderBookEntry {
+                    price: e.price?,
+                    amount: e.amount?,
+                })
             })
-        }).collect();
+            .collect();
         OrderBook {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
@@ -103,22 +111,33 @@ impl Bit2cWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         }
     }
 
     fn parse_trade(data: &Bit2cWsTrade, symbol: &str) -> Trade {
-        let timestamp = data.date.map(|d| d * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .date
+            .map(|d| d * 1000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price = data.price.unwrap_or(Decimal::ZERO);
         let amount = data.amount.unwrap_or(Decimal::ZERO);
         Trade {
             id: data.tid.map(|t| t.to_string()).unwrap_or_default(),
             order: None,
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()).unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             symbol: symbol.to_string(),
             trade_type: None,
-            side: if data.is_bid.unwrap_or(false) { Some("buy".to_string()) } else { Some("sell".to_string()) },
+            side: if data.is_bid.unwrap_or(false) {
+                Some("buy".to_string())
+            } else {
+                Some("sell".to_string())
+            },
             taker_or_maker: None,
             price,
             amount,
@@ -139,27 +158,51 @@ impl Bit2cWs {
             if let Some(data) = json.get("data") {
                 match event_type {
                     "ticker" => {
-                        if let Ok(ticker_data) = serde_json::from_value::<Bit2cWsTicker>(data.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<Bit2cWsTicker>(data.clone())
+                        {
                             let ticker = Self::parse_ticker(&ticker_data, &symbol);
-                            let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent { symbol: symbol.clone(), ticker }));
+                            let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent {
+                                symbol: symbol.clone(),
+                                ticker,
+                            }));
                         }
-                    }
+                    },
                     "orderbook" | "ob" => {
-                        if let Ok(book_data) = serde_json::from_value::<Bit2cWsOrderBook>(data.clone()) {
+                        if let Ok(book_data) =
+                            serde_json::from_value::<Bit2cWsOrderBook>(data.clone())
+                        {
                             let order_book = Self::parse_order_book(&book_data, &symbol);
-                            let _ = event_tx.send(WsMessage::OrderBook(WsOrderBookEvent { symbol: symbol.clone(), order_book, is_snapshot: true }));
+                            let _ = event_tx.send(WsMessage::OrderBook(WsOrderBookEvent {
+                                symbol: symbol.clone(),
+                                order_book,
+                                is_snapshot: true,
+                            }));
                         }
-                    }
+                    },
                     "trades" | "trade" => {
-                        if let Ok(trades_data) = serde_json::from_value::<Vec<Bit2cWsTrade>>(data.clone()) {
-                            let trades: Vec<Trade> = trades_data.iter().map(|t| Self::parse_trade(t, &symbol)).collect();
-                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent { symbol: symbol.clone(), trades }));
-                        } else if let Ok(trade_data) = serde_json::from_value::<Bit2cWsTrade>(data.clone()) {
+                        if let Ok(trades_data) =
+                            serde_json::from_value::<Vec<Bit2cWsTrade>>(data.clone())
+                        {
+                            let trades: Vec<Trade> = trades_data
+                                .iter()
+                                .map(|t| Self::parse_trade(t, &symbol))
+                                .collect();
+                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
+                                symbol: symbol.clone(),
+                                trades,
+                            }));
+                        } else if let Ok(trade_data) =
+                            serde_json::from_value::<Bit2cWsTrade>(data.clone())
+                        {
                             let trade = Self::parse_trade(&trade_data, &symbol);
-                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent { symbol: symbol.clone(), trades: vec![trade] }));
+                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
+                                symbol: symbol.clone(),
+                                trades: vec![trade],
+                            }));
                         }
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -167,7 +210,11 @@ impl Bit2cWs {
         Ok(())
     }
 
-    async fn subscribe_stream(&mut self, channel: &str, market_id: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        channel: &str,
+        market_id: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
         let mut ws_client = WsClient::new(WsConfig {
@@ -177,6 +224,7 @@ impl Bit2cWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
         let mut ws_rx = ws_client.connect().await?;
 
@@ -195,11 +243,21 @@ impl Bit2cWs {
         tokio::spawn(async move {
             while let Some(event) = ws_rx.recv().await {
                 match event {
-                    WsEvent::Message(msg) => { let _ = Self::process_message(&msg, &event_tx); }
-                    WsEvent::Connected => { let _ = event_tx.send(WsMessage::Connected); }
-                    WsEvent::Disconnected => { let _ = event_tx.send(WsMessage::Disconnected); break; }
-                    WsEvent::Error(e) => { let _ = event_tx.send(WsMessage::Error(e)); }
-                    WsEvent::Ping | WsEvent::Pong => {}
+                    WsEvent::Message(msg) => {
+                        let _ = Self::process_message(&msg, &event_tx);
+                    },
+                    WsEvent::Connected => {
+                        let _ = event_tx.send(WsMessage::Connected);
+                    },
+                    WsEvent::Disconnected => {
+                        let _ = event_tx.send(WsMessage::Disconnected);
+                        break;
+                    },
+                    WsEvent::Error(e) => {
+                        let _ = event_tx.send(WsMessage::Error(e));
+                    },
+                    WsEvent::Ping | WsEvent::Pong => {},
+                    _ => {},
                 }
             }
             let mut subs = subscriptions.write().await;
@@ -210,10 +268,18 @@ impl Bit2cWs {
     }
 }
 
-impl Default for Bit2cWs { fn default() -> Self { Self::new() } }
+impl Default for Bit2cWs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Clone for Bit2cWs {
     fn clone(&self) -> Self {
-        Self { ws_client: None, subscriptions: Arc::new(RwLock::new(HashMap::new())), event_tx: None }
+        Self {
+            ws_client: None,
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            event_tx: None,
+        }
     }
 }
 
@@ -221,24 +287,42 @@ impl Clone for Bit2cWs {
 impl WsExchange for Bit2cWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("ticker", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("ticker", &Self::format_symbol(symbol))
+            .await
     }
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("orderbook", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("orderbook", &Self::format_symbol(symbol))
+            .await
     }
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("trades", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("trades", &Self::format_symbol(symbol))
+            .await
     }
-    async fn watch_ohlcv(&self, symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        Err(crate::errors::CcxtError::NotSupported { feature: format!("OHLCV WebSocket for {symbol}") })
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: format!("OHLCV WebSocket for {symbol}"),
+        })
     }
     async fn ws_connect(&mut self) -> CcxtResult<()> {
         if self.ws_client.is_none() {
             let mut ws_client = WsClient::new(WsConfig {
-                url: WS_URL.to_string(), auto_reconnect: true, reconnect_interval_ms: 5000,
-                max_reconnect_attempts: 10, ping_interval_secs: 30, connect_timeout_secs: 30,
+                url: WS_URL.to_string(),
+                auto_reconnect: true,
+                reconnect_interval_ms: 5000,
+                max_reconnect_attempts: 10,
+                ping_interval_secs: 30,
+                connect_timeout_secs: 30,
+                ..Default::default()
             });
             ws_client.connect().await?;
             self.ws_client = Some(ws_client);
@@ -246,60 +330,106 @@ impl WsExchange for Bit2cWs {
         Ok(())
     }
     async fn ws_close(&mut self) -> CcxtResult<()> {
-        if let Some(ws_client) = &self.ws_client { ws_client.close()?; self.ws_client = None; }
+        if let Some(ws_client) = &self.ws_client {
+            ws_client.close()?;
+            self.ws_client = None;
+        }
         Ok(())
     }
     async fn ws_is_connected(&self) -> bool {
-        match &self.ws_client { Some(c) => c.is_connected().await, None => false }
+        match &self.ws_client {
+            Some(c) => c.is_connected().await,
+            None => false,
+        }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Bit2cWsTicker {
-    #[serde(default)] h: Option<Decimal>,  // high
-    #[serde(default)] l: Option<Decimal>,  // low
-    #[serde(default)] ll: Option<Decimal>, // last
-    #[serde(default)] b: Option<Decimal>,  // bid
-    #[serde(default)] a: Option<Decimal>,  // ask
-    #[serde(default)] av: Option<Decimal>, // average
+    #[serde(default)]
+    h: Option<Decimal>, // high
+    #[serde(default)]
+    l: Option<Decimal>, // low
+    #[serde(default)]
+    ll: Option<Decimal>, // last
+    #[serde(default)]
+    b: Option<Decimal>, // bid
+    #[serde(default)]
+    a: Option<Decimal>, // ask
+    #[serde(default)]
+    av: Option<Decimal>, // average
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Bit2cWsOrderBookEntry {
-    #[serde(default)] price: Option<Decimal>,
-    #[serde(default)] amount: Option<Decimal>,
+    #[serde(default)]
+    price: Option<Decimal>,
+    #[serde(default)]
+    amount: Option<Decimal>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Bit2cWsOrderBook {
-    #[serde(default)] bids: Vec<Bit2cWsOrderBookEntry>,
-    #[serde(default)] asks: Vec<Bit2cWsOrderBookEntry>,
+    #[serde(default)]
+    bids: Vec<Bit2cWsOrderBookEntry>,
+    #[serde(default)]
+    asks: Vec<Bit2cWsOrderBookEntry>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Bit2cWsTrade {
-    #[serde(default)] tid: Option<i64>,
-    #[serde(default)] date: Option<i64>,
-    #[serde(default)] price: Option<Decimal>,
-    #[serde(default)] amount: Option<Decimal>,
-    #[serde(default, rename = "isBid")] is_bid: Option<bool>,
+    #[serde(default)]
+    tid: Option<i64>,
+    #[serde(default)]
+    date: Option<i64>,
+    #[serde(default)]
+    price: Option<Decimal>,
+    #[serde(default)]
+    amount: Option<Decimal>,
+    #[serde(default, rename = "isBid")]
+    is_bid: Option<bool>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn test_format_symbol() { assert_eq!(Bit2cWs::format_symbol("BTC/ILS"), "BTCNis"); }
-    #[test] fn test_to_unified_symbol() { assert_eq!(Bit2cWs::to_unified_symbol("BtcNis"), "BTC/ILS"); }
-    #[test] fn test_default() { let ws = Bit2cWs::default(); assert!(ws.ws_client.is_none()); }
-    #[test] fn test_clone() { let ws = Bit2cWs::new(); assert!(ws.clone().ws_client.is_none()); }
-    #[test] fn test_new() { let ws = Bit2cWs::new(); assert!(ws.ws_client.is_none()); }
-    #[tokio::test] async fn test_ws_is_connected() { let ws = Bit2cWs::new(); assert!(!ws.ws_is_connected().await); }
+    #[test]
+    fn test_format_symbol() {
+        assert_eq!(Bit2cWs::format_symbol("BTC/ILS"), "BTCNis");
+    }
+    #[test]
+    fn test_to_unified_symbol() {
+        assert_eq!(Bit2cWs::to_unified_symbol("BtcNis"), "BTC/ILS");
+    }
+    #[test]
+    fn test_default() {
+        let ws = Bit2cWs::default();
+        assert!(ws.ws_client.is_none());
+    }
+    #[test]
+    fn test_clone() {
+        let ws = Bit2cWs::new();
+        assert!(ws.clone().ws_client.is_none());
+    }
+    #[test]
+    fn test_new() {
+        let ws = Bit2cWs::new();
+        assert!(ws.ws_client.is_none());
+    }
+    #[tokio::test]
+    async fn test_ws_is_connected() {
+        let ws = Bit2cWs::new();
+        assert!(!ws.ws_is_connected().await);
+    }
     #[test]
     fn test_parse_ticker() {
         let data = Bit2cWsTicker {
-            h: Some(Decimal::from(150000)), l: Some(Decimal::from(140000)),
-            ll: Some(Decimal::from(145000)), b: Some(Decimal::from(144500)),
-            a: Some(Decimal::from(145500)), av: Some(Decimal::from(145000))
+            h: Some(Decimal::from(150000)),
+            l: Some(Decimal::from(140000)),
+            ll: Some(Decimal::from(145000)),
+            b: Some(Decimal::from(144500)),
+            a: Some(Decimal::from(145500)),
+            av: Some(Decimal::from(145000)),
         };
         let ticker = Bit2cWs::parse_ticker(&data, "BTC/ILS");
         assert_eq!(ticker.symbol, "BTC/ILS");
@@ -307,8 +437,14 @@ mod tests {
     #[test]
     fn test_parse_order_book() {
         let data = Bit2cWsOrderBook {
-            bids: vec![Bit2cWsOrderBookEntry { price: Some(Decimal::from(144500)), amount: Some(Decimal::from(2)) }],
-            asks: vec![Bit2cWsOrderBookEntry { price: Some(Decimal::from(145500)), amount: Some(Decimal::from(1)) }]
+            bids: vec![Bit2cWsOrderBookEntry {
+                price: Some(Decimal::from(144500)),
+                amount: Some(Decimal::from(2)),
+            }],
+            asks: vec![Bit2cWsOrderBookEntry {
+                price: Some(Decimal::from(145500)),
+                amount: Some(Decimal::from(1)),
+            }],
         };
         let ob = Bit2cWs::parse_order_book(&data, "BTC/ILS");
         assert_eq!(ob.bids.len(), 1);
@@ -316,9 +452,11 @@ mod tests {
     #[test]
     fn test_parse_trade() {
         let data = Bit2cWsTrade {
-            tid: Some(123), date: Some(1704067200),
-            price: Some(Decimal::from(145000)), amount: Some(Decimal::from(1)),
-            is_bid: Some(true)
+            tid: Some(123),
+            date: Some(1704067200),
+            price: Some(Decimal::from(145000)),
+            amount: Some(Decimal::from(1)),
+            is_bid: Some(true),
         };
         let trade = Bit2cWs::parse_trade(&data, "BTC/ILS");
         assert_eq!(trade.id, "123");

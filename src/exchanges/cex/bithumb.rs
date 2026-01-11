@@ -85,7 +85,10 @@ impl Bithumb {
         api_urls.insert("private".into(), Self::PRIVATE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/c9e0eefb-4777-46b9-8f09-9d7f7c4af82d".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/c9e0eefb-4777-46b9-8f09-9d7f7c4af82d"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.bithumb.com".into()),
             doc: vec!["https://apidocs.bithumb.com".into()],
@@ -117,10 +120,7 @@ impl Bithumb {
     }
 
     /// 공개 API 호출
-    async fn public_get<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> CcxtResult<T> {
+    async fn public_get<T: serde::de::DeserializeOwned>(&self, path: &str) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
         self.public_client.get(path, None, None).await
     }
@@ -133,12 +133,18 @@ impl Bithumb {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_micros().to_string();
 
@@ -153,24 +159,27 @@ impl Bithumb {
 
         // Create signature: endpoint + "\0" + body + "\0" + nonce
         let hmac_data = format!("{endpoint}\x00{body}\x00{nonce}");
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha512::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(hmac_data.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
-        let signature_b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            signature,
-        );
+        let signature_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature);
 
         let mut headers = HashMap::new();
         headers.insert("Accept".into(), "application/json".into());
-        headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+        headers.insert(
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
         headers.insert("Api-Key".into(), api_key.to_string());
         headers.insert("Api-Sign".into(), signature_b64);
         headers.insert("Api-Nonce".into(), nonce);
 
         let url = endpoint.to_string();
-        self.private_client.post_form(&url, &body_params, Some(headers)).await
+        self.private_client
+            .post_form(&url, &body_params, Some(headers))
+            .await
     }
 
     /// 심볼 → 마켓 ID 변환 (BTC/KRW → BTC_KRW)
@@ -185,7 +194,10 @@ impl Bithumb {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &BithumbTickerData, symbol: &str) -> Ticker {
-        let timestamp = data.date.parse::<i64>().unwrap_or_else(|_| Utc::now().timestamp_millis());
+        let timestamp = data
+            .date
+            .parse::<i64>()
+            .unwrap_or_else(|_| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -205,12 +217,18 @@ impl Bithumb {
             open: data.opening_price.as_ref().and_then(|s| s.parse().ok()),
             close: data.closing_price.as_ref().and_then(|s| s.parse().ok()),
             last: data.closing_price.as_ref().and_then(|s| s.parse().ok()),
-            previous_close: data.prev_closing_price.as_ref().and_then(|s| s.parse().ok()),
+            previous_close: data
+                .prev_closing_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             change: None,
             percentage: data.fluctate_rate_24h.as_ref().and_then(|s| s.parse().ok()),
             average: None,
             base_volume: data.units_traded_24h.as_ref().and_then(|s| s.parse().ok()),
-            quote_volume: data.acc_trade_value_24h.as_ref().and_then(|s| s.parse().ok()),
+            quote_volume: data
+                .acc_trade_value_24h
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             index_price: None,
             mark_price: None,
             info: serde_json::Value::Null,
@@ -225,17 +243,55 @@ impl Bithumb {
 
         Some(OHLCV::new(
             data[0].as_i64().unwrap_or(0),
-            Decimal::try_from(data[1].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0)).unwrap_or_default(),
-            Decimal::try_from(data[2].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0)).unwrap_or_default(),
-            Decimal::try_from(data[3].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0)).unwrap_or_default(),
-            Decimal::try_from(data[4].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0)).unwrap_or_default(),
-            Decimal::try_from(data[5].as_str().unwrap_or("0").parse::<f64>().unwrap_or(0.0)).unwrap_or_default(),
+            Decimal::try_from(
+                data[1]
+                    .as_str()
+                    .unwrap_or("0")
+                    .parse::<f64>()
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+            Decimal::try_from(
+                data[2]
+                    .as_str()
+                    .unwrap_or("0")
+                    .parse::<f64>()
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+            Decimal::try_from(
+                data[3]
+                    .as_str()
+                    .unwrap_or("0")
+                    .parse::<f64>()
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+            Decimal::try_from(
+                data[4]
+                    .as_str()
+                    .unwrap_or("0")
+                    .parse::<f64>()
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+            Decimal::try_from(
+                data[5]
+                    .as_str()
+                    .unwrap_or("0")
+                    .parse::<f64>()
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
         ))
     }
 
     /// 호가창 응답 파싱
     fn parse_order_book(&self, data: &BithumbOrderBookData, symbol: &str) -> OrderBook {
-        let timestamp = data.timestamp.parse::<i64>().unwrap_or_else(|_| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .parse::<i64>()
+            .unwrap_or_else(|_| Utc::now().timestamp_millis());
 
         let bids: Vec<OrderBookEntry> = data
             .bids
@@ -269,13 +325,16 @@ impl Bithumb {
             ),
             bids,
             asks,
+            checksum: None,
             nonce: None,
         }
     }
 
     /// 체결 내역 파싱
     fn parse_trade(&self, data: &BithumbTradeData, symbol: &str) -> Trade {
-        let timestamp = data.transaction_date.parse::<i64>()
+        let timestamp = data
+            .transaction_date
+            .parse::<i64>()
             .or_else(|_| {
                 chrono::NaiveDateTime::parse_from_str(&data.transaction_date, "%Y-%m-%d %H:%M:%S")
                     .map(|dt| dt.and_utc().timestamp_millis())
@@ -331,7 +390,12 @@ impl Bithumb {
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok());
 
-                let balance = Balance { free, used, total, debt: None };
+                let balance = Balance {
+                    free,
+                    used,
+                    total,
+                    debt: None,
+                };
                 balances.add(&currency, balance);
             }
         }
@@ -351,14 +415,16 @@ impl Bithumb {
 
     /// 사용자 거래 내역 파싱
     fn parse_user_trade(&self, data: &BithumbUserTransaction, symbol: &str) -> Trade {
-        let timestamp = data.transfer_date.parse::<i64>()
-            .map(|t| t / 1000)
-            .ok();
+        let timestamp = data.transfer_date.parse::<i64>().map(|t| t / 1000).ok();
         let side = if data.search == "BUY" { "buy" } else { "sell" };
-        let price: Decimal = data.price.as_ref()
+        let price: Decimal = data
+            .price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.units.as_ref()
+        let amount: Decimal = data
+            .units
+            .as_ref()
             .and_then(|u| u.parse().ok())
             .unwrap_or_default();
         let fee_amount: Option<Decimal> = data.fee.as_ref().and_then(|f| f.parse().ok());
@@ -385,10 +451,14 @@ impl Bithumb {
 
     /// 입금 내역 파싱
     fn parse_deposit(&self, data: &BithumbTransaction) -> Transaction {
-        let timestamp = data.transfer_date.as_ref()
+        let timestamp = data
+            .transfer_date
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .map(|t| t / 1000);
-        let amount: Decimal = data.units.as_ref()
+        let amount: Decimal = data
+            .units
+            .as_ref()
             .and_then(|u| u.parse().ok())
             .unwrap_or_default();
 
@@ -423,10 +493,14 @@ impl Bithumb {
 
     /// 출금 내역 파싱
     fn parse_withdrawal(&self, data: &BithumbTransaction) -> Transaction {
-        let timestamp = data.transfer_date.as_ref()
+        let timestamp = data
+            .transfer_date
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .map(|t| t / 1000);
-        let amount: Decimal = data.units.as_ref()
+        let amount: Decimal = data
+            .units
+            .as_ref()
             .and_then(|u| u.parse().ok())
             .unwrap_or_default();
         let fee_amount: Option<Decimal> = data.fee.as_ref().and_then(|f| f.parse().ok());
@@ -483,7 +557,9 @@ impl Bithumb {
         let remaining: Option<Decimal> = data.units_remaining.as_ref().and_then(|s| s.parse().ok());
         let filled = remaining.map(|r| amount - r).unwrap_or(Decimal::ZERO);
 
-        let timestamp = data.transaction_date.parse::<i64>()
+        let timestamp = data
+            .transaction_date
+            .parse::<i64>()
             .map(|t| t / 1000) // microseconds to milliseconds
             .ok();
 
@@ -654,7 +730,9 @@ impl Exchange for Bithumb {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let parts: Vec<&str> = symbol.split('/').collect();
         if parts.len() != 2 {
-            return Err(CcxtError::BadSymbol { symbol: symbol.into() });
+            return Err(CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            });
         }
         let base = parts[0];
         let quote = parts[1];
@@ -693,7 +771,8 @@ impl Exchange for Bithumb {
         })?;
 
         let mut tickers = HashMap::new();
-        let date = data.get("date")
+        let date = data
+            .get("date")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -717,7 +796,9 @@ impl Exchange for Bithumb {
     async fn fetch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<OrderBook> {
         let parts: Vec<&str> = symbol.split('/').collect();
         if parts.len() != 2 {
-            return Err(CcxtError::BadSymbol { symbol: symbol.into() });
+            return Err(CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            });
         }
         let base = parts[0];
         let quote = parts[1];
@@ -746,7 +827,9 @@ impl Exchange for Bithumb {
     ) -> CcxtResult<Vec<Trade>> {
         let parts: Vec<&str> = symbol.split('/').collect();
         if parts.len() != 2 {
-            return Err(CcxtError::BadSymbol { symbol: symbol.into() });
+            return Err(CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            });
         }
         let base = parts[0];
         let quote = parts[1];
@@ -776,12 +859,16 @@ impl Exchange for Bithumb {
     ) -> CcxtResult<Vec<OHLCV>> {
         let parts: Vec<&str> = symbol.split('/').collect();
         if parts.len() != 2 {
-            return Err(CcxtError::BadSymbol { symbol: symbol.into() });
+            return Err(CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            });
         }
         let base = parts[0];
         let quote = parts[1];
 
-        let tf_str = self.timeframes.get(&timeframe)
+        let tf_str = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -806,9 +893,8 @@ impl Exchange for Bithumb {
         let mut params = HashMap::new();
         params.insert("currency".into(), "ALL".into());
 
-        let response: BithumbResponse<HashMap<String, serde_json::Value>> = self
-            .private_request("/info/balance", params)
-            .await?;
+        let response: BithumbResponse<HashMap<String, serde_json::Value>> =
+            self.private_request("/info/balance", params).await?;
 
         if response.status != "0000" {
             return Err(CcxtError::ExchangeError {
@@ -833,7 +919,9 @@ impl Exchange for Bithumb {
     ) -> CcxtResult<Order> {
         let parts: Vec<&str> = symbol.split('/').collect();
         if parts.len() != 2 {
-            return Err(CcxtError::BadSymbol { symbol: symbol.into() });
+            return Err(CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            });
         }
         let base = parts[0];
         let quote = parts[1];
@@ -855,23 +943,20 @@ impl Exchange for Bithumb {
                 };
                 params.insert("type".into(), order_side.into());
                 "/trade/place"
-            }
-            OrderType::Market => {
-                match side {
-                    OrderSide::Buy => "/trade/market_buy",
-                    OrderSide::Sell => "/trade/market_sell",
-                }
-            }
+            },
+            OrderType::Market => match side {
+                OrderSide::Buy => "/trade/market_buy",
+                OrderSide::Sell => "/trade/market_sell",
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type: {order_type:?}"),
                 });
-            }
+            },
         };
 
-        let response: BithumbResponse<BithumbCreateOrderData> = self
-            .private_request(endpoint, params)
-            .await?;
+        let response: BithumbResponse<BithumbCreateOrderData> =
+            self.private_request(endpoint, params).await?;
 
         if response.status != "0000" {
             return Err(CcxtError::ExchangeError {
@@ -917,7 +1002,9 @@ impl Exchange for Bithumb {
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let parts: Vec<&str> = symbol.split('/').collect();
         if parts.len() != 2 {
-            return Err(CcxtError::BadSymbol { symbol: symbol.into() });
+            return Err(CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            });
         }
         let base = parts[0];
         let quote = parts[1];
@@ -931,9 +1018,8 @@ impl Exchange for Bithumb {
         params.insert("payment_currency".into(), quote.to_string());
         params.insert("type".into(), "bid".into()); // Default to bid, may need adjustment
 
-        let response: BithumbResponse<serde_json::Value> = self
-            .private_request("/trade/cancel", params)
-            .await?;
+        let response: BithumbResponse<serde_json::Value> =
+            self.private_request("/trade/cancel", params).await?;
 
         if response.status != "0000" {
             return Err(CcxtError::ExchangeError {
@@ -975,7 +1061,9 @@ impl Exchange for Bithumb {
     async fn fetch_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let parts: Vec<&str> = symbol.split('/').collect();
         if parts.len() != 2 {
-            return Err(CcxtError::BadSymbol { symbol: symbol.into() });
+            return Err(CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            });
         }
         let base = parts[0];
         let quote = parts[1];
@@ -985,9 +1073,8 @@ impl Exchange for Bithumb {
         params.insert("order_currency".into(), base.to_string());
         params.insert("payment_currency".into(), quote.to_string());
 
-        let response: BithumbResponse<BithumbOrderData> = self
-            .private_request("/info/order_detail", params)
-            .await?;
+        let response: BithumbResponse<BithumbOrderData> =
+            self.private_request("/info/order_detail", params).await?;
 
         if response.status != "0000" {
             return Err(CcxtError::ExchangeError {
@@ -1027,12 +1114,16 @@ impl Exchange for Bithumb {
             params.insert("count".into(), l.min(100).to_string());
         }
 
-        let response: BithumbResponse<Vec<BithumbOrderData>> = self
-            .private_request("/info/orders", params)
-            .await?;
+        let response: BithumbResponse<Vec<BithumbOrderData>> =
+            self.private_request("/info/orders", params).await?;
 
         if response.status != "0000" {
-            if response.message.as_ref().map(|m| m.contains("존재하지 않습니다")).unwrap_or(false) {
+            if response
+                .message
+                .as_ref()
+                .map(|m| m.contains("존재하지 않습니다"))
+                .unwrap_or(false)
+            {
                 return Ok(Vec::new());
             }
             return Err(CcxtError::ExchangeError {
@@ -1083,7 +1174,12 @@ impl Exchange for Bithumb {
             .await?;
 
         if response.status != "0000" {
-            if response.message.as_ref().map(|m| m.contains("존재하지 않습니다")).unwrap_or(false) {
+            if response
+                .message
+                .as_ref()
+                .map(|m| m.contains("존재하지 않습니다"))
+                .unwrap_or(false)
+            {
                 return Ok(Vec::new());
             }
             return Err(CcxtError::ExchangeError {
@@ -1121,12 +1217,16 @@ impl Exchange for Bithumb {
         let mut params = HashMap::new();
         params.insert("currency".into(), currency);
 
-        let response: BithumbResponse<Vec<BithumbTransaction>> = self
-            .private_request("/info/deposit", params)
-            .await?;
+        let response: BithumbResponse<Vec<BithumbTransaction>> =
+            self.private_request("/info/deposit", params).await?;
 
         if response.status != "0000" {
-            if response.message.as_ref().map(|m| m.contains("존재하지 않습니다")).unwrap_or(false) {
+            if response
+                .message
+                .as_ref()
+                .map(|m| m.contains("존재하지 않습니다"))
+                .unwrap_or(false)
+            {
                 return Ok(Vec::new());
             }
             return Err(CcxtError::ExchangeError {
@@ -1150,12 +1250,16 @@ impl Exchange for Bithumb {
         let mut params = HashMap::new();
         params.insert("currency".into(), currency);
 
-        let response: BithumbResponse<Vec<BithumbTransaction>> = self
-            .private_request("/info/withdraw", params)
-            .await?;
+        let response: BithumbResponse<Vec<BithumbTransaction>> =
+            self.private_request("/info/withdraw", params).await?;
 
         if response.status != "0000" {
-            if response.message.as_ref().map(|m| m.contains("존재하지 않습니다")).unwrap_or(false) {
+            if response
+                .message
+                .as_ref()
+                .map(|m| m.contains("존재하지 않습니다"))
+                .unwrap_or(false)
+            {
                 return Ok(Vec::new());
             }
             return Err(CcxtError::ExchangeError {
@@ -1179,9 +1283,8 @@ impl Exchange for Bithumb {
             params.insert("net_type".into(), n.to_string());
         }
 
-        let response: BithumbResponse<BithumbDepositAddress> = self
-            .private_request("/info/account", params)
-            .await?;
+        let response: BithumbResponse<BithumbDepositAddress> =
+            self.private_request("/info/account", params).await?;
 
         if response.status != "0000" {
             return Err(CcxtError::ExchangeError {
@@ -1224,13 +1327,17 @@ impl Exchange for Bithumb {
         params.insert("order_currency".into(), base.clone());
         params.insert("payment_currency".into(), quote);
 
-        let response: BithumbResponse<Vec<BithumbOrderData>> = self
-            .private_request("/info/orders", params)
-            .await?;
+        let response: BithumbResponse<Vec<BithumbOrderData>> =
+            self.private_request("/info/orders", params).await?;
 
         if response.status != "0000" {
             // Check for "no orders" message which is not an error
-            if response.message.as_ref().map(|m| m.contains("존재하지 않습니다")).unwrap_or(false) {
+            if response
+                .message
+                .as_ref()
+                .map(|m| m.contains("존재하지 않습니다"))
+                .unwrap_or(false)
+            {
                 return Ok(Vec::new());
             }
             return Err(CcxtError::ExchangeError {
@@ -1293,15 +1400,16 @@ impl Exchange for Bithumb {
                     .expect("HMAC can take key of any size");
                 mac.update(hmac_data.as_bytes());
                 let signature = hex::encode(mac.finalize().into_bytes());
-                let signature_b64 = base64::Engine::encode(
-                    &base64::engine::general_purpose::STANDARD,
-                    signature,
-                );
+                let signature_b64 =
+                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature);
 
                 headers.insert("Api-Key".into(), api_key.to_string());
                 headers.insert("Api-Sign".into(), signature_b64);
                 headers.insert("Api-Nonce".into(), nonce);
-                headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+                headers.insert(
+                    "Content-Type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
             }
         }
 
@@ -1315,27 +1423,44 @@ impl Exchange for Bithumb {
 
     // === WebSocket Methods ===
 
-    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ticker(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ticker(symbol).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_tickers(symbols).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_order_book(symbol, limit).await
     }
 
-    async fn watch_trades(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_trades(symbol).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ohlcv(symbol, timeframe).await
     }

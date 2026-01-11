@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -93,12 +93,13 @@ impl Bitmart {
         api_urls.insert("swap".into(), "https://api-cloud-v2.bitmart.com".into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/0623e9c4-f50e-48c9-82bd-65c3908c3a14".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/0623e9c4-f50e-48c9-82bd-65c3908c3a14"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.bitmart.com".into()),
-            doc: vec![
-                "https://developer-pro.bitmart.com/".into(),
-            ],
+            doc: vec!["https://developer-pro.bitmart.com/".into()],
             fees: Some("https://www.bitmart.com/fee/en".into()),
         };
 
@@ -150,19 +151,27 @@ impl Bitmart {
 
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
         let memo = self.config.uid().unwrap_or("");
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
         // Build body for POST requests
         let body = if method == "POST" {
-            params.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default())
+            params
+                .as_ref()
+                .map(|p| serde_json::to_string(p).unwrap_or_default())
         } else {
             None
         };
@@ -202,14 +211,18 @@ impl Bitmart {
                     path.to_string()
                 };
                 self.private_client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
                 let json_body = params.map(|p| serde_json::to_value(p).unwrap_or_default());
-                self.private_client.post(path, json_body, Some(headers)).await
-            }
+                self.private_client
+                    .post(path, json_body, Some(headers))
+                    .await
+            },
             "DELETE" => {
-                self.private_client.delete(path, params, Some(headers)).await
-            }
+                self.private_client
+                    .delete(path, params, Some(headers))
+                    .await
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -274,7 +287,9 @@ impl Bitmart {
     /// 티커 파싱
     fn parse_ticker(&self, data: &BitmartTicker) -> Ticker {
         let symbol = self.convert_to_symbol(&data.symbol);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.clone(),
@@ -309,7 +324,9 @@ impl Bitmart {
     /// 주문 파싱
     fn parse_order(&self, data: &BitmartOrder) -> Order {
         let symbol = self.convert_to_symbol(&data.symbol);
-        let timestamp = data.create_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .create_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let status = match data.state.as_deref() {
             Some("new") | Some("partially_filled") => OrderStatus::Open,
@@ -330,11 +347,27 @@ impl Bitmart {
             _ => OrderType::Limit,
         };
 
-        let price: Decimal = data.price.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-        let amount: Decimal = data.size.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-        let filled: Decimal = data.filled_size.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+        let price: Decimal = data
+            .price
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let amount: Decimal = data
+            .size
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let filled: Decimal = data
+            .filled_size
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
         let remaining = amount - filled;
-        let cost: Decimal = data.filled_notional.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+        let cost: Decimal = data
+            .filled_notional
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
 
         Order {
             id: data.order_id.clone().unwrap_or_default(),
@@ -377,7 +410,9 @@ impl Bitmart {
 
     /// 거래 파싱
     fn parse_trade(&self, data: &BitmartTrade, symbol: &str) -> Trade {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.price.parse().unwrap_or_default();
         let amount: Decimal = data.amount.parse().unwrap_or_default();
 
@@ -557,9 +592,8 @@ impl Exchange for Bitmart {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BitmartMarketsResponse = self
-            .public_get("/spot/v1/symbols/details", None)
-            .await?;
+        let response: BitmartMarketsResponse =
+            self.public_get("/spot/v1/symbols/details", None).await?;
 
         if response.code != 1000 {
             return Err(CcxtError::ExchangeError {
@@ -609,9 +643,8 @@ impl Exchange for Bitmart {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: BitmartTickersResponse = self
-            .public_get("/spot/quotation/v3/tickers", None)
-            .await?;
+        let response: BitmartTickersResponse =
+            self.public_get("/spot/quotation/v3/tickers", None).await?;
 
         if response.code != 1000 {
             return Err(CcxtError::ExchangeError {
@@ -639,11 +672,7 @@ impl Exchange for Bitmart {
         Ok(result)
     }
 
-    async fn fetch_order_book(
-        &self,
-        symbol: &str,
-        limit: Option<u32>,
-    ) -> CcxtResult<OrderBook> {
+    async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
         let market_id = self.convert_to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -666,7 +695,9 @@ impl Exchange for Bitmart {
             message: "No data in response".into(),
         })?;
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let bids: Vec<OrderBookEntry> = data
             .bids
@@ -707,6 +738,7 @@ impl Exchange for Bitmart {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -751,7 +783,11 @@ impl Exchange for Bitmart {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let tf = self.timeframes.get(&timeframe).cloned().unwrap_or("60".into());
+        let tf = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or("60".into());
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -785,9 +821,8 @@ impl Exchange for Bitmart {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: BitmartBalanceResponse = self
-            .private_request("GET", "/spot/v1/wallet", None)
-            .await?;
+        let response: BitmartBalanceResponse =
+            self.private_request("GET", "/spot/v1/wallet", None).await?;
 
         if response.code != 1000 {
             return Err(CcxtError::ExchangeError {
@@ -840,15 +875,21 @@ impl Exchange for Bitmart {
 
         let mut request = HashMap::new();
         request.insert("symbol".into(), market_id);
-        request.insert("side".into(), match side {
-            OrderSide::Buy => "buy".into(),
-            OrderSide::Sell => "sell".into(),
-        });
-        request.insert("type".into(), match order_type {
-            OrderType::Limit => "limit".into(),
-            OrderType::Market => "market".into(),
-            _ => "limit".into(),
-        });
+        request.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy".into(),
+                OrderSide::Sell => "sell".into(),
+            },
+        );
+        request.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "limit".into(),
+                OrderType::Market => "market".into(),
+                _ => "limit".into(),
+            },
+        );
         request.insert("size".into(), amount.to_string());
 
         if let Some(p) = price {
@@ -1039,16 +1080,23 @@ impl Exchange for Bitmart {
             message: "No data in response".into(),
         })?;
 
-        let trades: Vec<Trade> = data.trades.iter()
+        let trades: Vec<Trade> = data
+            .trades
+            .iter()
             .map(|t| {
-                let sym = symbol.map(|s| s.to_string()).unwrap_or_else(|| self.convert_to_symbol(&t.symbol));
-                self.parse_trade(&BitmartTrade {
-                    trade_id: t.detail_id.clone(),
-                    price: t.price.clone().unwrap_or_default(),
-                    amount: t.size.clone().unwrap_or_default(),
-                    side: t.side.clone(),
-                    timestamp: t.create_time,
-                }, &sym)
+                let sym = symbol
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| self.convert_to_symbol(&t.symbol));
+                self.parse_trade(
+                    &BitmartTrade {
+                        trade_id: t.detail_id.clone(),
+                        price: t.price.clone().unwrap_or_default(),
+                        amount: t.size.clone().unwrap_or_default(),
+                        side: t.side.clone(),
+                        timestamp: t.create_time,
+                    },
+                    &sym,
+                )
             })
             .collect();
 
@@ -1083,7 +1131,15 @@ impl Exchange for Bitmart {
         }
 
         let _response: BitmartResponse<serde_json::Value> = self
-            .private_request("POST", "/spot/v1/cancel_all_orders", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "POST",
+                "/spot/v1/cancel_all_orders",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         Ok(vec![])
@@ -1121,9 +1177,8 @@ impl Exchange for Bitmart {
     }
 
     async fn fetch_currencies(&self) -> CcxtResult<HashMap<String, crate::types::Currency>> {
-        let response: BitmartCurrenciesResponse = self
-            .public_get("/spot/v1/currencies", None)
-            .await?;
+        let response: BitmartCurrenciesResponse =
+            self.public_get("/spot/v1/currencies", None).await?;
 
         if response.code != 1000 {
             return Err(CcxtError::ExchangeError {
@@ -1205,7 +1260,15 @@ impl Exchange for Bitmart {
         params.insert("operation_type".into(), "deposit".into());
 
         let response: BitmartTransactionsResponse = self
-            .private_request("GET", "/account/v2/deposit-withdraw/history", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/account/v2/deposit-withdraw/history",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 1000 {
@@ -1219,7 +1282,8 @@ impl Exchange for Bitmart {
             message: "No data in response".into(),
         })?;
 
-        let transactions: Vec<crate::types::Transaction> = data.records
+        let transactions: Vec<crate::types::Transaction> = data
+            .records
             .iter()
             .map(|t| self.parse_transaction(t, "deposit"))
             .collect();
@@ -1243,7 +1307,15 @@ impl Exchange for Bitmart {
         params.insert("operation_type".into(), "withdraw".into());
 
         let response: BitmartTransactionsResponse = self
-            .private_request("GET", "/account/v2/deposit-withdraw/history", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/account/v2/deposit-withdraw/history",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 1000 {
@@ -1257,7 +1329,8 @@ impl Exchange for Bitmart {
             message: "No data in response".into(),
         })?;
 
-        let transactions: Vec<crate::types::Transaction> = data.records
+        let transactions: Vec<crate::types::Transaction> = data
+            .records
             .iter()
             .map(|t| self.parse_transaction(t, "withdrawal"))
             .collect();
@@ -1322,8 +1395,13 @@ impl Exchange for Bitmart {
 }
 
 impl Bitmart {
-    fn parse_transaction(&self, data: &BitmartTransaction, transaction_type: &str) -> crate::types::Transaction {
-        let amount = data.amount
+    fn parse_transaction(
+        &self,
+        data: &BitmartTransaction,
+        transaction_type: &str,
+    ) -> crate::types::Transaction {
+        let amount = data
+            .amount
             .as_ref()
             .and_then(|a| a.parse::<Decimal>().ok())
             .unwrap_or_default();
@@ -1340,9 +1418,9 @@ impl Bitmart {
             id: data.withdraw_id.clone().unwrap_or_default(),
             txid: data.tx_id.clone(),
             timestamp: data.apply_time,
-            datetime: data.apply_time.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .apply_time
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             address: data.address.clone(),
             tag: data.address_memo.clone(),
             tx_type: if transaction_type == "deposit" {

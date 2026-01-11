@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://api.coinmetro.com/ws";
@@ -55,12 +55,17 @@ impl CoinmetroWs {
     }
 
     fn parse_ticker(data: &CoinmetroWsTicker, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         Ticker {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()).unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             high: data.high_24h,
             low: data.low_24h,
             bid: data.best_bid,
@@ -84,44 +89,67 @@ impl CoinmetroWs {
     }
 
     fn parse_order_book(data: &CoinmetroWsOrderBook, symbol: &str) -> OrderBook {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|e| {
-            if e.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&e[0]).ok()?,
-                    amount: Decimal::from_str(&e[1]).ok()?,
-                })
-            } else { None }
-        }).collect();
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|e| {
-            if e.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&e[0]).ok()?,
-                    amount: Decimal::from_str(&e[1]).ok()?,
-                })
-            } else { None }
-        }).collect();
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|e| {
+                if e.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&e[0]).ok()?,
+                        amount: Decimal::from_str(&e[1]).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|e| {
+                if e.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&e[0]).ok()?,
+                        amount: Decimal::from_str(&e[1]).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
         OrderBook {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()).unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         }
     }
 
     fn parse_trade(data: &CoinmetroWsTrade, symbol: &str) -> Trade {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price = data.price.unwrap_or(Decimal::ZERO);
         let amount = data.quantity.unwrap_or(Decimal::ZERO);
         Trade {
             id: data.trade_id.clone().unwrap_or_default(),
             order: None,
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()).unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             symbol: symbol.to_string(),
             trade_type: None,
             side: data.side.clone(),
@@ -145,27 +173,51 @@ impl CoinmetroWs {
             if let Some(data) = json.get("data") {
                 match event_type {
                     "ticker" => {
-                        if let Ok(ticker_data) = serde_json::from_value::<CoinmetroWsTicker>(data.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<CoinmetroWsTicker>(data.clone())
+                        {
                             let ticker = Self::parse_ticker(&ticker_data, &symbol);
-                            let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent { symbol: symbol.clone(), ticker }));
+                            let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent {
+                                symbol: symbol.clone(),
+                                ticker,
+                            }));
                         }
-                    }
+                    },
                     "orderbook" | "book" => {
-                        if let Ok(book_data) = serde_json::from_value::<CoinmetroWsOrderBook>(data.clone()) {
+                        if let Ok(book_data) =
+                            serde_json::from_value::<CoinmetroWsOrderBook>(data.clone())
+                        {
                             let order_book = Self::parse_order_book(&book_data, &symbol);
-                            let _ = event_tx.send(WsMessage::OrderBook(WsOrderBookEvent { symbol: symbol.clone(), order_book, is_snapshot: true }));
+                            let _ = event_tx.send(WsMessage::OrderBook(WsOrderBookEvent {
+                                symbol: symbol.clone(),
+                                order_book,
+                                is_snapshot: true,
+                            }));
                         }
-                    }
+                    },
                     "trades" | "trade" => {
-                        if let Ok(trades_data) = serde_json::from_value::<Vec<CoinmetroWsTrade>>(data.clone()) {
-                            let trades: Vec<Trade> = trades_data.iter().map(|t| Self::parse_trade(t, &symbol)).collect();
-                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent { symbol: symbol.clone(), trades }));
-                        } else if let Ok(trade_data) = serde_json::from_value::<CoinmetroWsTrade>(data.clone()) {
+                        if let Ok(trades_data) =
+                            serde_json::from_value::<Vec<CoinmetroWsTrade>>(data.clone())
+                        {
+                            let trades: Vec<Trade> = trades_data
+                                .iter()
+                                .map(|t| Self::parse_trade(t, &symbol))
+                                .collect();
+                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
+                                symbol: symbol.clone(),
+                                trades,
+                            }));
+                        } else if let Ok(trade_data) =
+                            serde_json::from_value::<CoinmetroWsTrade>(data.clone())
+                        {
                             let trade = Self::parse_trade(&trade_data, &symbol);
-                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent { symbol: symbol.clone(), trades: vec![trade] }));
+                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
+                                symbol: symbol.clone(),
+                                trades: vec![trade],
+                            }));
                         }
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -173,7 +225,11 @@ impl CoinmetroWs {
         Ok(())
     }
 
-    async fn subscribe_stream(&mut self, channel: &str, market_id: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        channel: &str,
+        market_id: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
         let mut ws_client = WsClient::new(WsConfig {
@@ -183,6 +239,7 @@ impl CoinmetroWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
         let mut ws_rx = ws_client.connect().await?;
 
@@ -201,11 +258,21 @@ impl CoinmetroWs {
         tokio::spawn(async move {
             while let Some(event) = ws_rx.recv().await {
                 match event {
-                    WsEvent::Message(msg) => { let _ = Self::process_message(&msg, &event_tx); }
-                    WsEvent::Connected => { let _ = event_tx.send(WsMessage::Connected); }
-                    WsEvent::Disconnected => { let _ = event_tx.send(WsMessage::Disconnected); break; }
-                    WsEvent::Error(e) => { let _ = event_tx.send(WsMessage::Error(e)); }
-                    WsEvent::Ping | WsEvent::Pong => {}
+                    WsEvent::Message(msg) => {
+                        let _ = Self::process_message(&msg, &event_tx);
+                    },
+                    WsEvent::Connected => {
+                        let _ = event_tx.send(WsMessage::Connected);
+                    },
+                    WsEvent::Disconnected => {
+                        let _ = event_tx.send(WsMessage::Disconnected);
+                        break;
+                    },
+                    WsEvent::Error(e) => {
+                        let _ = event_tx.send(WsMessage::Error(e));
+                    },
+                    WsEvent::Ping | WsEvent::Pong => {},
+                    _ => {},
                 }
             }
             let mut subs = subscriptions.write().await;
@@ -216,10 +283,18 @@ impl CoinmetroWs {
     }
 }
 
-impl Default for CoinmetroWs { fn default() -> Self { Self::new() } }
+impl Default for CoinmetroWs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Clone for CoinmetroWs {
     fn clone(&self) -> Self {
-        Self { ws_client: None, subscriptions: Arc::new(RwLock::new(HashMap::new())), event_tx: None }
+        Self {
+            ws_client: None,
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            event_tx: None,
+        }
     }
 }
 
@@ -227,24 +302,42 @@ impl Clone for CoinmetroWs {
 impl WsExchange for CoinmetroWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("ticker", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("ticker", &Self::format_symbol(symbol))
+            .await
     }
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("orderbook", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("orderbook", &Self::format_symbol(symbol))
+            .await
     }
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("trades", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("trades", &Self::format_symbol(symbol))
+            .await
     }
-    async fn watch_ohlcv(&self, symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        Err(crate::errors::CcxtError::NotSupported { feature: format!("OHLCV WebSocket for {symbol}") })
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: format!("OHLCV WebSocket for {symbol}"),
+        })
     }
     async fn ws_connect(&mut self) -> CcxtResult<()> {
         if self.ws_client.is_none() {
             let mut ws_client = WsClient::new(WsConfig {
-                url: WS_URL.to_string(), auto_reconnect: true, reconnect_interval_ms: 5000,
-                max_reconnect_attempts: 10, ping_interval_secs: 30, connect_timeout_secs: 30,
+                url: WS_URL.to_string(),
+                auto_reconnect: true,
+                reconnect_interval_ms: 5000,
+                max_reconnect_attempts: 10,
+                ping_interval_secs: 30,
+                connect_timeout_secs: 30,
+                ..Default::default()
             });
             ws_client.connect().await?;
             self.ws_client = Some(ws_client);
@@ -252,59 +345,109 @@ impl WsExchange for CoinmetroWs {
         Ok(())
     }
     async fn ws_close(&mut self) -> CcxtResult<()> {
-        if let Some(ws_client) = &self.ws_client { ws_client.close()?; self.ws_client = None; }
+        if let Some(ws_client) = &self.ws_client {
+            ws_client.close()?;
+            self.ws_client = None;
+        }
         Ok(())
     }
     async fn ws_is_connected(&self) -> bool {
-        match &self.ws_client { Some(c) => c.is_connected().await, None => false }
+        match &self.ws_client {
+            Some(c) => c.is_connected().await,
+            None => false,
+        }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CoinmetroWsTicker {
-    #[serde(default)] timestamp: Option<i64>,
-    #[serde(default, rename = "high24h")] high_24h: Option<Decimal>,
-    #[serde(default, rename = "low24h")] low_24h: Option<Decimal>,
-    #[serde(default, rename = "bestBid")] best_bid: Option<Decimal>,
-    #[serde(default, rename = "bestAsk")] best_ask: Option<Decimal>,
-    #[serde(default, rename = "lastPrice")] last_price: Option<Decimal>,
-    #[serde(default, rename = "priceChange")] price_change: Option<Decimal>,
-    #[serde(default, rename = "priceChangePercent")] price_change_percent: Option<Decimal>,
-    #[serde(default, rename = "volume24h")] volume_24h: Option<Decimal>,
+    #[serde(default)]
+    timestamp: Option<i64>,
+    #[serde(default, rename = "high24h")]
+    high_24h: Option<Decimal>,
+    #[serde(default, rename = "low24h")]
+    low_24h: Option<Decimal>,
+    #[serde(default, rename = "bestBid")]
+    best_bid: Option<Decimal>,
+    #[serde(default, rename = "bestAsk")]
+    best_ask: Option<Decimal>,
+    #[serde(default, rename = "lastPrice")]
+    last_price: Option<Decimal>,
+    #[serde(default, rename = "priceChange")]
+    price_change: Option<Decimal>,
+    #[serde(default, rename = "priceChangePercent")]
+    price_change_percent: Option<Decimal>,
+    #[serde(default, rename = "volume24h")]
+    volume_24h: Option<Decimal>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CoinmetroWsOrderBook {
-    #[serde(default)] timestamp: Option<i64>,
-    #[serde(default)] bids: Vec<Vec<String>>,
-    #[serde(default)] asks: Vec<Vec<String>>,
+    #[serde(default)]
+    timestamp: Option<i64>,
+    #[serde(default)]
+    bids: Vec<Vec<String>>,
+    #[serde(default)]
+    asks: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CoinmetroWsTrade {
-    #[serde(default, rename = "tradeId")] trade_id: Option<String>,
-    #[serde(default)] timestamp: Option<i64>,
-    #[serde(default)] price: Option<Decimal>,
-    #[serde(default)] quantity: Option<Decimal>,
-    #[serde(default)] side: Option<String>,
+    #[serde(default, rename = "tradeId")]
+    trade_id: Option<String>,
+    #[serde(default)]
+    timestamp: Option<i64>,
+    #[serde(default)]
+    price: Option<Decimal>,
+    #[serde(default)]
+    quantity: Option<Decimal>,
+    #[serde(default)]
+    side: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn test_format_symbol() { assert_eq!(CoinmetroWs::format_symbol("BTC/EUR"), "BTCEUR"); }
-    #[test] fn test_to_unified_symbol() { assert_eq!(CoinmetroWs::to_unified_symbol("BTCEUR"), "BTC/EUR"); }
-    #[test] fn test_default() { let ws = CoinmetroWs::default(); assert!(ws.ws_client.is_none()); }
-    #[test] fn test_clone() { let ws = CoinmetroWs::new(); assert!(ws.clone().ws_client.is_none()); }
-    #[test] fn test_new() { let ws = CoinmetroWs::new(); assert!(ws.ws_client.is_none()); }
-    #[tokio::test] async fn test_ws_is_connected() { let ws = CoinmetroWs::new(); assert!(!ws.ws_is_connected().await); }
+    #[test]
+    fn test_format_symbol() {
+        assert_eq!(CoinmetroWs::format_symbol("BTC/EUR"), "BTCEUR");
+    }
+    #[test]
+    fn test_to_unified_symbol() {
+        assert_eq!(CoinmetroWs::to_unified_symbol("BTCEUR"), "BTC/EUR");
+    }
+    #[test]
+    fn test_default() {
+        let ws = CoinmetroWs::default();
+        assert!(ws.ws_client.is_none());
+    }
+    #[test]
+    fn test_clone() {
+        let ws = CoinmetroWs::new();
+        assert!(ws.clone().ws_client.is_none());
+    }
+    #[test]
+    fn test_new() {
+        let ws = CoinmetroWs::new();
+        assert!(ws.ws_client.is_none());
+    }
+    #[tokio::test]
+    async fn test_ws_is_connected() {
+        let ws = CoinmetroWs::new();
+        assert!(!ws.ws_is_connected().await);
+    }
     #[test]
     fn test_parse_ticker() {
         let data = CoinmetroWsTicker {
-            timestamp: Some(1704067200000), high_24h: Some(Decimal::from(45000)),
-            low_24h: Some(Decimal::from(43000)), best_bid: Some(Decimal::from(44500)),
-            best_ask: Some(Decimal::from(44600)), last_price: Some(Decimal::from(44550)),
-            price_change: None, price_change_percent: None, volume_24h: Some(Decimal::from(100))
+            timestamp: Some(1704067200000),
+            high_24h: Some(Decimal::from(45000)),
+            low_24h: Some(Decimal::from(43000)),
+            best_bid: Some(Decimal::from(44500)),
+            best_ask: Some(Decimal::from(44600)),
+            last_price: Some(Decimal::from(44550)),
+            price_change: None,
+            price_change_percent: None,
+            volume_24h: Some(Decimal::from(100)),
         };
         let ticker = CoinmetroWs::parse_ticker(&data, "BTC/EUR");
         assert_eq!(ticker.symbol, "BTC/EUR");
@@ -314,7 +457,7 @@ mod tests {
         let data = CoinmetroWsOrderBook {
             timestamp: Some(1704067200000),
             bids: vec![vec!["44500".into(), "1.5".into()]],
-            asks: vec![vec!["44600".into(), "1.0".into()]]
+            asks: vec![vec!["44600".into(), "1.0".into()]],
         };
         let ob = CoinmetroWs::parse_order_book(&data, "BTC/EUR");
         assert_eq!(ob.bids.len(), 1);
@@ -322,9 +465,11 @@ mod tests {
     #[test]
     fn test_parse_trade() {
         let data = CoinmetroWsTrade {
-            trade_id: Some("123".into()), timestamp: Some(1704067200000),
-            price: Some(Decimal::from(44550)), quantity: Some(Decimal::from(1)),
-            side: Some("buy".into())
+            trade_id: Some("123".into()),
+            timestamp: Some(1704067200000),
+            price: Some(Decimal::from(44550)),
+            quantity: Some(Decimal::from(1)),
+            side: Some("buy".into()),
         };
         let trade = CoinmetroWs::parse_trade(&data, "BTC/EUR");
         assert_eq!(trade.id, "123");

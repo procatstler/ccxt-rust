@@ -17,11 +17,10 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketLimits, MarketPrecision, MarketType, OpenInterest, Order, OrderBook,
-    OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide,
-    MarginMode, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    FundingRate, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, FundingRate,
+    MarginMode, Market, MarketLimits, MarketPrecision, MarketType, OpenInterest, Order, OrderBook,
+    OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide, SignedRequest,
+    TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -94,12 +93,13 @@ impl BinanceCoinM {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/387cfc4e-5f33-48cd-8f5c-cd4854dabf0c".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/387cfc4e-5f33-48cd-8f5c-cd4854dabf0c"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.binance.com".into()),
-            doc: vec![
-                "https://binance-docs.github.io/apidocs/delivery/en/".into(),
-            ],
+            doc: vec!["https://binance-docs.github.io/apidocs/delivery/en/".into()],
             fees: Some("https://www.binance.com/en/fee/deliveryFee".into()),
         };
 
@@ -163,12 +163,18 @@ impl BinanceCoinM {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -181,8 +187,8 @@ impl BinanceCoinM {
             .collect::<Vec<_>>()
             .join("&");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -196,9 +202,14 @@ impl BinanceCoinM {
         match method {
             "GET" => self.client.get(&url, None, Some(headers)).await,
             "POST" => {
-                headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
-                self.client.post(&format!("{path}?{signed_query}"), None, Some(headers)).await
-            }
+                headers.insert(
+                    "Content-Type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
+                self.client
+                    .post(&format!("{path}?{signed_query}"), None, Some(headers))
+                    .await
+            },
             "DELETE" => self.client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -287,13 +298,16 @@ impl BinanceCoinM {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            "GTX" => Some(TimeInForce::PO),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                "GTX" => Some(TimeInForce::PO),
+                _ => None,
+            });
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
         let amount: Decimal = data.orig_qty.parse().unwrap_or_default();
@@ -310,9 +324,9 @@ impl BinanceCoinM {
             id: data.order_id.to_string(),
             client_order_id: data.client_order_id.clone(),
             timestamp: Some(data.time.unwrap_or_default()),
-            datetime: data.time.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .time
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             last_trade_timestamp: data.update_time,
             last_update_timestamp: data.update_time,
             status,
@@ -376,7 +390,9 @@ impl BinanceCoinM {
             }
         };
 
-        let contracts: Decimal = data.position_amt.parse::<Decimal>()
+        let contracts: Decimal = data
+            .position_amt
+            .parse::<Decimal>()
             .unwrap_or_default()
             .abs();
 
@@ -493,9 +509,8 @@ impl Exchange for BinanceCoinM {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BinanceCoinMExchangeInfo = self
-            .public_get("/dapi/v1/exchangeInfo", None)
-            .await?;
+        let response: BinanceCoinMExchangeInfo =
+            self.public_get("/dapi/v1/exchangeInfo", None).await?;
 
         let mut markets = Vec::new();
 
@@ -513,7 +528,14 @@ impl Exchange for BinanceCoinM {
                 (true, false, format!("{base}/{quote}:{settle}"))
             } else {
                 // Quarterly futures
-                (false, true, format!("{base}/{quote}:{settle}-{}", symbol_info.symbol.split('_').next_back().unwrap_or("")))
+                (
+                    false,
+                    true,
+                    format!(
+                        "{base}/{quote}:{settle}-{}",
+                        symbol_info.symbol.split('_').next_back().unwrap_or("")
+                    ),
+                )
             };
 
             let market = Market {
@@ -527,7 +549,11 @@ impl Exchange for BinanceCoinM {
                 settle: Some(settle.clone()),
                 settle_id: Some(symbol_info.margin_asset.clone()),
                 active: true,
-                market_type: if is_swap { MarketType::Swap } else { MarketType::Future },
+                market_type: if is_swap {
+                    MarketType::Swap
+                } else {
+                    MarketType::Future
+                },
                 spot: false,
                 margin: false,
                 swap: is_swap,
@@ -535,11 +561,11 @@ impl Exchange for BinanceCoinM {
                 option: false,
                 index: false,
                 contract: true,
-                linear: Some(false),  // COIN-M is inverse
+                linear: Some(false), // COIN-M is inverse
                 inverse: Some(true),
                 sub_type: Some("inverse".into()),
-                taker: Some(Decimal::new(5, 4)),  // 0.05%
-                maker: Some(Decimal::new(1, 4)),  // 0.01%
+                taker: Some(Decimal::new(5, 4)),           // 0.05%
+                maker: Some(Decimal::new(1, 4)),           // 0.01%
                 contract_size: Some(Decimal::new(100, 0)), // 100 USD per contract
                 expiry: symbol_info.delivery_date,
                 expiry_datetime: symbol_info.delivery_date.and_then(|d| {
@@ -581,9 +607,8 @@ impl Exchange for BinanceCoinM {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: Vec<BinanceCoinMTicker> = self
-            .public_get("/dapi/v1/ticker/24hr", None)
-            .await?;
+        let response: Vec<BinanceCoinMTicker> =
+            self.public_get("/dapi/v1/ticker/24hr", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
 
@@ -613,9 +638,8 @@ impl Exchange for BinanceCoinM {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: BinanceCoinMOrderBook = self
-            .public_get("/dapi/v1/depth", Some(params))
-            .await?;
+        let response: BinanceCoinMOrderBook =
+            self.public_get("/dapi/v1/depth", Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .bids
@@ -638,12 +662,13 @@ impl Exchange for BinanceCoinM {
         Ok(OrderBook {
             symbol: symbol.to_string(),
             timestamp: response.time,
-            datetime: response.time.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: response
+                .time
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             nonce: Some(response.last_update_id),
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -660,9 +685,8 @@ impl Exchange for BinanceCoinM {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<BinanceCoinMTrade> = self
-            .public_get("/dapi/v1/trades", Some(params))
-            .await?;
+        let response: Vec<BinanceCoinMTrade> =
+            self.public_get("/dapi/v1/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -707,9 +731,12 @@ impl Exchange for BinanceCoinM {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -721,9 +748,8 @@ impl Exchange for BinanceCoinM {
             params.insert("limit".into(), l.min(1500).to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self
-            .public_get("/dapi/v1/klines", Some(params))
-            .await?;
+        let response: Vec<Vec<serde_json::Value>> =
+            self.public_get("/dapi/v1/klines", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
@@ -767,21 +793,31 @@ impl Exchange for BinanceCoinM {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT",
-            OrderType::Market => "MARKET",
-            OrderType::StopLimit => "STOP",
-            OrderType::StopMarket => "STOP_MARKET",
-            OrderType::TakeProfit => "TAKE_PROFIT",
-            OrderType::TakeProfitMarket => "TAKE_PROFIT_MARKET",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT",
+                OrderType::Market => "MARKET",
+                OrderType::StopLimit => "STOP",
+                OrderType::StopMarket => "STOP_MARKET",
+                OrderType::TakeProfit => "TAKE_PROFIT",
+                OrderType::TakeProfitMarket => "TAKE_PROFIT_MARKET",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("quantity".into(), amount.to_string());
 
         if order_type == OrderType::Limit {
@@ -880,10 +916,7 @@ impl Exchange for BinanceCoinM {
         Ok(orders)
     }
 
-    async fn fetch_positions(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
+    async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         let params = HashMap::new();
 
         let response: Vec<BinanceCoinMPosition> = self
@@ -931,17 +964,17 @@ impl Exchange for BinanceCoinM {
             ),
             funding_rate: response.last_funding_rate.parse().ok(),
             funding_timestamp: response.next_funding_time,
-            funding_datetime: response.next_funding_time.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            funding_datetime: response
+                .next_funding_time
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             mark_price: response.mark_price.parse().ok(),
             index_price: response.index_price.parse().ok(),
             interest_rate: response.interest_rate.as_ref().and_then(|r| r.parse().ok()),
             estimated_settle_price: None,
             next_funding_timestamp: response.next_funding_time,
-            next_funding_datetime: response.next_funding_time.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            next_funding_datetime: response
+                .next_funding_time
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             next_funding_rate: None,
             previous_funding_timestamp: None,
             previous_funding_datetime: None,
@@ -1007,13 +1040,19 @@ impl Exchange for BinanceCoinM {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("marginType".into(), match margin_mode {
-            MarginMode::Isolated => "ISOLATED",
-            MarginMode::Cross => "CROSSED",
-            MarginMode::Unknown => return Err(CcxtError::BadRequest {
-                message: "Unknown margin mode".into(),
-            }),
-        }.into());
+        params.insert(
+            "marginType".into(),
+            match margin_mode {
+                MarginMode::Isolated => "ISOLATED",
+                MarginMode::Cross => "CROSSED",
+                MarginMode::Unknown => {
+                    return Err(CcxtError::BadRequest {
+                        message: "Unknown margin mode".into(),
+                    })
+                },
+            }
+            .into(),
+        );
 
         let _: serde_json::Value = self
             .private_request("POST", "/dapi/v1/marginType", params)

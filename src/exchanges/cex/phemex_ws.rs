@@ -16,9 +16,9 @@ use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Position, PositionSide, Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent,
-    WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent,
-    WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    Position, PositionSide, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
+    WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -124,7 +124,9 @@ impl PhemexWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &PhemexTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let scale = Decimal::new(10_i64.pow(8), 0);
 
         let ticker = Ticker {
@@ -163,29 +165,39 @@ impl PhemexWs {
     fn parse_order_book(data: &PhemexOrderBookData, symbol: &str) -> WsOrderBookEvent {
         let scale = Decimal::new(10_i64.pow(8), 0);
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from(b[0]) / scale,
-                    amount: Decimal::from(b[1]) / scale,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from(b[0]) / scale,
+                        amount: Decimal::from(b[1]) / scale,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from(a[0]) / scale,
-                    amount: Decimal::from(a[1]) / scale,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from(a[0]) / scale,
+                        amount: Decimal::from(a[1]) / scale,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.to_string(),
@@ -198,6 +210,7 @@ impl PhemexWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -210,7 +223,9 @@ impl PhemexWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &PhemexTradeData, symbol: &str) -> WsTradeEvent {
         let scale = Decimal::new(10_i64.pow(8), 0);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price = Decimal::from(data.price_ev.unwrap_or(0)) / scale;
         let amount = Decimal::from(data.qty_ev.unwrap_or(0)) / scale;
 
@@ -300,6 +315,7 @@ impl PhemexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -334,7 +350,10 @@ impl PhemexWs {
 
         // 구독 저장
         {
-            self.subscriptions.write().await.insert(channel.to_string(), channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(channel.to_string(), channel.to_string());
         }
 
         // 메시지 핸들러
@@ -346,17 +365,17 @@ impl PhemexWs {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = event_tx_clone.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Connected => {
                         let _ = event_tx_clone.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = event_tx_clone.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Error(e) => {
                         let _ = event_tx_clone.send(WsMessage::Error(e));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -414,11 +433,26 @@ impl PhemexWs {
 
         for item in data {
             let currency = item.currency.clone().unwrap_or_default();
-            let free = item.account_balance_ev.map(|v| Decimal::from(v) / scale).unwrap_or_default()
-                - item.position_margin_ev.map(|v| Decimal::from(v) / scale).unwrap_or_default()
-                - item.order_margin_ev.map(|v| Decimal::from(v) / scale).unwrap_or_default();
-            let used = item.position_margin_ev.map(|v| Decimal::from(v) / scale).unwrap_or_default()
-                + item.order_margin_ev.map(|v| Decimal::from(v) / scale).unwrap_or_default();
+            let free = item
+                .account_balance_ev
+                .map(|v| Decimal::from(v) / scale)
+                .unwrap_or_default()
+                - item
+                    .position_margin_ev
+                    .map(|v| Decimal::from(v) / scale)
+                    .unwrap_or_default()
+                - item
+                    .order_margin_ev
+                    .map(|v| Decimal::from(v) / scale)
+                    .unwrap_or_default();
+            let used = item
+                .position_margin_ev
+                .map(|v| Decimal::from(v) / scale)
+                .unwrap_or_default()
+                + item
+                    .order_margin_ev
+                    .map(|v| Decimal::from(v) / scale)
+                    .unwrap_or_default();
             let balance = Balance::new(free, used);
             balances.add(currency, balance);
         }
@@ -429,7 +463,9 @@ impl PhemexWs {
     /// 주문 업데이트 파싱
     fn parse_order_update(data: &PhemexOrderData) -> WsOrderEvent {
         let scale = Decimal::new(10_i64.pow(8), 0);
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
@@ -458,7 +494,10 @@ impl PhemexWs {
             _ => OrderStatus::Open,
         };
 
-        let timestamp = data.action_time_ns.map(|t| t / 1_000_000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .action_time_ns
+            .map(|t| t / 1_000_000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order = Order {
             id: data.order_id.clone().unwrap_or_default(),
@@ -469,8 +508,14 @@ impl PhemexWs {
             status,
             price: data.price_ep.map(|v| Decimal::from(v) / scale),
             average: data.avg_price_ep.map(|v| Decimal::from(v) / scale),
-            amount: data.order_qty_ev.map(|v| Decimal::from(v) / scale).unwrap_or_default(),
-            filled: data.cum_qty_ev.map(|v| Decimal::from(v) / scale).unwrap_or_default(),
+            amount: data
+                .order_qty_ev
+                .map(|v| Decimal::from(v) / scale)
+                .unwrap_or_default(),
+            filled: data
+                .cum_qty_ev
+                .map(|v| Decimal::from(v) / scale)
+                .unwrap_or_default(),
             remaining: data.leaves_qty_ev.map(|v| Decimal::from(v) / scale),
             timestamp: Some(timestamp),
             datetime: Some(
@@ -500,60 +545,72 @@ impl PhemexWs {
     /// 포지션 업데이트 파싱
     fn parse_position_update(data: &[PhemexPositionData]) -> WsPositionEvent {
         let scale = Decimal::new(10_i64.pow(8), 0);
-        let positions: Vec<Position> = data.iter().map(|item| {
-            let symbol = item.symbol.as_ref()
-                .map(|s| Self::to_unified_symbol(s))
-                .unwrap_or_default();
+        let positions: Vec<Position> = data
+            .iter()
+            .map(|item| {
+                let symbol = item
+                    .symbol
+                    .as_ref()
+                    .map(|s| Self::to_unified_symbol(s))
+                    .unwrap_or_default();
 
-            let side = match item.side.as_deref() {
-                Some("Buy") => Some(PositionSide::Long),
-                Some("Sell") => Some(PositionSide::Short),
-                _ => None,
-            };
+                let side = match item.side.as_deref() {
+                    Some("Buy") => Some(PositionSide::Long),
+                    Some("Sell") => Some(PositionSide::Short),
+                    _ => None,
+                };
 
-            let timestamp = item.transact_time_ns.map(|t| t / 1_000_000).unwrap_or_else(|| Utc::now().timestamp_millis());
+                let timestamp = item
+                    .transact_time_ns
+                    .map(|t| t / 1_000_000)
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            Position {
-                id: None,
-                symbol: symbol.clone(),
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                hedged: None,
-                side,
-                contracts: item.size.map(Decimal::from),
-                contract_size: None,
-                entry_price: item.avg_entry_price_ep.map(|v| Decimal::from(v) / scale),
-                mark_price: item.mark_price_ep.map(|v| Decimal::from(v) / scale),
-                notional: item.position_margin_ev.map(|v| Decimal::from(v) / scale),
-                leverage: item.leverage.map(Decimal::from),
-                collateral: item.position_margin_ev.map(|v| Decimal::from(v) / scale),
-                initial_margin: item.position_margin_ev.map(|v| Decimal::from(v) / scale),
-                maintenance_margin: None,
-                initial_margin_percentage: None,
-                maintenance_margin_percentage: None,
-                unrealized_pnl: item.unrealized_pnl_ev.map(|v| Decimal::from(v) / scale),
-                liquidation_price: item.liquidation_price_ep.map(|v| Decimal::from(v) / scale),
-                margin_mode: None,
-                margin_ratio: None,
-                percentage: None,
-                stop_loss_price: None,
-                take_profit_price: None,
-                last_price: item.mark_price_ep.map(|v| Decimal::from(v) / scale),
-                last_update_timestamp: Some(timestamp),
-                realized_pnl: None,
-                info: serde_json::to_value(item).unwrap_or_default(),
-            }
-        }).collect();
+                Position {
+                    id: None,
+                    symbol: symbol.clone(),
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    hedged: None,
+                    side,
+                    contracts: item.size.map(Decimal::from),
+                    contract_size: None,
+                    entry_price: item.avg_entry_price_ep.map(|v| Decimal::from(v) / scale),
+                    mark_price: item.mark_price_ep.map(|v| Decimal::from(v) / scale),
+                    notional: item.position_margin_ev.map(|v| Decimal::from(v) / scale),
+                    leverage: item.leverage.map(Decimal::from),
+                    collateral: item.position_margin_ev.map(|v| Decimal::from(v) / scale),
+                    initial_margin: item.position_margin_ev.map(|v| Decimal::from(v) / scale),
+                    maintenance_margin: None,
+                    initial_margin_percentage: None,
+                    maintenance_margin_percentage: None,
+                    unrealized_pnl: item.unrealized_pnl_ev.map(|v| Decimal::from(v) / scale),
+                    liquidation_price: item.liquidation_price_ep.map(|v| Decimal::from(v) / scale),
+                    margin_mode: None,
+                    margin_ratio: None,
+                    percentage: None,
+                    stop_loss_price: None,
+                    take_profit_price: None,
+                    last_price: item.mark_price_ep.map(|v| Decimal::from(v) / scale),
+                    last_update_timestamp: Some(timestamp),
+                    realized_pnl: None,
+                    info: serde_json::to_value(item).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         WsPositionEvent { positions }
     }
 
     /// 메시지 처리
-    fn process_message(msg: &str, subscribed_symbol: Option<&str>, subscribed_timeframe: Option<Timeframe>) -> Option<WsMessage> {
+    fn process_message(
+        msg: &str,
+        subscribed_symbol: Option<&str>,
+        subscribed_timeframe: Option<Timeframe>,
+    ) -> Option<WsMessage> {
         // Pong 메시지 처리
         if msg.contains("\"pong\"") {
             return None;
@@ -580,7 +637,9 @@ impl PhemexWs {
         if let Some(book_data) = response.book {
             if let Some(symbol) = subscribed_symbol {
                 let unified = Self::to_unified_symbol(symbol);
-                return Some(WsMessage::OrderBook(Self::parse_order_book(&book_data, &unified)));
+                return Some(WsMessage::OrderBook(Self::parse_order_book(
+                    &book_data, &unified,
+                )));
             }
         }
 
@@ -599,7 +658,11 @@ impl PhemexWs {
             if let Some(symbol) = subscribed_symbol {
                 let unified = Self::to_unified_symbol(symbol);
                 let timeframe = subscribed_timeframe.unwrap_or(Timeframe::Minute1);
-                return Some(WsMessage::Ohlcv(Self::parse_candle(&kline_data, &unified, timeframe)));
+                return Some(WsMessage::Ohlcv(Self::parse_candle(
+                    &kline_data,
+                    &unified,
+                    timeframe,
+                )));
             }
         }
 
@@ -612,7 +675,7 @@ impl PhemexWs {
         subscribe_msg: serde_json::Value,
         channel: &str,
         symbol: Option<&str>,
-        timeframe: Option<Timeframe>
+        timeframe: Option<Timeframe>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -624,6 +687,7 @@ impl PhemexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -636,7 +700,10 @@ impl PhemexWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -647,19 +714,21 @@ impl PhemexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
-                        if let Some(ws_msg) = Self::process_message(&msg, subscribed_symbol.as_deref(), timeframe) {
+                        if let Some(ws_msg) =
+                            Self::process_message(&msg, subscribed_symbol.as_deref(), timeframe)
+                        {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -684,10 +753,15 @@ impl WsExchange for PhemexWs {
             "method": "tick.subscribe",
             "params": [formatted]
         });
-        client.subscribe_stream(subscribe_msg, "ticker", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "ticker", Some(&formatted), None)
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let params: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
         let subscribe_msg = serde_json::json!({
@@ -695,10 +769,16 @@ impl WsExchange for PhemexWs {
             "method": "tick.subscribe",
             "params": params
         });
-        client.subscribe_stream(subscribe_msg, "tickers", None, None).await
+        client
+            .subscribe_stream(subscribe_msg, "tickers", None, None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let subscribe_msg = serde_json::json!({
@@ -706,7 +786,9 @@ impl WsExchange for PhemexWs {
             "method": "orderbook.subscribe",
             "params": [formatted]
         });
-        client.subscribe_stream(subscribe_msg, "orderBook", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "orderBook", Some(&formatted), None)
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -717,10 +799,16 @@ impl WsExchange for PhemexWs {
             "method": "trade.subscribe",
             "params": [formatted]
         });
-        client.subscribe_stream(subscribe_msg, "trade", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "trade", Some(&formatted), None)
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -729,7 +817,9 @@ impl WsExchange for PhemexWs {
             "method": "kline.subscribe",
             "params": [formatted, interval]
         });
-        client.subscribe_stream(subscribe_msg, "kline", Some(&formatted), Some(timeframe)).await
+        client
+            .subscribe_stream(subscribe_msg, "kline", Some(&formatted), Some(timeframe))
+            .await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -737,17 +827,26 @@ impl WsExchange for PhemexWs {
         client.subscribe_private_stream("aop.subscribe").await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("aop.subscribe").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("aop.subscribe").await
     }
 
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("aop.subscribe").await
     }
@@ -974,15 +1073,13 @@ mod tests {
 
     #[test]
     fn test_parse_balance_update() {
-        let data = vec![
-            PhemexAccountData {
-                currency: Some("BTC".to_string()),
-                account_balance_ev: Some(200000000), // 2.0 BTC (scaled by 10^8)
-                position_margin_ev: Some(50000000), // 0.5 BTC
-                order_margin_ev: Some(50000000), // 0.5 BTC
-                bonus_balance_ev: None,
-            },
-        ];
+        let data = vec![PhemexAccountData {
+            currency: Some("BTC".to_string()),
+            account_balance_ev: Some(200000000), // 2.0 BTC (scaled by 10^8)
+            position_margin_ev: Some(50000000),  // 0.5 BTC
+            order_margin_ev: Some(50000000),     // 0.5 BTC
+            bonus_balance_ev: None,
+        }];
 
         let event = PhemexWs::parse_balance_update(&data);
         let btc_balance = event.balances.get("BTC").unwrap();
@@ -1031,7 +1128,7 @@ mod tests {
             ord_status: Some("Filled".to_string()),
             price_ep: None,
             avg_price_ep: Some(250000000000), // 2500
-            order_qty_ev: Some(100000000), // 1.0 ETH
+            order_qty_ev: Some(100000000),    // 1.0 ETH
             cum_qty_ev: Some(100000000),
             leaves_qty_ev: Some(0),
             stop_px_ep: None,
@@ -1052,20 +1149,18 @@ mod tests {
 
     #[test]
     fn test_parse_position_update() {
-        let data = vec![
-            PhemexPositionData {
-                symbol: Some("BTCUSDT".to_string()),
-                side: Some("Buy".to_string()),
-                size: Some(1),
-                leverage: Some(10),
-                avg_entry_price_ep: Some(5000000000000), // 50000
-                mark_price_ep: Some(5050000000000), // 50500
-                position_margin_ev: Some(500000000), // 5.0
-                unrealized_pnl_ev: Some(10000000), // 0.1
-                liquidation_price_ep: Some(4500000000000), // 45000
-                transact_time_ns: Some(1704067200000000000),
-            },
-        ];
+        let data = vec![PhemexPositionData {
+            symbol: Some("BTCUSDT".to_string()),
+            side: Some("Buy".to_string()),
+            size: Some(1),
+            leverage: Some(10),
+            avg_entry_price_ep: Some(5000000000000), // 50000
+            mark_price_ep: Some(5050000000000),      // 50500
+            position_margin_ev: Some(500000000),     // 5.0
+            unrealized_pnl_ev: Some(10000000),       // 0.1
+            liquidation_price_ep: Some(4500000000000), // 45000
+            transact_time_ns: Some(1704067200000000000),
+        }];
 
         let event = PhemexWs::parse_position_update(&data);
         assert_eq!(event.positions.len(), 1);
@@ -1079,20 +1174,18 @@ mod tests {
 
     #[test]
     fn test_parse_position_update_short() {
-        let data = vec![
-            PhemexPositionData {
-                symbol: Some("ETHUSDT".to_string()),
-                side: Some("Sell".to_string()),
-                size: Some(2),
-                leverage: Some(5),
-                avg_entry_price_ep: Some(250000000000),
-                mark_price_ep: Some(248000000000),
-                position_margin_ev: Some(100000000),
-                unrealized_pnl_ev: Some(4000000),
-                liquidation_price_ep: Some(275000000000),
-                transact_time_ns: Some(1704067200000000000),
-            },
-        ];
+        let data = vec![PhemexPositionData {
+            symbol: Some("ETHUSDT".to_string()),
+            side: Some("Sell".to_string()),
+            size: Some(2),
+            leverage: Some(5),
+            avg_entry_price_ep: Some(250000000000),
+            mark_price_ep: Some(248000000000),
+            position_margin_ev: Some(100000000),
+            unrealized_pnl_ev: Some(4000000),
+            liquidation_price_ep: Some(275000000000),
+            transact_time_ns: Some(1704067200000000000),
+        }];
 
         let event = PhemexWs::parse_position_update(&data);
         let pos = &event.positions[0];

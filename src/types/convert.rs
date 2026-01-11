@@ -185,7 +185,14 @@ mod tests {
 
     #[test]
     fn test_convert_trade() {
-        let trade = ConvertTrade::new("trade123", "BTC", "USDT", dec!(0.1), dec!(5000), dec!(50000));
+        let trade = ConvertTrade::new(
+            "trade123",
+            "BTC",
+            "USDT",
+            dec!(0.1),
+            dec!(5000),
+            dec!(50000),
+        );
 
         assert_eq!(trade.id, "trade123");
         assert_eq!(trade.from_currency, "BTC");

@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -14,14 +15,13 @@ use sha2::{Digest, Sha256, Sha512};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::RwLock;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV, Position, PositionSide,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, Position, PositionSide, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://futures.kraken.com/derivatives/api";
@@ -244,8 +244,14 @@ impl KrakenFutures {
         let mut api_urls = HashMap::new();
         api_urls.insert("public".into(), format!("{BASE_URL}/v3"));
         api_urls.insert("private".into(), format!("{BASE_URL}/v3"));
-        api_urls.insert("charts".into(), "https://futures.kraken.com/api/charts/v1".into());
-        api_urls.insert("history".into(), "https://futures.kraken.com/api/history/v2".into());
+        api_urls.insert(
+            "charts".into(),
+            "https://futures.kraken.com/api/charts/v1".into(),
+        );
+        api_urls.insert(
+            "history".into(),
+            "https://futures.kraken.com/api/history/v2".into(),
+        );
 
         let urls = ExchangeUrls {
             logo: Some("https://user-images.githubusercontent.com/24300605/81436764-b22fd580-9172-11ea-9703-742783e6376d.jpg".into()),
@@ -346,10 +352,21 @@ impl KrakenFutures {
         // Format: BASE/QUOTE:SETTLE or BASE/QUOTE:SETTLE-YYMMDD
         if parts.len() > 2 {
             // Futures with expiry
-            format!("{}/{}:{}-{}", base.to_uppercase(), quote, settle.to_uppercase(), parts[2])
+            format!(
+                "{}/{}:{}-{}",
+                base.to_uppercase(),
+                quote,
+                settle.to_uppercase(),
+                parts[2]
+            )
         } else {
             // Perpetual swap
-            format!("{}/{}:{}", base.to_uppercase(), quote, settle.to_uppercase())
+            format!(
+                "{}/{}:{}",
+                base.to_uppercase(),
+                quote,
+                settle.to_uppercase()
+            )
         }
     }
 
@@ -369,7 +386,11 @@ impl KrakenFutures {
         }
 
         let base_lower = parts[0].to_lowercase();
-        let base = if parts[0] == "BTC" { "xbt".to_string() } else { base_lower };
+        let base = if parts[0] == "BTC" {
+            "xbt".to_string()
+        } else {
+            base_lower
+        };
         let quote_settle: Vec<&str> = parts[1].split(':').collect();
 
         if quote_settle.len() == 2 {
@@ -402,17 +423,24 @@ impl KrakenFutures {
     }
 
     /// Make a public API request
-    async fn public_get(&self, endpoint: &str, params: &HashMap<String, String>) -> CcxtResult<serde_json::Value> {
+    async fn public_get(
+        &self,
+        endpoint: &str,
+        params: &HashMap<String, String>,
+    ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
         let path = format!("/v3/{endpoint}");
 
-        let response: serde_json::Value = self.client.get(&path, Some(params.clone()), None).await?;
+        let response: serde_json::Value =
+            self.client.get(&path, Some(params.clone()), None).await?;
 
         // Check for error
         if let Some(error) = response.get("error").and_then(|e| e.as_str()) {
             if !error.is_empty() {
-                return Err(CcxtError::ExchangeError { message: error.to_string() });
+                return Err(CcxtError::ExchangeError {
+                    message: error.to_string(),
+                });
             }
         }
 
@@ -431,15 +459,21 @@ impl KrakenFutures {
         let signed = self.sign(endpoint, "private", method, params, None, None);
 
         let response: serde_json::Value = if method == "POST" {
-            self.client.post_form(&signed.url, params, Some(signed.headers)).await?
+            self.client
+                .post_form(&signed.url, params, Some(signed.headers))
+                .await?
         } else {
-            self.client.get(&signed.url, Some(params.clone()), Some(signed.headers)).await?
+            self.client
+                .get(&signed.url, Some(params.clone()), Some(signed.headers))
+                .await?
         };
 
         // Check for error
         if let Some(error) = response.get("error").and_then(|e| e.as_str()) {
             if !error.is_empty() {
-                return Err(CcxtError::ExchangeError { message: error.to_string() });
+                return Err(CcxtError::ExchangeError {
+                    message: error.to_string(),
+                });
             }
         }
 
@@ -507,8 +541,11 @@ impl Exchange for KrakenFutures {
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
         let response = self.public_get("instruments", &HashMap::new()).await?;
 
-        let data: KfResponse<InstrumentsData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "InstrumentsData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<InstrumentsData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "InstrumentsData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let mut markets = Vec::new();
 
@@ -541,9 +578,17 @@ impl Exchange for KrakenFutures {
                 id,
                 symbol: symbol.clone(),
                 lowercase_id: None,
-                base: if symbol.starts_with("BTC") { "BTC".to_string() } else { symbol.split('/').next().unwrap_or("").to_string() },
+                base: if symbol.starts_with("BTC") {
+                    "BTC".to_string()
+                } else {
+                    symbol.split('/').next().unwrap_or("").to_string()
+                },
                 quote: "USD".to_string(),
-                settle: Some(if is_inverse { symbol.split('/').next().unwrap_or("").to_string() } else { "USD".to_string() }),
+                settle: Some(if is_inverse {
+                    symbol.split('/').next().unwrap_or("").to_string()
+                } else {
+                    "USD".to_string()
+                }),
                 base_id: "".to_string(),
                 quote_id: "usd".to_string(),
                 settle_id: Some("".to_string()),
@@ -562,7 +607,10 @@ impl Exchange for KrakenFutures {
                 taker: None,
                 maker: None,
                 contract_size: Some(Decimal::from_f64_retain(contract_size).unwrap()),
-                expiry: instrument.last_trading_time.as_ref().map(|t| self.parse_timestamp(t)),
+                expiry: instrument
+                    .last_trading_time
+                    .as_ref()
+                    .map(|t| self.parse_timestamp(t)),
                 expiry_datetime: instrument.last_trading_time.clone(),
                 strike: None,
                 option_type: None,
@@ -611,11 +659,18 @@ impl Exchange for KrakenFutures {
 
         let response = self.public_get("tickers", &params).await?;
 
-        let data: KfResponse<TickersData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "TickersData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<TickersData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "TickersData".to_string(),
+                message: e.to_string(),
+            })?;
 
         if let Some(ticker) = data.data.tickers.first() {
-            let timestamp = ticker.last_time.as_ref().map(|t| self.parse_timestamp(t)).unwrap_or_else(|| Utc::now().timestamp_millis());
+            let timestamp = ticker
+                .last_time
+                .as_ref()
+                .map(|t| self.parse_timestamp(t))
+                .unwrap_or_else(|| Utc::now().timestamp_millis());
 
             Ok(Ticker {
                 symbol: symbol.to_string(),
@@ -625,25 +680,37 @@ impl Exchange for KrakenFutures {
                 high: None,
                 low: None,
                 bid: ticker.bid.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                bid_volume: ticker.bid_size.map(|v| Decimal::from_f64_retain(v).unwrap()),
+                bid_volume: ticker
+                    .bid_size
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
                 ask: ticker.ask.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                ask_volume: ticker.ask_size.map(|v| Decimal::from_f64_retain(v).unwrap()),
+                ask_volume: ticker
+                    .ask_size
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
                 vwap: None,
                 open: None,
                 close: ticker.last.map(|v| Decimal::from_f64_retain(v).unwrap()),
                 last: ticker.last.map(|v| Decimal::from_f64_retain(v).unwrap()),
                 previous_close: None,
-                change: ticker.change24h.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                percentage: ticker.change24h.map(|v| Decimal::from_f64_retain(v * 100.0).unwrap()),
+                change: ticker
+                    .change24h
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
+                percentage: ticker
+                    .change24h
+                    .map(|v| Decimal::from_f64_retain(v * 100.0).unwrap()),
                 average: None,
                 base_volume: ticker.volume.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                quote_volume: ticker.volume_quote.map(|v| Decimal::from_f64_retain(v).unwrap()),
+                quote_volume: ticker
+                    .volume_quote
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
                 index_price: None,
                 mark_price: None,
                 info: serde_json::json!(ticker),
             })
         } else {
-            Err(CcxtError::BadSymbol { symbol: symbol.to_string() })
+            Err(CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })
         }
     }
 
@@ -652,8 +719,11 @@ impl Exchange for KrakenFutures {
 
         let response = self.public_get("tickers", &HashMap::new()).await?;
 
-        let data: KfResponse<TickersData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "TickersData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<TickersData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "TickersData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let mut tickers = HashMap::new();
 
@@ -667,7 +737,11 @@ impl Exchange for KrakenFutures {
                 }
             }
 
-            let timestamp = ticker_data.last_time.as_ref().map(|t| self.parse_timestamp(t)).unwrap_or_else(|| Utc::now().timestamp_millis());
+            let timestamp = ticker_data
+                .last_time
+                .as_ref()
+                .map(|t| self.parse_timestamp(t))
+                .unwrap_or_else(|| Utc::now().timestamp_millis());
 
             let ticker = Ticker {
                 symbol: symbol.clone(),
@@ -676,20 +750,40 @@ impl Exchange for KrakenFutures {
                     .map(|dt| dt.to_rfc3339()),
                 high: None,
                 low: None,
-                bid: ticker_data.bid.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                bid_volume: ticker_data.bid_size.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                ask: ticker_data.ask.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                ask_volume: ticker_data.ask_size.map(|v| Decimal::from_f64_retain(v).unwrap()),
+                bid: ticker_data
+                    .bid
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
+                bid_volume: ticker_data
+                    .bid_size
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
+                ask: ticker_data
+                    .ask
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
+                ask_volume: ticker_data
+                    .ask_size
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
                 vwap: None,
                 open: None,
-                close: ticker_data.last.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                last: ticker_data.last.map(|v| Decimal::from_f64_retain(v).unwrap()),
+                close: ticker_data
+                    .last
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
+                last: ticker_data
+                    .last
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
                 previous_close: None,
-                change: ticker_data.change24h.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                percentage: ticker_data.change24h.map(|v| Decimal::from_f64_retain(v * 100.0).unwrap()),
+                change: ticker_data
+                    .change24h
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
+                percentage: ticker_data
+                    .change24h
+                    .map(|v| Decimal::from_f64_retain(v * 100.0).unwrap()),
                 average: None,
-                base_volume: ticker_data.volume.map(|v| Decimal::from_f64_retain(v).unwrap()),
-                quote_volume: ticker_data.volume_quote.map(|v| Decimal::from_f64_retain(v).unwrap()),
+                base_volume: ticker_data
+                    .volume
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
+                quote_volume: ticker_data
+                    .volume_quote
+                    .map(|v| Decimal::from_f64_retain(v).unwrap()),
                 index_price: None,
                 mark_price: None,
                 info: serde_json::json!(ticker_data),
@@ -710,8 +804,11 @@ impl Exchange for KrakenFutures {
 
         let response = self.public_get("orderbook", &params).await?;
 
-        let data: KfResponse<OrderBookData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "OrderBookData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<OrderBookData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "OrderBookData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let ob = &data.data.orderbook;
 
@@ -742,6 +839,7 @@ impl Exchange for KrakenFutures {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: Some(Utc::now().timestamp_millis()),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
@@ -766,8 +864,11 @@ impl Exchange for KrakenFutures {
 
         let response = self.public_get("history", &params).await?;
 
-        let data: KfResponse<HistoryData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "HistoryData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<HistoryData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "HistoryData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let mut trades = Vec::new();
 
@@ -811,8 +912,12 @@ impl Exchange for KrakenFutures {
         self.load_markets(false).await?;
 
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::BadRequest { message: "Unsupported timeframe".to_string() })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: "Unsupported timeframe".to_string(),
+            })?;
 
         // Use charts API
         let url = format!("https://futures.kraken.com/api/charts/v1/trade/{market_id}/{interval}");
@@ -820,9 +925,13 @@ impl Exchange for KrakenFutures {
         let response: serde_json::Value = self.client.get(&url, None, None).await?;
 
         // Parse OHLCV data from candles array
-        let candles = response.get("candles")
+        let candles = response
+            .get("candles")
             .and_then(|c| c.as_array())
-            .ok_or_else(|| CcxtError::ParseError { data_type: "OHLCV".to_string(), message: "Invalid OHLCV response".to_string() })?;
+            .ok_or_else(|| CcxtError::ParseError {
+                data_type: "OHLCV".to_string(),
+                message: "Invalid OHLCV response".to_string(),
+            })?;
 
         let mut ohlcv_data = Vec::new();
 
@@ -860,10 +969,15 @@ impl Exchange for KrakenFutures {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response = self.private_request("GET", "accounts", &HashMap::new()).await?;
+        let response = self
+            .private_request("GET", "accounts", &HashMap::new())
+            .await?;
 
-        let data: KfResponse<AccountsData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "AccountsData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<AccountsData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "AccountsData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let mut balances = HashMap::new();
 
@@ -906,10 +1020,13 @@ impl Exchange for KrakenFutures {
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id.clone());
-        params.insert("side".to_string(), match side {
-            OrderSide::Buy => "buy".to_string(),
-            OrderSide::Sell => "sell".to_string(),
-        });
+        params.insert(
+            "side".to_string(),
+            match side {
+                OrderSide::Buy => "buy".to_string(),
+                OrderSide::Sell => "sell".to_string(),
+            },
+        );
         params.insert("size".to_string(), amount.to_string());
 
         let order_type_str = match order_type {
@@ -918,33 +1035,52 @@ impl Exchange for KrakenFutures {
                     params.insert("limitPrice".to_string(), p.to_string());
                     "lmt"
                 } else {
-                    return Err(CcxtError::BadRequest { message: "Limit order requires price".to_string() });
+                    return Err(CcxtError::BadRequest {
+                        message: "Limit order requires price".to_string(),
+                    });
                 }
             },
             OrderType::Market => {
-                return Err(CcxtError::NotSupported { feature: "Market orders not supported on Kraken Futures".to_string() });
+                return Err(CcxtError::NotSupported {
+                    feature: "Market orders not supported on Kraken Futures".to_string(),
+                });
             },
             OrderType::StopLimit => {
                 if let Some(p) = price {
                     params.insert("limitPrice".to_string(), p.to_string());
                     "stp"
                 } else {
-                    return Err(CcxtError::BadRequest { message: "Stop limit order requires price".to_string() });
+                    return Err(CcxtError::BadRequest {
+                        message: "Stop limit order requires price".to_string(),
+                    });
                 }
             },
             OrderType::StopMarket => "stp",
-            _ => return Err(CcxtError::NotSupported { feature: format!("Order type {order_type:?} not supported") }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type {order_type:?} not supported"),
+                })
+            },
         };
 
         params.insert("orderType".to_string(), order_type_str.to_string());
 
         let response = self.private_request("POST", "sendorder", &params).await?;
 
-        let data: KfResponse<SendOrderData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "SendOrderData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<SendOrderData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "SendOrderData".to_string(),
+                message: e.to_string(),
+            })?;
 
-        let order_id = data.data.send_status.order_id.clone()
-            .ok_or_else(|| CcxtError::ExchangeError { message: "Order creation failed".to_string() })?;
+        let order_id =
+            data.data
+                .send_status
+                .order_id
+                .clone()
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "Order creation failed".to_string(),
+                })?;
 
         Ok(Order {
             id: order_id,
@@ -983,8 +1119,11 @@ impl Exchange for KrakenFutures {
 
         let response = self.private_request("POST", "cancelorder", &params).await?;
 
-        let data: KfResponse<CancelOrderData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "CancelOrderData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<CancelOrderData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "CancelOrderData".to_string(),
+                message: e.to_string(),
+            })?;
 
         Ok(Order {
             id: id.to_string(),
@@ -1029,10 +1168,15 @@ impl Exchange for KrakenFutures {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> CcxtResult<Vec<Order>> {
-        let response = self.private_request("GET", "openorders", &HashMap::new()).await?;
+        let response = self
+            .private_request("GET", "openorders", &HashMap::new())
+            .await?;
 
-        let data: KfResponse<OpenOrdersData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "OpenOrdersData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<OpenOrdersData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "OpenOrdersData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let mut orders = Vec::new();
 
@@ -1045,7 +1189,9 @@ impl Exchange for KrakenFutures {
                 }
             }
 
-            let timestamp = order_data.received_time.as_ref()
+            let timestamp = order_data
+                .received_time
+                .as_ref()
                 .map(|t| self.parse_timestamp(t))
                 .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -1063,8 +1209,14 @@ impl Exchange for KrakenFutures {
                 client_order_id: None,
                 datetime: order_data.received_time.clone(),
                 timestamp: Some(timestamp),
-                last_trade_timestamp: order_data.last_update_time.as_ref().map(|t| self.parse_timestamp(t)),
-                last_update_timestamp: order_data.last_update_time.as_ref().map(|t| self.parse_timestamp(t)),
+                last_trade_timestamp: order_data
+                    .last_update_time
+                    .as_ref()
+                    .map(|t| self.parse_timestamp(t)),
+                last_update_timestamp: order_data
+                    .last_update_time
+                    .as_ref()
+                    .map(|t| self.parse_timestamp(t)),
                 status: OrderStatus::Open,
                 symbol: order_symbol,
                 order_type: match order_data.order_type.as_str() {
@@ -1073,8 +1225,14 @@ impl Exchange for KrakenFutures {
                     _ => OrderType::Limit,
                 },
                 time_in_force: None,
-                side: if order_data.side == "buy" { OrderSide::Buy } else { OrderSide::Sell },
-                price: order_data.limit_price.map(|p| Decimal::from_f64_retain(p).unwrap()),
+                side: if order_data.side == "buy" {
+                    OrderSide::Buy
+                } else {
+                    OrderSide::Sell
+                },
+                price: order_data
+                    .limit_price
+                    .map(|p| Decimal::from_f64_retain(p).unwrap()),
                 average: None,
                 amount: Decimal::from_f64_retain(amount).unwrap(),
                 filled: Decimal::from_f64_retain(filled).unwrap(),
@@ -1086,7 +1244,9 @@ impl Exchange for KrakenFutures {
                 reduce_only: None,
                 post_only: None,
                 info: serde_json::json!(order_data),
-                stop_price: order_data.stop_price.map(|p| Decimal::from_f64_retain(p).unwrap()),
+                stop_price: order_data
+                    .stop_price
+                    .map(|p| Decimal::from_f64_retain(p).unwrap()),
                 trigger_price: None,
                 take_profit_price: None,
                 stop_loss_price: None,
@@ -1107,10 +1267,15 @@ impl Exchange for KrakenFutures {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> CcxtResult<Vec<Order>> {
-        let response = self.private_request("GET", "recentorders", &HashMap::new()).await?;
+        let response = self
+            .private_request("GET", "recentorders", &HashMap::new())
+            .await?;
 
-        let data: KfResponse<RecentOrdersData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "RecentOrdersData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<RecentOrdersData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "RecentOrdersData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let mut orders = Vec::new();
 
@@ -1123,7 +1288,9 @@ impl Exchange for KrakenFutures {
                 }
             }
 
-            let timestamp = order_data.received_time.as_ref()
+            let timestamp = order_data
+                .received_time
+                .as_ref()
                 .map(|t| self.parse_timestamp(t))
                 .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -1141,9 +1308,19 @@ impl Exchange for KrakenFutures {
                 client_order_id: None,
                 datetime: order_data.received_time.clone(),
                 timestamp: Some(timestamp),
-                last_trade_timestamp: order_data.last_update_time.as_ref().map(|t| self.parse_timestamp(t)),
-                last_update_timestamp: order_data.last_update_time.as_ref().map(|t| self.parse_timestamp(t)),
-                status: if filled >= amount { OrderStatus::Closed } else { OrderStatus::Canceled },
+                last_trade_timestamp: order_data
+                    .last_update_time
+                    .as_ref()
+                    .map(|t| self.parse_timestamp(t)),
+                last_update_timestamp: order_data
+                    .last_update_time
+                    .as_ref()
+                    .map(|t| self.parse_timestamp(t)),
+                status: if filled >= amount {
+                    OrderStatus::Closed
+                } else {
+                    OrderStatus::Canceled
+                },
                 symbol: order_symbol,
                 order_type: match order_data.order_type.as_str() {
                     "lmt" => OrderType::Limit,
@@ -1151,8 +1328,14 @@ impl Exchange for KrakenFutures {
                     _ => OrderType::Limit,
                 },
                 time_in_force: None,
-                side: if order_data.side == "buy" { OrderSide::Buy } else { OrderSide::Sell },
-                price: order_data.limit_price.map(|p| Decimal::from_f64_retain(p).unwrap()),
+                side: if order_data.side == "buy" {
+                    OrderSide::Buy
+                } else {
+                    OrderSide::Sell
+                },
+                price: order_data
+                    .limit_price
+                    .map(|p| Decimal::from_f64_retain(p).unwrap()),
                 average: None,
                 amount: Decimal::from_f64_retain(amount).unwrap(),
                 filled: Decimal::from_f64_retain(filled).unwrap(),
@@ -1164,7 +1347,9 @@ impl Exchange for KrakenFutures {
                 reduce_only: None,
                 post_only: None,
                 info: serde_json::json!(order_data),
-                stop_price: order_data.stop_price.map(|p| Decimal::from_f64_retain(p).unwrap()),
+                stop_price: order_data
+                    .stop_price
+                    .map(|p| Decimal::from_f64_retain(p).unwrap()),
                 trigger_price: None,
                 take_profit_price: None,
                 stop_loss_price: None,
@@ -1185,10 +1370,15 @@ impl Exchange for KrakenFutures {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> CcxtResult<Vec<Trade>> {
-        let response = self.private_request("GET", "fills", &HashMap::new()).await?;
+        let response = self
+            .private_request("GET", "fills", &HashMap::new())
+            .await?;
 
-        let data: KfResponse<FillsData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "FillsData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<FillsData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "FillsData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let mut trades = Vec::new();
 
@@ -1235,14 +1425,16 @@ impl Exchange for KrakenFutures {
         Ok(trades)
     }
 
-    async fn fetch_positions(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
-        let response = self.private_request("GET", "openpositions", &HashMap::new()).await?;
+    async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
+        let response = self
+            .private_request("GET", "openpositions", &HashMap::new())
+            .await?;
 
-        let data: KfResponse<PositionsData> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError { data_type: "PositionsData".to_string(), message: e.to_string() })?;
+        let data: KfResponse<PositionsData> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
+                data_type: "PositionsData".to_string(),
+                message: e.to_string(),
+            })?;
 
         let mut positions = Vec::new();
 
@@ -1263,7 +1455,11 @@ impl Exchange for KrakenFutures {
                 datetime: Some(Utc::now().to_rfc3339()),
                 contracts: Some(Decimal::from_f64_retain(pos.size).unwrap()),
                 contract_size: None,
-                side: Some(if pos.side == "long" { PositionSide::Long } else { PositionSide::Short }),
+                side: Some(if pos.side == "long" {
+                    PositionSide::Long
+                } else {
+                    PositionSide::Short
+                }),
                 notional: None,
                 leverage: None,
                 unrealized_pnl: pos.pnl.map(|p| Decimal::from_f64_retain(p).unwrap()),
@@ -1296,7 +1492,9 @@ impl Exchange for KrakenFutures {
 
     fn symbol(&self, market_id: &str) -> Option<String> {
         let markets_by_id = self.markets_by_id.read().unwrap();
-        markets_by_id.get(market_id).cloned()
+        markets_by_id
+            .get(market_id)
+            .cloned()
             .or_else(|| Some(self.to_symbol(market_id)))
     }
 
@@ -1339,7 +1537,9 @@ impl Exchange for KrakenFutures {
             let hash = hasher.finalize();
 
             // Step 3: Decode secret from base64
-            let secret_decoded = BASE64.decode(self.config.secret().unwrap_or_default()).unwrap_or_default();
+            let secret_decoded = BASE64
+                .decode(self.config.secret().unwrap_or_default())
+                .unwrap_or_default();
 
             // Step 4: HMAC-SHA512
             let mut mac = Hmac::<Sha512>::new_from_slice(&secret_decoded).unwrap();
@@ -1347,16 +1547,26 @@ impl Exchange for KrakenFutures {
             let signature = BASE64.encode(mac.finalize().into_bytes());
 
             let mut headers_map = HashMap::new();
-            headers_map.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+            headers_map.insert(
+                "Content-Type".to_string(),
+                "application/x-www-form-urlencoded".to_string(),
+            );
             headers_map.insert("Accept".to_string(), "application/json".to_string());
-            headers_map.insert("APIKey".to_string(), self.config.api_key().unwrap_or_default().to_string());
+            headers_map.insert(
+                "APIKey".to_string(),
+                self.config.api_key().unwrap_or_default().to_string(),
+            );
             headers_map.insert("Authent".to_string(), signature);
 
             SignedRequest {
                 url,
                 method: method.to_string(),
                 headers: headers_map,
-                body: if method == "POST" { Some(post_data) } else { None },
+                body: if method == "POST" {
+                    Some(post_data)
+                } else {
+                    None
+                },
             }
         } else {
             SignedRequest {

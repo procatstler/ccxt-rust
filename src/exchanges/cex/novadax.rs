@@ -17,9 +17,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, Fee, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
+    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -260,7 +260,11 @@ impl Novadax {
     }
 
     /// Send public GET request
-    async fn public_request(&self, path: &str, params: Option<&HashMap<String, String>>) -> CcxtResult<serde_json::Value> {
+    async fn public_request(
+        &self,
+        path: &str,
+        params: Option<&HashMap<String, String>>,
+    ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
         let url = format!("/v1/{path}");
@@ -280,12 +284,18 @@ impl Novadax {
     ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".to_string(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".to_string(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".to_string(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".to_string(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let request_path = format!("/v1/{path}");
@@ -296,7 +306,8 @@ impl Novadax {
         headers.insert("X-Nova-Timestamp".to_string(), timestamp.clone());
 
         let (query_string, body_value, query_params) = if method == "POST" {
-            let body_json = params.map(|p| serde_json::to_value(p).unwrap_or_default())
+            let body_json = params
+                .map(|p| serde_json::to_value(p).unwrap_or_default())
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
             let body_str = serde_json::to_string(&body_json).unwrap_or_else(|_| "{}".to_string());
             // MD5 hash of body
@@ -338,18 +349,23 @@ impl Novadax {
         // Auth: METHOD\n/path\nqueryString\ntimestamp
         let auth = format!("{method}\n{request_path}\n{query_string}\n{timestamp}");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".to_string(),
-            })?;
+            }
+        })?;
         mac.update(auth.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
         headers.insert("X-Nova-Signature".to_string(), signature);
 
         let response: serde_json::Value = if method == "POST" {
-            self.http_client.post(&url, body_value, Some(headers)).await?
+            self.http_client
+                .post(&url, body_value, Some(headers))
+                .await?
         } else {
-            self.http_client.get(&url, query_params, Some(headers)).await?
+            self.http_client
+                .get(&url, query_params, Some(headers))
+                .await?
         };
 
         self.handle_response(&response)?;
@@ -361,23 +377,38 @@ impl Novadax {
         let code = response.get("code").and_then(|c| c.as_str()).unwrap_or("");
 
         if code != "A10000" {
-            let message = response.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            let message = response
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error");
             return match code {
-                "A10001" => Err(CcxtError::BadRequest { message: message.to_string() }),
-                "A10003" => Err(CcxtError::AuthenticationError { message: message.to_string() }),
+                "A10001" => Err(CcxtError::BadRequest {
+                    message: message.to_string(),
+                }),
+                "A10003" => Err(CcxtError::AuthenticationError {
+                    message: message.to_string(),
+                }),
                 "A10004" => Err(CcxtError::RateLimitExceeded {
                     message: message.to_string(),
                     retry_after_ms: None,
                 }),
-                "A10011" | "A10012" => Err(CcxtError::BadSymbol { symbol: message.to_string() }),
-                "A10013" => Err(CcxtError::OnMaintenance { message: message.to_string() }),
-                "A30001" => Err(CcxtError::OrderNotFound { order_id: "unknown".to_string() }),
+                "A10011" | "A10012" => Err(CcxtError::BadSymbol {
+                    symbol: message.to_string(),
+                }),
+                "A10013" => Err(CcxtError::OnMaintenance {
+                    message: message.to_string(),
+                }),
+                "A30001" => Err(CcxtError::OrderNotFound {
+                    order_id: "unknown".to_string(),
+                }),
                 "A30007" | "A40004" => Err(CcxtError::InsufficientFunds {
                     currency: "".to_string(),
                     required: "".to_string(),
                     available: message.to_string(),
                 }),
-                _ => Err(CcxtError::ExchangeError { message: format!("{code}: {message}") }),
+                _ => Err(CcxtError::ExchangeError {
+                    message: format!("{code}: {message}"),
+                }),
             };
         }
 
@@ -404,17 +435,24 @@ impl Novadax {
                 .unwrap_or_default()
         });
 
-        let price = order.price.as_ref()
+        let price = order.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
+        let average = order
+            .average_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let average = order.average_price.as_ref()
-            .and_then(|p| Decimal::from_str(p).ok());
-        let amount = order.amount.as_ref()
+        let amount = order
+            .amount
+            .as_ref()
             .and_then(|a| Decimal::from_str(a).ok())
             .unwrap_or(Decimal::ZERO);
-        let filled = order.filled_amount.as_ref()
+        let filled = order
+            .filled_amount
+            .as_ref()
             .and_then(|f| Decimal::from_str(f).ok())
             .unwrap_or(Decimal::ZERO);
-        let cost = order.filled_value.as_ref()
+        let cost = order
+            .filled_value
+            .as_ref()
             .and_then(|c| Decimal::from_str(c).ok());
 
         let status_str = order.status.as_deref().unwrap_or("");
@@ -431,7 +469,9 @@ impl Novadax {
             _ => OrderType::Limit,
         };
 
-        let fee_cost = order.filled_fee.as_ref()
+        let fee_cost = order
+            .filled_fee
+            .as_ref()
             .and_then(|f| Decimal::from_str(f).ok());
 
         Order {
@@ -453,7 +493,10 @@ impl Novadax {
             remaining: Some(amount - filled),
             stop_price: None,
             cost,
-            trigger_price: order.stop_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            trigger_price: order
+                .stop_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             stop_loss_price: None,
             take_profit_price: None,
             trades: vec![],
@@ -587,10 +630,7 @@ impl Exchange for Novadax {
             }
         } else {
             if !params.is_empty() {
-                let query: Vec<String> = params
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect();
+                let query: Vec<String> = params.iter().map(|(k, v)| format!("{k}={v}")).collect();
                 url = format!("{}?{}", url, query.join("&"));
             }
 
@@ -605,7 +645,8 @@ impl Exchange for Novadax {
 
     async fn fetch_time(&self) -> CcxtResult<i64> {
         let response = self.public_request("common/timestamp", None).await?;
-        let timestamp = response.get("data")
+        let timestamp = response
+            .get("data")
             .and_then(|d| d.as_i64())
             .ok_or_else(|| CcxtError::ParseError {
                 data_type: "timestamp".to_string(),
@@ -616,7 +657,8 @@ impl Exchange for Novadax {
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
         let response = self.public_request("common/symbols", None).await?;
-        let data: Vec<NovadaxMarket> = response.get("data")
+        let data: Vec<NovadaxMarket> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
@@ -630,10 +672,12 @@ impl Exchange for Novadax {
             let amount_precision = m.amount_precision.unwrap_or(8);
             let price_precision = m.price_precision.unwrap_or(8);
 
-            let min_amount = m.min_order_amount
+            let min_amount = m
+                .min_order_amount
                 .as_ref()
                 .and_then(|a| Decimal::from_str(a).ok());
-            let min_cost = m.min_order_value
+            let min_cost = m
+                .min_order_value
                 .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok());
 
@@ -674,10 +718,22 @@ impl Exchange for Novadax {
                     quote: None,
                 },
                 limits: MarketLimits {
-                    amount: MinMax { min: min_amount, max: None },
-                    price: MinMax { min: None, max: None },
-                    cost: MinMax { min: min_cost, max: None },
-                    leverage: MinMax { min: None, max: None },
+                    amount: MinMax {
+                        min: min_amount,
+                        max: None,
+                    },
+                    price: MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    cost: MinMax {
+                        min: min_cost,
+                        max: None,
+                    },
+                    leverage: MinMax {
+                        min: None,
+                        max: None,
+                    },
                 },
                 created: None,
                 info,
@@ -714,7 +770,8 @@ impl Exchange for Novadax {
         params.insert("symbol".to_string(), market_id);
 
         let response = self.public_request("market/ticker", Some(&params)).await?;
-        let ticker: NovadaxTicker = response.get("data")
+        let ticker: NovadaxTicker = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .ok_or_else(|| CcxtError::ParseError {
                 data_type: "NovadaxTicker".to_string(),
@@ -728,21 +785,31 @@ impl Exchange for Novadax {
                 .unwrap_or_default()
         });
 
-        let last = ticker.last_price.as_ref()
+        let last = ticker
+            .last_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let open = ticker.open_24h.as_ref()
+        let open = ticker
+            .open_24h
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let high = ticker.high_24h.as_ref()
+        let high = ticker
+            .high_24h
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let low = ticker.low_24h.as_ref()
+        let low = ticker
+            .low_24h
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let bid = ticker.bid.as_ref()
-            .and_then(|p| Decimal::from_str(p).ok());
-        let ask = ticker.ask.as_ref()
-            .and_then(|p| Decimal::from_str(p).ok());
-        let base_volume = ticker.base_volume_24h.as_ref()
+        let bid = ticker.bid.as_ref().and_then(|p| Decimal::from_str(p).ok());
+        let ask = ticker.ask.as_ref().and_then(|p| Decimal::from_str(p).ok());
+        let base_volume = ticker
+            .base_volume_24h
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok());
-        let quote_volume = ticker.quote_volume_24h.as_ref()
+        let quote_volume = ticker
+            .quote_volume_24h
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok());
 
         let change = match (&last, &open) {
@@ -782,7 +849,8 @@ impl Exchange for Novadax {
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
         let response = self.public_request("market/tickers", None).await?;
-        let tickers: Vec<NovadaxTicker> = response.get("data")
+        let tickers: Vec<NovadaxTicker> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
@@ -812,21 +880,31 @@ impl Exchange for Novadax {
                     .unwrap_or_default()
             });
 
-            let last = ticker.last_price.as_ref()
+            let last = ticker
+                .last_price
+                .as_ref()
                 .and_then(|p| Decimal::from_str(p).ok());
-            let open = ticker.open_24h.as_ref()
+            let open = ticker
+                .open_24h
+                .as_ref()
                 .and_then(|p| Decimal::from_str(p).ok());
-            let high = ticker.high_24h.as_ref()
+            let high = ticker
+                .high_24h
+                .as_ref()
                 .and_then(|p| Decimal::from_str(p).ok());
-            let low = ticker.low_24h.as_ref()
+            let low = ticker
+                .low_24h
+                .as_ref()
                 .and_then(|p| Decimal::from_str(p).ok());
-            let bid = ticker.bid.as_ref()
-                .and_then(|p| Decimal::from_str(p).ok());
-            let ask = ticker.ask.as_ref()
-                .and_then(|p| Decimal::from_str(p).ok());
-            let base_volume = ticker.base_volume_24h.as_ref()
+            let bid = ticker.bid.as_ref().and_then(|p| Decimal::from_str(p).ok());
+            let ask = ticker.ask.as_ref().and_then(|p| Decimal::from_str(p).ok());
+            let base_volume = ticker
+                .base_volume_24h
+                .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok());
-            let quote_volume = ticker.quote_volume_24h.as_ref()
+            let quote_volume = ticker
+                .quote_volume_24h
+                .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok());
 
             let change = match (&last, &open) {
@@ -838,30 +916,33 @@ impl Exchange for Novadax {
                 _ => None,
             };
 
-            result.insert(symbol.clone(), Ticker {
-                symbol: symbol.clone(),
-                timestamp,
-                datetime,
-                high,
-                low,
-                bid,
-                bid_volume: None,
-                ask,
-                ask_volume: None,
-                vwap: None,
-                open,
-                close: last,
-                last,
-                previous_close: None,
-                change,
-                percentage,
-                average: None,
-                base_volume,
-                quote_volume,
-                index_price: None,
-                mark_price: None,
-                info: serde_json::to_value(&ticker).unwrap_or_default(),
-            });
+            result.insert(
+                symbol.clone(),
+                Ticker {
+                    symbol: symbol.clone(),
+                    timestamp,
+                    datetime,
+                    high,
+                    low,
+                    bid,
+                    bid_volume: None,
+                    ask,
+                    ask_volume: None,
+                    vwap: None,
+                    open,
+                    close: last,
+                    last,
+                    previous_close: None,
+                    change,
+                    percentage,
+                    average: None,
+                    base_volume,
+                    quote_volume,
+                    index_price: None,
+                    mark_price: None,
+                    info: serde_json::to_value(&ticker).unwrap_or_default(),
+                },
+            );
         }
 
         Ok(result)
@@ -883,7 +964,8 @@ impl Exchange for Novadax {
         }
 
         let response = self.public_request("market/depth", Some(&params)).await?;
-        let order_book: NovadaxOrderBook = response.get("data")
+        let order_book: NovadaxOrderBook = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .ok_or_else(|| CcxtError::ParseError {
                 data_type: "NovadaxOrderBook".to_string(),
@@ -924,6 +1006,7 @@ impl Exchange for Novadax {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp,
             datetime,
             nonce: None,
@@ -951,7 +1034,8 @@ impl Exchange for Novadax {
         }
 
         let response = self.public_request("market/trades", Some(&params)).await?;
-        let trades_arr: Vec<NovadaxTrade> = response.get("data")
+        let trades_arr: Vec<NovadaxTrade> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
@@ -964,10 +1048,14 @@ impl Exchange for Novadax {
                     .unwrap_or_default()
             });
 
-            let price = t.price.as_ref()
+            let price = t
+                .price
+                .as_ref()
                 .and_then(|p| Decimal::from_str(p).ok())
                 .unwrap_or(Decimal::ZERO);
-            let amount = t.amount.as_ref()
+            let amount = t
+                .amount
+                .as_ref()
                 .and_then(|a| Decimal::from_str(a).ok())
                 .unwrap_or(Decimal::ZERO);
             let cost = price * amount;
@@ -1032,19 +1120,32 @@ impl Exchange for Novadax {
         params.insert("from".to_string(), from.to_string());
         params.insert("to".to_string(), to.to_string());
 
-        let response = self.public_request("market/kline/history", Some(&params)).await?;
-        let klines: Vec<NovadaxKline> = response.get("data")
+        let response = self
+            .public_request("market/kline/history", Some(&params))
+            .await?;
+        let klines: Vec<NovadaxKline> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
         let mut result = Vec::new();
         for k in klines {
             let timestamp = k.score.map(|s| s * 1000);
-            let open = k.open_price.map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
-            let high = k.high_price.map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
-            let low = k.low_price.map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
-            let close = k.close_price.map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
-            let volume = k.amount.map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
+            let open = k
+                .open_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
+            let high = k
+                .high_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
+            let low = k
+                .low_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
+            let close = k
+                .close_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
+            let volume = k
+                .amount
+                .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
 
             result.push(OHLCV {
                 timestamp: timestamp.unwrap_or(0),
@@ -1060,27 +1161,30 @@ impl Exchange for Novadax {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response = self.private_request("GET", "account/getBalance", None).await?;
-        let data: Vec<NovadaxBalance> = response.get("data")
+        let response = self
+            .private_request("GET", "account/getBalance", None)
+            .await?;
+        let data: Vec<NovadaxBalance> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
         let mut balances = HashMap::new();
         for b in data {
             let currency = b.currency.clone();
-            let free = b.available.as_ref()
-                .and_then(|a| Decimal::from_str(a).ok());
-            let total = b.balance.as_ref()
-                .and_then(|t| Decimal::from_str(t).ok());
-            let used = b.hold.as_ref()
-                .and_then(|h| Decimal::from_str(h).ok());
+            let free = b.available.as_ref().and_then(|a| Decimal::from_str(a).ok());
+            let total = b.balance.as_ref().and_then(|t| Decimal::from_str(t).ok());
+            let used = b.hold.as_ref().and_then(|h| Decimal::from_str(h).ok());
 
-            balances.insert(currency, Balance {
-                free,
-                used,
-                total,
-                debt: None,
-            });
+            balances.insert(
+                currency,
+                Balance {
+                    free,
+                    used,
+                    total,
+                    debt: None,
+                },
+            );
         }
 
         Ok(Balances {
@@ -1109,44 +1213,73 @@ impl Exchange for Novadax {
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), serde_json::Value::String(market_id));
-        params.insert("side".to_string(), serde_json::Value::String(
-            if side == OrderSide::Buy { "BUY" } else { "SELL" }.to_string()
-        ));
+        params.insert(
+            "side".to_string(),
+            serde_json::Value::String(
+                if side == OrderSide::Buy {
+                    "BUY"
+                } else {
+                    "SELL"
+                }
+                .to_string(),
+            ),
+        );
 
         let type_str = match order_type {
             OrderType::Limit => {
                 let p = price.ok_or_else(|| CcxtError::BadRequest {
                     message: "Price required for limit order".to_string(),
                 })?;
-                params.insert("price".to_string(), serde_json::Value::String(p.to_string()));
-                params.insert("amount".to_string(), serde_json::Value::String(amount.to_string()));
+                params.insert(
+                    "price".to_string(),
+                    serde_json::Value::String(p.to_string()),
+                );
+                params.insert(
+                    "amount".to_string(),
+                    serde_json::Value::String(amount.to_string()),
+                );
                 "LIMIT"
-            }
+            },
             OrderType::Market => {
                 if side == OrderSide::Sell {
-                    params.insert("amount".to_string(), serde_json::Value::String(amount.to_string()));
+                    params.insert(
+                        "amount".to_string(),
+                        serde_json::Value::String(amount.to_string()),
+                    );
                 } else {
                     // For market buy, need to provide value (quote amount)
                     if let Some(p) = price {
                         let value = amount * p;
-                        params.insert("value".to_string(), serde_json::Value::String(value.to_string()));
+                        params.insert(
+                            "value".to_string(),
+                            serde_json::Value::String(value.to_string()),
+                        );
                     } else {
                         // Use amount as value if no price provided
-                        params.insert("value".to_string(), serde_json::Value::String(amount.to_string()));
+                        params.insert(
+                            "value".to_string(),
+                            serde_json::Value::String(amount.to_string()),
+                        );
                     }
                 }
                 "MARKET"
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type {order_type:?}"),
                 });
-            }
+            },
         };
-        params.insert("type".to_string(), serde_json::Value::String(type_str.to_string()));
+        params.insert(
+            "type".to_string(),
+            serde_json::Value::String(type_str.to_string()),
+        );
 
-        let response = self.private_request("POST", "orders/create", Some(&params)).await?;
-        let order: NovadaxOrder = response.get("data")
+        let response = self
+            .private_request("POST", "orders/create", Some(&params))
+            .await?;
+        let order: NovadaxOrder = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .ok_or_else(|| CcxtError::ParseError {
                 data_type: "NovadaxOrder".to_string(),
@@ -1160,7 +1293,9 @@ impl Exchange for Novadax {
         let mut params = HashMap::new();
         params.insert("id".to_string(), serde_json::Value::String(id.to_string()));
 
-        let response = self.private_request("POST", "orders/cancel", Some(&params)).await?;
+        let response = self
+            .private_request("POST", "orders/cancel", Some(&params))
+            .await?;
 
         Ok(Order {
             id: id.to_string(),
@@ -1197,15 +1332,20 @@ impl Exchange for Novadax {
         let mut params = HashMap::new();
         params.insert("id".to_string(), serde_json::Value::String(id.to_string()));
 
-        let response = self.private_request("GET", "orders/get", Some(&params)).await?;
-        let order: NovadaxOrder = response.get("data")
+        let response = self
+            .private_request("GET", "orders/get", Some(&params))
+            .await?;
+        let order: NovadaxOrder = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .ok_or_else(|| CcxtError::OrderNotFound {
                 order_id: id.to_string(),
             })?;
 
         // Get symbol from order response
-        let symbol = order.symbol.as_ref()
+        let symbol = order
+            .symbol
+            .as_ref()
             .map(|s| {
                 let parts: Vec<&str> = s.split('_').collect();
                 if parts.len() == 2 {
@@ -1243,17 +1383,26 @@ impl Exchange for Novadax {
         }
 
         if let Some(s) = since {
-            params.insert("fromTimestamp".to_string(), serde_json::Value::Number(s.into()));
+            params.insert(
+                "fromTimestamp".to_string(),
+                serde_json::Value::Number(s.into()),
+            );
         }
 
-        let response = self.private_request("GET", "orders/list", Some(&params)).await?;
-        let orders: Vec<NovadaxOrder> = response.get("data")
+        let response = self
+            .private_request("GET", "orders/list", Some(&params))
+            .await?;
+        let orders: Vec<NovadaxOrder> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
-        let result: Vec<Order> = orders.iter()
+        let result: Vec<Order> = orders
+            .iter()
             .map(|o| {
-                let order_symbol = o.symbol.as_ref()
+                let order_symbol = o
+                    .symbol
+                    .as_ref()
                     .map(|s| {
                         let parts: Vec<&str> = s.split('_').collect();
                         if parts.len() == 2 {
@@ -1277,9 +1426,10 @@ impl Exchange for Novadax {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
-        params.insert("status".to_string(), serde_json::Value::String(
-            "SUBMITTED,PROCESSING,PARTIAL_FILLED,CANCELING".to_string()
-        ));
+        params.insert(
+            "status".to_string(),
+            serde_json::Value::String("SUBMITTED,PROCESSING,PARTIAL_FILLED,CANCELING".to_string()),
+        );
 
         if let Some(s) = symbol {
             let market_id = {
@@ -1297,17 +1447,26 @@ impl Exchange for Novadax {
         }
 
         if let Some(s) = since {
-            params.insert("fromTimestamp".to_string(), serde_json::Value::Number(s.into()));
+            params.insert(
+                "fromTimestamp".to_string(),
+                serde_json::Value::Number(s.into()),
+            );
         }
 
-        let response = self.private_request("GET", "orders/list", Some(&params)).await?;
-        let orders: Vec<NovadaxOrder> = response.get("data")
+        let response = self
+            .private_request("GET", "orders/list", Some(&params))
+            .await?;
+        let orders: Vec<NovadaxOrder> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
-        let result: Vec<Order> = orders.iter()
+        let result: Vec<Order> = orders
+            .iter()
             .map(|o| {
-                let order_symbol = o.symbol.as_ref()
+                let order_symbol = o
+                    .symbol
+                    .as_ref()
                     .map(|s| {
                         let parts: Vec<&str> = s.split('_').collect();
                         if parts.len() == 2 {
@@ -1331,9 +1490,10 @@ impl Exchange for Novadax {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
-        params.insert("status".to_string(), serde_json::Value::String(
-            "FILLED,CANCELED,REJECTED".to_string()
-        ));
+        params.insert(
+            "status".to_string(),
+            serde_json::Value::String("FILLED,CANCELED,REJECTED".to_string()),
+        );
 
         if let Some(s) = symbol {
             let market_id = {
@@ -1351,17 +1511,26 @@ impl Exchange for Novadax {
         }
 
         if let Some(s) = since {
-            params.insert("fromTimestamp".to_string(), serde_json::Value::Number(s.into()));
+            params.insert(
+                "fromTimestamp".to_string(),
+                serde_json::Value::Number(s.into()),
+            );
         }
 
-        let response = self.private_request("GET", "orders/list", Some(&params)).await?;
-        let orders: Vec<NovadaxOrder> = response.get("data")
+        let response = self
+            .private_request("GET", "orders/list", Some(&params))
+            .await?;
+        let orders: Vec<NovadaxOrder> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
-        let result: Vec<Order> = orders.iter()
+        let result: Vec<Order> = orders
+            .iter()
             .map(|o| {
-                let order_symbol = o.symbol.as_ref()
+                let order_symbol = o
+                    .symbol
+                    .as_ref()
                     .map(|s| {
                         let parts: Vec<&str> = s.split('_').collect();
                         if parts.len() == 2 {
@@ -1402,17 +1571,25 @@ impl Exchange for Novadax {
         }
 
         if let Some(s) = since {
-            params.insert("fromTimestamp".to_string(), serde_json::Value::Number(s.into()));
+            params.insert(
+                "fromTimestamp".to_string(),
+                serde_json::Value::Number(s.into()),
+            );
         }
 
-        let response = self.private_request("GET", "orders/fills", Some(&params)).await?;
-        let fills: Vec<NovadaxFill> = response.get("data")
+        let response = self
+            .private_request("GET", "orders/fills", Some(&params))
+            .await?;
+        let fills: Vec<NovadaxFill> = response
+            .get("data")
             .and_then(|d| serde_json::from_value(d.clone()).ok())
             .unwrap_or_default();
 
         let mut trades = Vec::new();
         for f in fills {
-            let fill_symbol = f.symbol.as_ref()
+            let fill_symbol = f
+                .symbol
+                .as_ref()
                 .map(|s| {
                     let parts: Vec<&str> = s.split('_').collect();
                     if parts.len() == 2 {
@@ -1430,10 +1607,14 @@ impl Exchange for Novadax {
                     .unwrap_or_default()
             });
 
-            let price = f.price.as_ref()
+            let price = f
+                .price
+                .as_ref()
                 .and_then(|p| Decimal::from_str(p).ok())
                 .unwrap_or(Decimal::ZERO);
-            let amount = f.amount.as_ref()
+            let amount = f
+                .amount
+                .as_ref()
                 .and_then(|a| Decimal::from_str(a).ok())
                 .unwrap_or(Decimal::ZERO);
             let cost = price * amount;
@@ -1445,7 +1626,9 @@ impl Exchange for Novadax {
 
             let taker_or_maker = f.role.as_ref().map(|r| r.to_lowercase());
 
-            let fee = f.fee_amount.as_ref()
+            let fee = f
+                .fee_amount
+                .as_ref()
                 .and_then(|fa| Decimal::from_str(fa).ok())
                 .map(|c| Fee {
                     cost: Some(c),
@@ -1453,15 +1636,15 @@ impl Exchange for Novadax {
                     rate: None,
                 });
 
-            let taker_or_maker_enum = taker_or_maker.and_then(|r| {
-                match r.as_str() {
-                    "taker" => Some(TakerOrMaker::Taker),
-                    "maker" => Some(TakerOrMaker::Maker),
-                    _ => None,
-                }
+            let taker_or_maker_enum = taker_or_maker.and_then(|r| match r.as_str() {
+                "taker" => Some(TakerOrMaker::Taker),
+                "maker" => Some(TakerOrMaker::Maker),
+                _ => None,
             });
 
-            let trade_id = f.id.clone().unwrap_or_else(|| format!("{}", timestamp.unwrap_or(0)));
+            let trade_id =
+                f.id.clone()
+                    .unwrap_or_else(|| format!("{}", timestamp.unwrap_or(0)));
             trades.push(Trade {
                 id: trade_id,
                 order: f.order_id.clone(),

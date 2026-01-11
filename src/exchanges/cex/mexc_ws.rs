@@ -18,8 +18,8 @@ use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    TakerOrMaker, Ticker, Timeframe, Trade, OHLCV, WsExchange, WsMessage, WsBalanceEvent,
-    WsMyTradeEvent, WsOrderBookEvent, WsOrderEvent, WsOhlcvEvent, WsTickerEvent, WsTradeEvent,
+    TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent,
+    WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -79,29 +79,36 @@ impl MexcWs {
 
     /// listenKey 발급을 위한 서명 생성
     fn create_signature(&self, query: &str) -> CcxtResult<String> {
-        let api_secret = self.api_secret.as_ref().ok_or(CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_secret = self
+            .api_secret
+            .as_ref()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|e| CcxtError::ExchangeError { message: e.to_string() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|e| {
+            CcxtError::ExchangeError {
+                message: e.to_string(),
+            }
+        })?;
         mac.update(query.as_bytes());
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
 
     /// listenKey 발급 (REST API)
     async fn get_listen_key(&self) -> CcxtResult<String> {
-        let api_key = self.api_key.as_ref().ok_or(CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
         let query = format!("timestamp={timestamp}&recvWindow=5000");
         let signature = self.create_signature(&query)?;
 
-        let url = format!(
-            "{REST_API_URL}/api/v3/userDataStream?{query}&signature={signature}"
-        );
+        let url = format!("{REST_API_URL}/api/v3/userDataStream?{query}&signature={signature}");
 
         let client = reqwest::Client::new();
         let response = client
@@ -112,13 +119,13 @@ impl MexcWs {
             .await
             .map_err(|e| CcxtError::NetworkError {
                 url: url.clone(),
-                message: e.to_string()
+                message: e.to_string(),
             })?;
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| CcxtError::BadResponse { message: e.to_string() })?;
+        let json: serde_json::Value =
+            response.json().await.map_err(|e| CcxtError::BadResponse {
+                message: e.to_string(),
+            })?;
 
         json["listenKey"]
             .as_str()
@@ -133,7 +140,11 @@ impl MexcWs {
         let timestamp = data.time.unwrap_or_else(|| Utc::now().timestamp_millis());
 
         // Use short field names (o) if alias (order_type) is not present
-        let order_type_str = data.order_type.as_deref().or(data.o.as_deref()).unwrap_or("LIMIT");
+        let order_type_str = data
+            .order_type
+            .as_deref()
+            .or(data.o.as_deref())
+            .unwrap_or("LIMIT");
         let order_type = match order_type_str {
             "MARKET" => OrderType::Market,
             "LIMIT_MAKER" => OrderType::Limit,
@@ -155,16 +166,27 @@ impl MexcWs {
         };
 
         // Use short field names (p, q, z, Z) if aliases are not present
-        let price: Decimal = data.price.as_ref().or(data.p.as_ref())
+        let price: Decimal = data
+            .price
+            .as_ref()
+            .or(data.p.as_ref())
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.quantity.as_ref().or(data.q.as_ref())
+        let amount: Decimal = data
+            .quantity
+            .as_ref()
+            .or(data.q.as_ref())
             .and_then(|q| q.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.executed_qty.as_ref().or(data.z.as_ref())
+        let filled: Decimal = data
+            .executed_qty
+            .as_ref()
+            .or(data.z.as_ref())
             .and_then(|q| q.parse().ok())
             .unwrap_or_default();
-        let cost: Decimal = data.cummulative_quote_qty.as_ref()
+        let cost: Decimal = data
+            .cummulative_quote_qty
+            .as_ref()
             .and_then(|c| c.parse().ok())
             .unwrap_or_default();
 
@@ -173,7 +195,11 @@ impl MexcWs {
         let unified_symbol = Self::to_unified_symbol(symbol_str);
 
         // Use short field name (i) if alias (order_id) is not present
-        let order_id = data.order_id.or(data.i).map(|id| id.to_string()).unwrap_or_default();
+        let order_id = data
+            .order_id
+            .or(data.i)
+            .map(|id| id.to_string())
+            .unwrap_or_default();
 
         // Use short field name (c) if alias (client_order_id) is not present
         let client_order_id = data.client_order_id.clone().or(data.c.clone());
@@ -195,7 +221,11 @@ impl MexcWs {
             time_in_force: None,
             side,
             price: Some(price),
-            average: if filled > Decimal::ZERO { Some(cost / filled) } else { None },
+            average: if filled > Decimal::ZERO {
+                Some(cost / filled)
+            } else {
+                None
+            },
             amount,
             filled,
             remaining: Some(amount - filled),
@@ -218,32 +248,54 @@ impl MexcWs {
     /// 체결 업데이트 파싱
     fn parse_my_trade(data: &MexcTradeUpdateData) -> WsMyTradeEvent {
         // Use short field name (T) if alias (trade_time) is not present
-        let timestamp = data.trade_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .trade_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         // Use short field names (p, q, n) if aliases are not present
-        let price: Decimal = data.price.as_ref().or(data.p.as_ref())
+        let price: Decimal = data
+            .price
+            .as_ref()
+            .or(data.p.as_ref())
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.quantity.as_ref().or(data.q.as_ref())
+        let amount: Decimal = data
+            .quantity
+            .as_ref()
+            .or(data.q.as_ref())
             .and_then(|q| q.parse().ok())
             .unwrap_or_default();
-        let commission: Decimal = data.commission.as_ref().or(data.n.as_ref())
+        let commission: Decimal = data
+            .commission
+            .as_ref()
+            .or(data.n.as_ref())
             .and_then(|c| c.parse().ok())
             .unwrap_or_default();
 
-        let side = data.side.as_deref()
+        let side = data
+            .side
+            .as_deref()
             .map(|s| if s == "SELL" { "sell" } else { "buy" }.to_string());
 
         // Use short field name (m) if alias (is_maker) is not present
-        let taker_or_maker = data.is_maker.or(data.m)
-            .map(|m| if m { TakerOrMaker::Maker } else { TakerOrMaker::Taker });
+        let taker_or_maker = data.is_maker.or(data.m).map(|m| {
+            if m {
+                TakerOrMaker::Maker
+            } else {
+                TakerOrMaker::Taker
+            }
+        });
 
         // Use short field name (s) if alias (symbol) is not present
         let symbol_str = data.symbol.as_deref().or(data.s.as_deref()).unwrap_or("");
         let unified_symbol = Self::to_unified_symbol(symbol_str);
 
         // Use short field names (t, i) if aliases are not present
-        let trade_id = data.trade_id.or(data.t).map(|id| id.to_string()).unwrap_or_default();
+        let trade_id = data
+            .trade_id
+            .or(data.t)
+            .map(|id| id.to_string())
+            .unwrap_or_default();
         let order_id = data.order_id.or(data.i).map(|id| id.to_string());
 
         let trade = Trade {
@@ -279,26 +331,35 @@ impl MexcWs {
 
     /// 잔고 업데이트 파싱
     fn parse_balance_update(data: &MexcBalanceUpdateData) -> WsBalanceEvent {
-        let timestamp = data.event_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .event_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let mut currencies = std::collections::HashMap::new();
 
         for item in &data.balances {
             if let Some(asset) = &item.a {
-                let free: Decimal = item.f.as_ref()
+                let free: Decimal = item
+                    .f
+                    .as_ref()
                     .and_then(|f| f.parse().ok())
                     .unwrap_or_default();
-                let locked: Decimal = item.l.as_ref()
+                let locked: Decimal = item
+                    .l
+                    .as_ref()
                     .and_then(|l| l.parse().ok())
                     .unwrap_or_default();
                 let total = free + locked;
 
-                currencies.insert(asset.clone(), Balance {
-                    free: Some(free),
-                    used: Some(locked),
-                    total: Some(total),
-                    debt: None,
-                });
+                currencies.insert(
+                    asset.clone(),
+                    Balance {
+                        free: Some(free),
+                        used: Some(locked),
+                        total: Some(total),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -335,14 +396,17 @@ impl MexcWs {
                         if let Ok(order_data) = serde_json::from_str::<MexcOrderUpdateData>(msg) {
                             return Some(WsMessage::Order(Self::parse_order_update(&order_data)));
                         }
-                    }
+                    },
                     "outboundAccountPosition" | "balanceUpdate" => {
                         // Balance update
-                        if let Ok(balance_data) = serde_json::from_str::<MexcBalanceUpdateData>(msg) {
-                            return Some(WsMessage::Balance(Self::parse_balance_update(&balance_data)));
+                        if let Ok(balance_data) = serde_json::from_str::<MexcBalanceUpdateData>(msg)
+                        {
+                            return Some(WsMessage::Balance(Self::parse_balance_update(
+                                &balance_data,
+                            )));
                         }
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -372,6 +436,7 @@ impl MexcWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -381,7 +446,10 @@ impl MexcWs {
         // 구독 저장
         {
             let key = format!("private:{channel_type}");
-            self.subscriptions.write().await.insert(key, channel_type.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel_type.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -395,19 +463,19 @@ impl MexcWs {
                             channel: "private".to_string(),
                             symbol: None,
                         });
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -486,7 +554,10 @@ impl MexcWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsTickerEvent { symbol: unified_symbol, ticker }
+        WsTickerEvent {
+            symbol: unified_symbol,
+            ticker,
+        }
     }
 
     /// 호가창 메시지 파싱
@@ -494,19 +565,27 @@ impl MexcWs {
         let unified_symbol = Self::to_unified_symbol(symbol);
         let timestamp = Utc::now().timestamp_millis();
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            Some(OrderBookEntry {
-                price: b.p.as_ref()?.parse().ok()?,
-                amount: b.v.as_ref()?.parse().ok()?,
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                Some(OrderBookEntry {
+                    price: b.p.as_ref()?.parse().ok()?,
+                    amount: b.v.as_ref()?.parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            Some(OrderBookEntry {
-                price: a.p.as_ref()?.parse().ok()?,
-                amount: a.v.as_ref()?.parse().ok()?,
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                Some(OrderBookEntry {
+                    price: a.p.as_ref()?.parse().ok()?,
+                    amount: a.v.as_ref()?.parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
         let order_book = OrderBook {
             symbol: unified_symbol.clone(),
@@ -519,6 +598,7 @@ impl MexcWs {
             nonce: data.r.map(|r| r as i64),
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -533,12 +613,10 @@ impl MexcWs {
         let unified_symbol = Self::to_unified_symbol(symbol);
         let timestamp = data.t.unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let side = data.side.as_ref().map(|s| {
-            match s.as_str() {
-                "1" => "buy".to_string(),
-                "2" => "sell".to_string(),
-                _ => s.to_lowercase(),
-            }
+        let side = data.side.as_ref().map(|s| match s.as_str() {
+            "1" => "buy".to_string(),
+            "2" => "sell".to_string(),
+            _ => s.to_lowercase(),
         });
 
         let trades = vec![Trade {
@@ -554,8 +632,16 @@ impl MexcWs {
             trade_type: None,
             side,
             taker_or_maker: None,
-            price: data.p.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            amount: data.v.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
+            price: data
+                .p
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            amount: data
+                .v
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
             cost: data.p.as_ref().and_then(|p| {
                 data.v.as_ref().and_then(|v| {
                     let price: Decimal = p.parse().ok()?;
@@ -568,7 +654,10 @@ impl MexcWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         }];
 
-        WsTradeEvent { symbol: unified_symbol, trades }
+        WsTradeEvent {
+            symbol: unified_symbol,
+            trades,
+        }
     }
 
     /// K선 메시지 파싱
@@ -578,11 +667,31 @@ impl MexcWs {
 
         let ohlcv = OHLCV {
             timestamp,
-            open: data.o.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            high: data.h.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            low: data.l.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            close: data.c.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-            volume: data.v.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
+            open: data
+                .o
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            high: data
+                .h
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            low: data
+                .l
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            close: data
+                .c
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
+            volume: data
+                .v
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default(),
         };
 
         WsOhlcvEvent {
@@ -617,20 +726,29 @@ impl MexcWs {
                 if channel.contains("ticker") {
                     if let Some(d) = response.d {
                         if let Ok(ticker_data) = serde_json::from_value::<MexcTickerData>(d) {
-                            return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data, symbol)));
+                            return Some(WsMessage::Ticker(Self::parse_ticker(
+                                &ticker_data,
+                                symbol,
+                            )));
                         }
                     }
                 } else if channel.contains("limit.depth") || channel.contains("depth") {
                     if let Some(d) = response.d {
                         if let Ok(depth_data) = serde_json::from_value::<MexcDepthData>(d) {
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&depth_data, symbol)));
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &depth_data,
+                                symbol,
+                            )));
                         }
                     }
                 } else if channel.contains("deals") || channel.contains("trade") {
                     if let Some(d) = response.d {
                         if let Ok(trade_data) = serde_json::from_value::<MexcDealsWrapper>(d) {
                             if let Some(first_trade) = trade_data.deals.first() {
-                                return Some(WsMessage::Trade(Self::parse_trade(first_trade, symbol)));
+                                return Some(WsMessage::Trade(Self::parse_trade(
+                                    first_trade,
+                                    symbol,
+                                )));
                             }
                         }
                     }
@@ -638,7 +756,11 @@ impl MexcWs {
                     if let Some(d) = response.d {
                         if let Ok(kline_data) = serde_json::from_value::<MexcKlineWrapper>(d) {
                             let tf = timeframe.unwrap_or(Timeframe::Minute1);
-                            return Some(WsMessage::Ohlcv(Self::parse_kline(&kline_data.k, symbol, tf)));
+                            return Some(WsMessage::Ohlcv(Self::parse_kline(
+                                &kline_data.k,
+                                symbol,
+                                tf,
+                            )));
                         }
                     }
                 }
@@ -658,7 +780,8 @@ impl MexcWs {
         serde_json::json!({
             "method": "SUBSCRIPTION",
             "params": [channel]
-        }).to_string()
+        })
+        .to_string()
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
@@ -678,6 +801,7 @@ impl MexcWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -691,7 +815,10 @@ impl MexcWs {
         // 구독 저장
         {
             let key = channel.to_string();
-            self.subscriptions.write().await.insert(key, channel_type.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel_type.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -702,19 +829,19 @@ impl MexcWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg, tf) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -738,7 +865,10 @@ impl WsExchange for MexcWs {
         client.subscribe_stream(&channel, "ticker", None).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // MEXC doesn't support batch ticker subscription, subscribe to first symbol
         if let Some(symbol) = symbols.first() {
             self.watch_ticker(symbol).await
@@ -749,7 +879,11 @@ impl WsExchange for MexcWs {
         }
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let mexc_symbol = Self::format_symbol(symbol);
         let depth = limit.unwrap_or(5);
@@ -764,47 +898,77 @@ impl WsExchange for MexcWs {
         client.subscribe_stream(&channel, "trades", None).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let mexc_symbol = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
         let channel = format!("spot@public.kline.v3.api@{mexc_symbol}@{interval}");
-        client.subscribe_stream(&channel, "ohlcv", Some(timeframe)).await
+        client
+            .subscribe_stream(&channel, "ohlcv", Some(timeframe))
+            .await
     }
 
     // === Private Streams ===
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.as_ref().ok_or(CcxtError::AuthenticationError {
-            message: "API credentials required for watch_orders".into(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or(CcxtError::AuthenticationError {
-            message: "API credentials required for watch_orders".into(),
-        })?;
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_orders".into(),
+            })?;
+        let api_secret = self
+            .api_secret
+            .as_ref()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_orders".into(),
+            })?;
 
         let mut client = Self::with_credentials(api_key, api_secret);
         client.subscribe_private_stream("orders").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.as_ref().ok_or(CcxtError::AuthenticationError {
-            message: "API credentials required for watch_my_trades".into(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or(CcxtError::AuthenticationError {
-            message: "API credentials required for watch_my_trades".into(),
-        })?;
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_my_trades".into(),
+            })?;
+        let api_secret = self
+            .api_secret
+            .as_ref()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_my_trades".into(),
+            })?;
 
         let mut client = Self::with_credentials(api_key, api_secret);
         client.subscribe_private_stream("myTrades").await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.as_ref().ok_or(CcxtError::AuthenticationError {
-            message: "API credentials required for watch_balance".into(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or(CcxtError::AuthenticationError {
-            message: "API credentials required for watch_balance".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_balance".into(),
+            })?;
+        let api_secret = self
+            .api_secret
+            .as_ref()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API credentials required for watch_balance".into(),
+            })?;
 
         let mut client = Self::with_credentials(api_key, api_secret);
         client.subscribe_private_stream("balance").await
@@ -865,25 +1029,25 @@ struct MexcWsResponse {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct MexcTickerData {
     #[serde(default)]
-    o: Option<String>,  // open
+    o: Option<String>, // open
     #[serde(default)]
-    c: Option<String>,  // close
+    c: Option<String>, // close
     #[serde(default)]
-    h: Option<String>,  // high
+    h: Option<String>, // high
     #[serde(default)]
-    l: Option<String>,  // low
+    l: Option<String>, // low
     #[serde(default)]
-    v: Option<String>,  // volume
+    v: Option<String>, // volume
     #[serde(default)]
-    q: Option<String>,  // quote volume
+    q: Option<String>, // quote volume
     #[serde(default)]
-    r: Option<String>,  // price change rate
+    r: Option<String>, // price change rate
     #[serde(default)]
-    b: Option<String>,  // bid
+    b: Option<String>, // bid
     #[serde(default)]
-    a: Option<String>,  // ask
+    a: Option<String>, // ask
     #[serde(default)]
-    t: Option<i64>,     // timestamp
+    t: Option<i64>, // timestamp
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -893,15 +1057,15 @@ struct MexcDepthData {
     #[serde(default)]
     asks: Vec<MexcDepthEntry>,
     #[serde(default)]
-    r: Option<u64>,  // version
+    r: Option<u64>, // version
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct MexcDepthEntry {
     #[serde(default)]
-    p: Option<String>,  // price
+    p: Option<String>, // price
     #[serde(default)]
-    v: Option<String>,  // volume
+    v: Option<String>, // volume
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -913,13 +1077,13 @@ struct MexcDealsWrapper {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct MexcTradeData {
     #[serde(default)]
-    p: Option<String>,  // price
+    p: Option<String>, // price
     #[serde(default)]
-    v: Option<String>,  // volume
+    v: Option<String>, // volume
     #[serde(default, rename = "S")]
-    side: Option<String>,  // side: 1=buy, 2=sell
+    side: Option<String>, // side: 1=buy, 2=sell
     #[serde(default)]
-    t: Option<i64>,     // timestamp
+    t: Option<i64>, // timestamp
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -931,19 +1095,19 @@ struct MexcKlineWrapper {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct MexcKlineData {
     #[serde(default)]
-    t: Option<i64>,     // timestamp
+    t: Option<i64>, // timestamp
     #[serde(default)]
-    o: Option<String>,  // open
+    o: Option<String>, // open
     #[serde(default)]
-    c: Option<String>,  // close
+    c: Option<String>, // close
     #[serde(default)]
-    h: Option<String>,  // high
+    h: Option<String>, // high
     #[serde(default)]
-    l: Option<String>,  // low
+    l: Option<String>, // low
     #[serde(default)]
-    v: Option<String>,  // volume
+    v: Option<String>, // volume
     #[serde(default)]
-    q: Option<String>,  // quote volume
+    q: Option<String>, // quote volume
 }
 
 // === Private Channel Types ===
@@ -951,43 +1115,43 @@ struct MexcKlineData {
 #[derive(Debug, Default, Deserialize)]
 struct MexcPrivateWsResponse {
     #[serde(default)]
-    e: Option<String>,  // event type
+    e: Option<String>, // event type
     #[serde(default, rename = "E")]
     event_time: Option<i64>,
     #[serde(default)]
-    s: Option<String>,  // symbol
+    s: Option<String>, // symbol
     #[serde(default)]
-    x: Option<String>,  // execution type (NEW, TRADE, CANCELED, etc.)
+    x: Option<String>, // execution type (NEW, TRADE, CANCELED, etc.)
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct MexcOrderUpdateData {
     #[serde(default)]
-    e: Option<String>,      // event type
+    e: Option<String>, // event type
     #[serde(default, rename = "E")]
     event_time: Option<i64>,
     #[serde(default)]
-    s: Option<String>,      // symbol
+    s: Option<String>, // symbol
     #[serde(default)]
-    c: Option<String>,      // client order id
+    c: Option<String>, // client order id
     #[serde(default, rename = "S")]
-    side: Option<String>,   // BUY/SELL
+    side: Option<String>, // BUY/SELL
     #[serde(default)]
-    o: Option<String>,      // order type (LIMIT/MARKET)
+    o: Option<String>, // order type (LIMIT/MARKET)
     #[serde(default)]
-    q: Option<String>,      // quantity
+    q: Option<String>, // quantity
     #[serde(default)]
-    p: Option<String>,      // price
+    p: Option<String>, // price
     #[serde(default, rename = "X")]
-    order_status: Option<String>,  // NEW, PARTIALLY_FILLED, FILLED, CANCELED
+    order_status: Option<String>, // NEW, PARTIALLY_FILLED, FILLED, CANCELED
     #[serde(default)]
-    i: Option<i64>,         // order id
+    i: Option<i64>, // order id
     #[serde(default)]
-    z: Option<String>,      // cumulative filled quantity
+    z: Option<String>, // cumulative filled quantity
     #[serde(default, rename = "Z")]
     cummulative_quote_qty: Option<String>,
     #[serde(default, rename = "T")]
-    time: Option<i64>,      // order time
+    time: Option<i64>, // order time
 
     // Alias fields for convenience
     #[serde(default)]
@@ -1009,29 +1173,29 @@ struct MexcOrderUpdateData {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct MexcTradeUpdateData {
     #[serde(default)]
-    e: Option<String>,      // event type
+    e: Option<String>, // event type
     #[serde(default, rename = "E")]
     event_time: Option<i64>,
     #[serde(default)]
-    s: Option<String>,      // symbol
+    s: Option<String>, // symbol
     #[serde(default)]
-    t: Option<i64>,         // trade id
+    t: Option<i64>, // trade id
     #[serde(default)]
-    p: Option<String>,      // price
+    p: Option<String>, // price
     #[serde(default)]
-    q: Option<String>,      // quantity
+    q: Option<String>, // quantity
     #[serde(default)]
-    n: Option<String>,      // commission
+    n: Option<String>, // commission
     #[serde(default, rename = "N")]
     commission_asset: Option<String>,
     #[serde(default, rename = "T")]
     trade_time: Option<i64>,
     #[serde(default)]
-    m: Option<bool>,        // is maker
+    m: Option<bool>, // is maker
     #[serde(default, rename = "S")]
-    side: Option<String>,   // BUY/SELL
+    side: Option<String>, // BUY/SELL
     #[serde(default)]
-    i: Option<i64>,         // order id
+    i: Option<i64>, // order id
 
     // Alias fields for convenience
     #[serde(default)]
@@ -1053,11 +1217,11 @@ struct MexcTradeUpdateData {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct MexcBalanceUpdateData {
     #[serde(default)]
-    e: Option<String>,      // event type
+    e: Option<String>, // event type
     #[serde(default, rename = "E")]
     event_time: Option<i64>,
     #[serde(default)]
-    u: Option<i64>,         // last account update time
+    u: Option<i64>, // last account update time
     #[serde(default, rename = "B")]
     balances: Vec<MexcBalanceItem>,
 }
@@ -1065,11 +1229,11 @@ struct MexcBalanceUpdateData {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct MexcBalanceItem {
     #[serde(default)]
-    a: Option<String>,      // asset (currency)
+    a: Option<String>, // asset (currency)
     #[serde(default)]
-    f: Option<String>,      // free balance
+    f: Option<String>, // free balance
     #[serde(default)]
-    l: Option<String>,      // locked balance
+    l: Option<String>, // locked balance
 }
 
 #[cfg(test)]
@@ -1305,42 +1469,60 @@ mod tests {
             order_status: Some("NEW".to_string()),
             ..Default::default()
         };
-        assert_eq!(MexcWs::parse_order_update(&data).order.status, OrderStatus::Open);
+        assert_eq!(
+            MexcWs::parse_order_update(&data).order.status,
+            OrderStatus::Open
+        );
 
         // PARTIALLY_FILLED
         let data = MexcOrderUpdateData {
             order_status: Some("PARTIALLY_FILLED".to_string()),
             ..Default::default()
         };
-        assert_eq!(MexcWs::parse_order_update(&data).order.status, OrderStatus::Open);
+        assert_eq!(
+            MexcWs::parse_order_update(&data).order.status,
+            OrderStatus::Open
+        );
 
         // FILLED
         let data = MexcOrderUpdateData {
             order_status: Some("FILLED".to_string()),
             ..Default::default()
         };
-        assert_eq!(MexcWs::parse_order_update(&data).order.status, OrderStatus::Closed);
+        assert_eq!(
+            MexcWs::parse_order_update(&data).order.status,
+            OrderStatus::Closed
+        );
 
         // CANCELED
         let data = MexcOrderUpdateData {
             order_status: Some("CANCELED".to_string()),
             ..Default::default()
         };
-        assert_eq!(MexcWs::parse_order_update(&data).order.status, OrderStatus::Canceled);
+        assert_eq!(
+            MexcWs::parse_order_update(&data).order.status,
+            OrderStatus::Canceled
+        );
 
         // REJECTED
         let data = MexcOrderUpdateData {
             order_status: Some("REJECTED".to_string()),
             ..Default::default()
         };
-        assert_eq!(MexcWs::parse_order_update(&data).order.status, OrderStatus::Canceled);
+        assert_eq!(
+            MexcWs::parse_order_update(&data).order.status,
+            OrderStatus::Canceled
+        );
 
         // EXPIRED
         let data = MexcOrderUpdateData {
             order_status: Some("EXPIRED".to_string()),
             ..Default::default()
         };
-        assert_eq!(MexcWs::parse_order_update(&data).order.status, OrderStatus::Canceled);
+        assert_eq!(
+            MexcWs::parse_order_update(&data).order.status,
+            OrderStatus::Canceled
+        );
     }
 
     #[test]
@@ -1442,7 +1624,8 @@ mod tests {
     #[test]
     fn test_balance_update_event() {
         // Test balanceUpdate event type (alternative to outboundAccountPosition)
-        let msg = r#"{"e":"balanceUpdate","E":1699123456789,"B":[{"a":"BTC","f":"2.0","l":"0.5"}]}"#;
+        let msg =
+            r#"{"e":"balanceUpdate","E":1699123456789,"B":[{"a":"BTC","f":"2.0","l":"0.5"}]}"#;
 
         let result = MexcWs::process_private_message(msg);
         assert!(result.is_some());

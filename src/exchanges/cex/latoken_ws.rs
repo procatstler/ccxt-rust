@@ -15,13 +15,13 @@ use tokio_tungstenite::{
 };
 
 use chrono::Utc;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://api.latoken.com/stomp";
@@ -57,7 +57,11 @@ impl StompFrame {
         let body: String = lines.collect::<Vec<_>>().join("\n");
         let body = body.trim_end_matches('\0').to_string();
 
-        Some(Self { command, headers, body })
+        Some(Self {
+            command,
+            headers,
+            body,
+        })
     }
 
     /// Build a STOMP frame for sending
@@ -128,10 +132,7 @@ impl LatokenWs {
         if let Some(ws) = &self.ws_stream {
             let connect_frame = StompFrame::build(
                 "CONNECT",
-                &[
-                    ("accept-version", "1.1,1.2"),
-                    ("heart-beat", "10000,10000"),
-                ],
+                &[("accept-version", "1.1,1.2"), ("heart-beat", "10000,10000")],
                 None,
             );
 
@@ -197,17 +198,18 @@ impl LatokenWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Some(frame) = StompFrame::parse(&text) {
-                                Self::handle_stomp_frame(&frame, &subscriptions, &orderbook_cache).await;
+                                Self::handle_stomp_frame(&frame, &subscriptions, &orderbook_cache)
+                                    .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -222,25 +224,30 @@ impl LatokenWs {
     ) {
         match frame.command.as_str() {
             "MESSAGE" => {
-                let destination = frame.headers.get("destination").map(|s| s.as_str()).unwrap_or("");
+                let destination = frame
+                    .headers
+                    .get("destination")
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
 
                 if let Ok(body) = serde_json::from_str::<Value>(&frame.body) {
                     if destination.starts_with("/v1/book/") {
-                        Self::handle_orderbook(&body, destination, subscriptions, orderbook_cache).await;
+                        Self::handle_orderbook(&body, destination, subscriptions, orderbook_cache)
+                            .await;
                     } else if destination.starts_with("/v1/trade/") {
                         Self::handle_trades(&body, destination, subscriptions).await;
                     } else if destination.starts_with("/v1/ticker") {
                         Self::handle_ticker(&body, destination, subscriptions).await;
                     }
                 }
-            }
+            },
             "CONNECTED" => {
                 // Connection established
-            }
+            },
             "ERROR" => {
                 // Handle error frame
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -292,7 +299,8 @@ impl LatokenWs {
         bids.sort_by(|a, b| b.price.cmp(&a.price));
         asks.sort_by(|a, b| a.price.cmp(&b.price));
 
-        let timestamp = data.get("timestamp")
+        let timestamp = data
+            .get("timestamp")
             .and_then(|v| v.as_i64())
             .or_else(|| Some(Utc::now().timestamp_millis()));
 
@@ -300,6 +308,7 @@ impl LatokenWs {
             symbol: symbol.clone(),
             bids,
             asks,
+            checksum: None,
             timestamp,
             datetime: None,
             nonce: data.get("nonce").and_then(|v| v.as_i64()),
@@ -350,28 +359,26 @@ impl LatokenWs {
             let price = Self::parse_decimal(trade_data.get("price").unwrap_or(&Value::Null));
             let amount = Self::parse_decimal(trade_data.get("quantity").unwrap_or(&Value::Null));
 
-            let timestamp = trade_data.get("timestamp")
+            let timestamp = trade_data
+                .get("timestamp")
                 .and_then(|v| v.as_i64())
                 .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let trade_id = trade_data.get("id")
+            let trade_id = trade_data
+                .get("id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| timestamp.to_string());
 
-            let mut trade = Trade::new(
-                trade_id,
-                symbol.clone(),
-                price,
-                amount,
-            );
+            let mut trade = Trade::new(trade_id, symbol.clone(), price, amount);
 
             trade = trade.with_timestamp(timestamp);
 
             // Direction: "buy" or "sell"
             if let Some(direction) = trade_data.get("direction").and_then(|v| v.as_str()) {
                 trade = trade.with_side(direction);
-            } else if let Some(maker_buyer) = trade_data.get("makerBuyer").and_then(|v| v.as_bool()) {
+            } else if let Some(maker_buyer) = trade_data.get("makerBuyer").and_then(|v| v.as_bool())
+            {
                 let side = if maker_buyer { "sell" } else { "buy" };
                 trade = trade.with_side(side);
             }
@@ -382,10 +389,7 @@ impl LatokenWs {
         if !trades.is_empty() {
             let subs = subscriptions.read().await;
             if let Some(sender) = subs.get(&key) {
-                let _ = sender.send(WsMessage::Trade(WsTradeEvent {
-                    symbol,
-                    trades,
-                }));
+                let _ = sender.send(WsMessage::Trade(WsTradeEvent { symbol, trades }));
             }
         }
     }
@@ -404,8 +408,14 @@ impl LatokenWs {
         } else {
             // For /v1/ticker (all tickers), extract from payload
             let payload = data.get("payload").unwrap_or(data);
-            let b = payload.get("baseCurrency").and_then(|v| v.as_str()).unwrap_or("");
-            let q = payload.get("quoteCurrency").and_then(|v| v.as_str()).unwrap_or("");
+            let b = payload
+                .get("baseCurrency")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let q = payload
+                .get("quoteCurrency")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             (b, q)
         };
 
@@ -413,7 +423,8 @@ impl LatokenWs {
         let key = format!("ticker:{symbol}");
 
         let payload = data.get("payload").unwrap_or(data);
-        let timestamp = data.get("timestamp")
+        let timestamp = data
+            .get("timestamp")
             .and_then(|v| v.as_i64())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -444,10 +455,7 @@ impl LatokenWs {
 
         let subs = subscriptions.read().await;
         if let Some(sender) = subs.get(&key) {
-            let _ = sender.send(WsMessage::Ticker(WsTickerEvent {
-                symbol,
-                ticker,
-            }));
+            let _ = sender.send(WsMessage::Ticker(WsTickerEvent { symbol, ticker }));
         }
     }
 
@@ -543,7 +551,10 @@ impl WsExchange for LatokenWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -659,14 +670,19 @@ impl WsExchange for LatokenWs {
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Private streams require authentication
         Err(CcxtError::NotSupported {
-            feature: "LATOKEN WebSocket private streams - authentication not yet implemented".to_string(),
+            feature: "LATOKEN WebSocket private streams - authentication not yet implemented"
+                .to_string(),
         })
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Private streams require authentication
         Err(CcxtError::NotSupported {
-            feature: "LATOKEN WebSocket private streams - authentication not yet implemented".to_string(),
+            feature: "LATOKEN WebSocket private streams - authentication not yet implemented"
+                .to_string(),
         })
     }
 }
@@ -683,8 +699,14 @@ mod tests {
     #[test]
     fn test_format_symbol() {
         let ws = LatokenWs::new();
-        assert_eq!(ws.format_symbol("BTC/USDT"), ("btc".to_string(), "usdt".to_string()));
-        assert_eq!(ws.format_symbol("ETH/BTC"), ("eth".to_string(), "btc".to_string()));
+        assert_eq!(
+            ws.format_symbol("BTC/USDT"),
+            ("btc".to_string(), "usdt".to_string())
+        );
+        assert_eq!(
+            ws.format_symbol("ETH/BTC"),
+            ("eth".to_string(), "btc".to_string())
+        );
     }
 
     #[test]
@@ -710,14 +732,20 @@ mod tests {
         let raw = "MESSAGE\ndestination:/v1/book/btc/usdt\ncontent-type:application/json\n\n{\"test\":true}\0";
         let frame = StompFrame::parse(raw).unwrap();
         assert_eq!(frame.command, "MESSAGE");
-        assert_eq!(frame.headers.get("destination"), Some(&"/v1/book/btc/usdt".to_string()));
+        assert_eq!(
+            frame.headers.get("destination"),
+            Some(&"/v1/book/btc/usdt".to_string())
+        );
         assert_eq!(frame.body, "{\"test\":true}");
     }
 
     #[test]
     fn test_parse_decimal() {
         use serde_json::json;
-        assert_eq!(LatokenWs::parse_decimal(&json!("123.45")), Decimal::new(12345, 2));
+        assert_eq!(
+            LatokenWs::parse_decimal(&json!("123.45")),
+            Decimal::new(12345, 2)
+        );
         assert_eq!(LatokenWs::parse_decimal(&json!(100)), Decimal::from(100));
     }
 }

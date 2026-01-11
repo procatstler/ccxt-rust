@@ -17,9 +17,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -163,14 +163,11 @@ impl Ndax {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let session_token = self
-            .session_token
-            .read()
-            .unwrap()
-            .clone()
-            .ok_or_else(|| CcxtError::AuthenticationError {
+        let session_token = self.session_token.read().unwrap().clone().ok_or_else(|| {
+            CcxtError::AuthenticationError {
                 message: "Session token required. Call sign_in first.".into(),
-            })?;
+            }
+        })?;
 
         let mut headers = HashMap::new();
         headers.insert("Content-Type".into(), "application/json".into());
@@ -191,12 +188,12 @@ impl Ndax {
                     format!("{endpoint}?{query}")
                 };
                 self.private_client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
                 self.private_client
                     .post(endpoint, Some(body), Some(headers))
                     .await
-            }
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -244,8 +241,12 @@ impl Ndax {
             strike: None,
             option_type: None,
             precision: MarketPrecision {
-                amount: market_data.quantity_increment.map(|d| d.to_string().len() as i32 - 2),
-                price: market_data.price_increment.map(|d| d.to_string().len() as i32 - 2),
+                amount: market_data
+                    .quantity_increment
+                    .map(|d| d.to_string().len() as i32 - 2),
+                price: market_data
+                    .price_increment
+                    .map(|d| d.to_string().len() as i32 - 2),
                 cost: None,
                 base: None,
                 quote: None,
@@ -474,9 +475,7 @@ impl Exchange for Ndax {
         let mut params = HashMap::new();
         params.insert("omsId".into(), self.oms_id.to_string());
 
-        let response: Vec<NdaxMarket> = self
-            .public_get("/GetInstruments", Some(params))
-            .await?;
+        let response: Vec<NdaxMarket> = self.public_get("/GetInstruments", Some(params)).await?;
 
         let markets: Vec<Market> = response.iter().map(|m| self.parse_market(m)).collect();
 
@@ -486,11 +485,9 @@ impl Exchange for Ndax {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            let market = markets
-                .get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol {
-                    symbol: symbol.to_string(),
-                })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
             market.id.clone()
         };
 
@@ -506,11 +503,9 @@ impl Exchange for Ndax {
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            let market = markets
-                .get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol {
-                    symbol: symbol.to_string(),
-                })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
             market.id.clone()
         };
 
@@ -577,6 +572,7 @@ impl Exchange for Ndax {
             nonce,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -588,11 +584,9 @@ impl Exchange for Ndax {
     ) -> CcxtResult<Vec<Trade>> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            let market = markets
-                .get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol {
-                    symbol: symbol.to_string(),
-                })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
             market.id.clone()
         };
 
@@ -603,7 +597,10 @@ impl Exchange for Ndax {
 
         let response: Vec<NdaxTrade> = self.public_get("/GetLastTrades", Some(params)).await?;
 
-        let trades: Vec<Trade> = response.iter().map(|t| self.parse_trade(t, symbol)).collect();
+        let trades: Vec<Trade> = response
+            .iter()
+            .map(|t| self.parse_trade(t, symbol))
+            .collect();
 
         Ok(trades)
     }
@@ -617,19 +614,18 @@ impl Exchange for Ndax {
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            let market = markets
-                .get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol {
-                    symbol: symbol.to_string(),
-                })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
             market.id.clone()
         };
 
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| {
-            CcxtError::BadRequest {
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
-            }
-        })?;
+            })?;
 
         let mut params = HashMap::new();
         params.insert("omsId".into(), self.oms_id.to_string());
@@ -672,9 +668,7 @@ impl Exchange for Ndax {
             params.insert("ToDate".into(), to_date);
         }
 
-        let response: Vec<Vec<Value>> = self
-            .public_get("/GetTickerHistory", Some(params))
-            .await?;
+        let response: Vec<Vec<Value>> = self.public_get("/GetTickerHistory", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
@@ -718,11 +712,9 @@ impl Exchange for Ndax {
     ) -> CcxtResult<Order> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            let market = markets
-                .get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol {
-                    symbol: symbol.to_string(),
-                })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
             market.id.clone()
         };
 
@@ -735,7 +727,7 @@ impl Exchange for Ndax {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type: {order_type:?}"),
                 })
-            }
+            },
         };
 
         let side_id = match side {
@@ -745,7 +737,10 @@ impl Exchange for Ndax {
 
         let mut params = HashMap::new();
         params.insert("omsId".into(), Value::from(self.oms_id));
-        params.insert("InstrumentId".into(), Value::from(market_id.parse::<i32>().unwrap_or(0)));
+        params.insert(
+            "InstrumentId".into(),
+            Value::from(market_id.parse::<i32>().unwrap_or(0)),
+        );
         params.insert("AccountId".into(), Value::from(0)); // Will be set from account
         params.insert("TimeInForce".into(), Value::from(1)); // GTC
         params.insert("Side".into(), Value::from(side_id));
@@ -764,7 +759,10 @@ impl Exchange for Ndax {
     async fn cancel_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let mut params = HashMap::new();
         params.insert("omsId".into(), Value::from(self.oms_id));
-        params.insert("OrderId".into(), Value::from(id.parse::<i64>().unwrap_or(0)));
+        params.insert(
+            "OrderId".into(),
+            Value::from(id.parse::<i64>().unwrap_or(0)),
+        );
         params.insert("AccountId".into(), Value::from(0)); // Will be set from account
 
         let response: NdaxOrder = self.private_request("POST", "/CancelOrder", params).await?;
@@ -775,7 +773,10 @@ impl Exchange for Ndax {
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let mut params = HashMap::new();
         params.insert("omsId".into(), Value::from(self.oms_id));
-        params.insert("OrderId".into(), Value::from(id.parse::<i64>().unwrap_or(0)));
+        params.insert(
+            "OrderId".into(),
+            Value::from(id.parse::<i64>().unwrap_or(0)),
+        );
 
         let response: NdaxOrder = self
             .private_request("GET", "/GetOrderStatus", params)
@@ -862,10 +863,7 @@ impl Exchange for Ndax {
             .private_request("GET", "/GetTradesHistory", params)
             .await?;
 
-        let trades: Vec<Trade> = response
-            .iter()
-            .map(|t| self.parse_trade(t, ""))
-            .collect();
+        let trades: Vec<Trade> = response.iter().map(|t| self.parse_trade(t, "")).collect();
 
         Ok(trades)
     }

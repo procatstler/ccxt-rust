@@ -14,8 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderType,
+    SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// dYdX 거래소
@@ -100,10 +101,7 @@ impl Dydx {
     }
 
     /// 공개 API 호출
-    async fn public_get<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> CcxtResult<T> {
+    async fn public_get<T: serde::de::DeserializeOwned>(&self, path: &str) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
         self.client.get(path, None, None).await
     }
@@ -280,24 +278,48 @@ impl Exchange for Dydx {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
-            high: market_data.oracle_price.as_ref().and_then(|s| s.parse().ok()),
-            low: market_data.oracle_price.as_ref().and_then(|s| s.parse().ok()),
-            bid: market_data.index_price.as_ref().and_then(|s| s.parse().ok()),
+            high: market_data
+                .oracle_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
+            low: market_data
+                .oracle_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
+            bid: market_data
+                .index_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             bid_volume: None,
-            ask: market_data.index_price.as_ref().and_then(|s| s.parse().ok()),
+            ask: market_data
+                .index_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             ask_volume: None,
             vwap: None,
             open: None,
-            close: market_data.oracle_price.as_ref().and_then(|s| s.parse().ok()),
-            last: market_data.oracle_price.as_ref().and_then(|s| s.parse().ok()),
+            close: market_data
+                .oracle_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
+            last: market_data
+                .oracle_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             previous_close: None,
             change: None,
             percentage: None,
             average: None,
             base_volume: market_data.volume_24h.as_ref().and_then(|s| s.parse().ok()),
             quote_volume: None,
-            index_price: market_data.index_price.as_ref().and_then(|s| s.parse().ok()),
-            mark_price: market_data.oracle_price.as_ref().and_then(|s| s.parse().ok()),
+            index_price: market_data
+                .index_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
+            mark_price: market_data
+                .oracle_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             info: serde_json::to_value(&market_data).unwrap_or_default(),
         })
     }
@@ -327,21 +349,31 @@ impl Exchange for Dydx {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let path = format!("/trades/{market_id}");
         let response: DydxTradesResponse = self.public_get(&path).await?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.trades.iter()
+        let trades: Vec<Trade> = response
+            .trades
+            .iter()
             .take(limit)
             .filter_map(|t| {
-                let timestamp = t.created_at.as_ref()
+                let timestamp = t
+                    .created_at
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -383,10 +415,12 @@ impl Exchange for Dydx {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let resolution = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::NotSupported {
-                feature: format!("Timeframe {timeframe:?}"),
-            })?;
+        let resolution =
+            self.timeframes
+                .get(&timeframe)
+                .ok_or_else(|| CcxtError::NotSupported {
+                    feature: format!("Timeframe {timeframe:?}"),
+                })?;
 
         let path = format!("/candles/{market_id}");
 
@@ -405,9 +439,13 @@ impl Exchange for Dydx {
 
         let response: DydxCandlesResponse = self.public_get(&full_path).await?;
 
-        let ohlcv: Vec<OHLCV> = response.candles.iter()
+        let ohlcv: Vec<OHLCV> = response
+            .candles
+            .iter()
             .filter_map(|c| {
-                let timestamp = c.started_at.as_ref()
+                let timestamp = c
+                    .started_at
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())?;
 
@@ -633,8 +671,17 @@ mod tests {
     fn test_timeframes() {
         let config = ExchangeConfig::new();
         let exchange = Dydx::new(config).unwrap();
-        assert_eq!(exchange.timeframes().get(&Timeframe::Minute1), Some(&"1MIN".to_string()));
-        assert_eq!(exchange.timeframes().get(&Timeframe::Hour1), Some(&"1HOUR".to_string()));
-        assert_eq!(exchange.timeframes().get(&Timeframe::Day1), Some(&"1DAY".to_string()));
+        assert_eq!(
+            exchange.timeframes().get(&Timeframe::Minute1),
+            Some(&"1MIN".to_string())
+        );
+        assert_eq!(
+            exchange.timeframes().get(&Timeframe::Hour1),
+            Some(&"1HOUR".to_string())
+        );
+        assert_eq!(
+            exchange.timeframes().get(&Timeframe::Day1),
+            Some(&"1DAY".to_string())
+        );
     }
 }

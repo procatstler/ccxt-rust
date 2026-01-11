@@ -19,9 +19,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage,
-    WsOrderBookEvent, WsOrderEvent, WsOhlcvEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -240,8 +240,8 @@ impl DefxWs {
     /// Generate authentication signature
     fn generate_auth_signature(secret: &str, timestamp: i64, nonce: &str) -> String {
         let payload = format!("{timestamp}{nonce}");
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(payload.as_bytes());
         let result = mac.finalize();
         hex::encode(result.into_bytes())
@@ -249,26 +249,60 @@ impl DefxWs {
 
     /// Parse ticker data
     fn parse_ticker(data: &DefxWsTicker, symbol: &str) -> Ticker {
-        let last = data.last_price.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let open = data.open_price.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let high = data.high_price.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let low = data.low_price.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let bid = data.best_bid_price.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let bid_volume = data.best_bid_qty.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let ask = data.best_ask_price.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let ask_volume = data.best_ask_qty.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let last = data
+            .last_price
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let open = data
+            .open_price
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let high = data
+            .high_price
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let low = data
+            .low_price
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let bid = data
+            .best_bid_price
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let bid_volume = data
+            .best_bid_qty
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let ask = data
+            .best_ask_price
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let ask_volume = data
+            .best_ask_qty
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
         let base_volume = data.volume.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let quote_volume = data.quote_volume.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let change = data.price_change.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let percentage = data.price_change_percent.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let quote_volume = data
+            .quote_volume
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let change = data
+            .price_change
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let percentage = data
+            .price_change_percent
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
 
-        let timestamp = data.close_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .close_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             high,
             low,
             bid,
@@ -293,7 +327,9 @@ impl DefxWs {
 
     /// Parse order book data
     fn parse_order_book(data: &DefxWsOrderBook, symbol: &str) -> OrderBook {
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     let price = Decimal::from_str(&entry[0]).ok()?;
@@ -305,7 +341,9 @@ impl DefxWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     let price = Decimal::from_str(&entry[0]).ok()?;
@@ -322,11 +360,11 @@ impl DefxWs {
         OrderBook {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             nonce: data.last_update_id,
             bids,
             asks,
+            checksum: None,
         }
     }
 
@@ -341,13 +379,17 @@ impl DefxWs {
                 } else {
                     Some("buy".to_string())
                 }
-            }
+            },
         };
 
-        let price = data.price.as_ref()
+        let price = data
+            .price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let amount = data.qty.as_ref()
+        let amount = data
+            .qty
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
         let cost = Some(price * amount);
@@ -358,8 +400,7 @@ impl DefxWs {
             id: data.id.clone().unwrap_or_default(),
             order: None,
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             symbol: symbol.to_string(),
             trade_type: None,
             side,
@@ -409,25 +450,29 @@ impl DefxWs {
             _ => OrderStatus::Open,
         };
 
-        let amount = data.quantity.as_ref()
+        let amount = data
+            .quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let price = data.price.as_ref()
-            .and_then(|s| Decimal::from_str(s).ok());
-        let filled = data.filled_quantity.as_ref()
+        let price = data.price.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let filled = data
+            .filled_quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let remaining = data.remaining_quantity.as_ref()
+        let remaining = data
+            .remaining_quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
         Order {
             id: data.order_id.clone().unwrap_or_default(),
             client_order_id: data.client_order_id.clone(),
             timestamp: data.created_at,
-            datetime: data.created_at.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .created_at
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             last_trade_timestamp: data.updated_at,
             last_update_timestamp: None,
             status,
@@ -464,12 +509,15 @@ impl DefxWs {
             _ => data.total.as_ref().and_then(|s| Decimal::from_str(s).ok()),
         };
 
-        Some((currency, Balance {
-            free,
-            used,
-            total,
-            debt: None,
-        }))
+        Some((
+            currency,
+            Balance {
+                free,
+                used,
+                total,
+                debt: None,
+            },
+        ))
     }
 
     /// Process WebSocket message
@@ -487,20 +535,24 @@ impl DefxWs {
         if let Some(data_val) = data {
             match message_type {
                 Some("ticker") => {
-                    if let Ok(ticker_data) = serde_json::from_value::<DefxWsTicker>(data_val.clone()) {
-                        let symbol = ticker_data.symbol.as_ref()
+                    if let Ok(ticker_data) =
+                        serde_json::from_value::<DefxWsTicker>(data_val.clone())
+                    {
+                        let symbol = ticker_data
+                            .symbol
+                            .as_ref()
                             .map(|s| Self::to_unified_symbol(s))
                             .unwrap_or_default();
                         let ticker = Self::parse_ticker(&ticker_data, &symbol);
-                        let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent {
-                            symbol,
-                            ticker,
-                        }));
+                        let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent { symbol, ticker }));
                     }
-                }
+                },
                 Some("depth") | Some("orderbook") => {
-                    if let Ok(ob_data) = serde_json::from_value::<DefxWsOrderBook>(data_val.clone()) {
-                        let symbol = ob_data.symbol.as_ref()
+                    if let Ok(ob_data) = serde_json::from_value::<DefxWsOrderBook>(data_val.clone())
+                    {
+                        let symbol = ob_data
+                            .symbol
+                            .as_ref()
                             .map(|s| Self::to_unified_symbol(s))
                             .unwrap_or_default();
                         let order_book = Self::parse_order_book(&ob_data, &symbol);
@@ -510,11 +562,14 @@ impl DefxWs {
                             is_snapshot: true,
                         }));
                     }
-                }
+                },
                 Some("trade") | Some("trades") => {
                     // Try single trade first
-                    if let Ok(trade_data) = serde_json::from_value::<DefxWsTrade>(data_val.clone()) {
-                        let symbol = trade_data.symbol.as_ref()
+                    if let Ok(trade_data) = serde_json::from_value::<DefxWsTrade>(data_val.clone())
+                    {
+                        let symbol = trade_data
+                            .symbol
+                            .as_ref()
                             .map(|s| Self::to_unified_symbol(s))
                             .unwrap_or_default();
                         let trade = Self::parse_trade(&trade_data, &symbol);
@@ -522,12 +577,17 @@ impl DefxWs {
                             symbol,
                             trades: vec![trade],
                         }));
-                    } else if let Ok(trades) = serde_json::from_value::<Vec<DefxWsTrade>>(data_val.clone()) {
+                    } else if let Ok(trades) =
+                        serde_json::from_value::<Vec<DefxWsTrade>>(data_val.clone())
+                    {
                         if let Some(first) = trades.first() {
-                            let symbol = first.symbol.as_ref()
+                            let symbol = first
+                                .symbol
+                                .as_ref()
                                 .map(|s| Self::to_unified_symbol(s))
                                 .unwrap_or_default();
-                            let parsed_trades: Vec<Trade> = trades.iter()
+                            let parsed_trades: Vec<Trade> = trades
+                                .iter()
                                 .map(|t| Self::parse_trade(t, &symbol))
                                 .collect();
                             let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
@@ -536,10 +596,13 @@ impl DefxWs {
                             }));
                         }
                     }
-                }
+                },
                 Some("kline") | Some("candle") => {
-                    if let Ok(kline_data) = serde_json::from_value::<DefxWsKline>(data_val.clone()) {
-                        let symbol = kline_data.symbol.as_ref()
+                    if let Ok(kline_data) = serde_json::from_value::<DefxWsKline>(data_val.clone())
+                    {
+                        let symbol = kline_data
+                            .symbol
+                            .as_ref()
                             .map(|s| Self::to_unified_symbol(s))
                             .unwrap_or_default();
                         if let Some(ohlcv) = Self::parse_ohlcv(&kline_data) {
@@ -550,32 +613,33 @@ impl DefxWs {
                             }));
                         }
                     }
-                }
+                },
                 Some("order") | Some("orderUpdate") => {
-                    if let Ok(order_data) = serde_json::from_value::<DefxWsOrder>(data_val.clone()) {
-                        let symbol = order_data.symbol.as_ref()
+                    if let Ok(order_data) = serde_json::from_value::<DefxWsOrder>(data_val.clone())
+                    {
+                        let symbol = order_data
+                            .symbol
+                            .as_ref()
                             .map(|s| Self::to_unified_symbol(s))
                             .unwrap_or_default();
                         let order = Self::parse_order(&order_data, &symbol);
-                        let _ = event_tx.send(WsMessage::Order(WsOrderEvent {
-                            order,
-                        }));
+                        let _ = event_tx.send(WsMessage::Order(WsOrderEvent { order }));
                     }
-                }
+                },
                 Some("balance") | Some("balanceUpdate") => {
-                    if let Ok(balance_data) = serde_json::from_value::<Vec<DefxWsBalance>>(data_val.clone()) {
+                    if let Ok(balance_data) =
+                        serde_json::from_value::<Vec<DefxWsBalance>>(data_val.clone())
+                    {
                         let mut balances = Balances::new();
                         for b in &balance_data {
                             if let Some((currency, balance)) = Self::parse_balance(b) {
                                 balances.add(&currency, balance);
                             }
                         }
-                        let _ = event_tx.send(WsMessage::Balance(WsBalanceEvent {
-                            balances,
-                        }));
+                        let _ = event_tx.send(WsMessage::Balance(WsBalanceEvent { balances }));
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -599,6 +663,7 @@ impl DefxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -644,15 +709,16 @@ impl DefxWs {
                 match event {
                     WsEvent::Message(msg) => {
                         let _ = Self::process_message(&msg, &event_tx);
-                    }
-                    WsEvent::Connected => {}
+                    },
+                    WsEvent::Connected => {},
                     WsEvent::Disconnected => {
                         break;
-                    }
+                    },
                     WsEvent::Error(e) => {
                         eprintln!("Defx WebSocket error: {e}");
-                    }
-                    WsEvent::Ping | WsEvent::Pong => {}
+                    },
+                    WsEvent::Ping | WsEvent::Pong => {},
+                    _ => {},
                 }
             }
             let mut subs = subscriptions.write().await;
@@ -664,7 +730,10 @@ impl DefxWs {
     }
 
     /// Subscribe to orders (private)
-    pub async fn watch_orders(&mut self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    pub async fn watch_orders(
+        &mut self,
+        symbol: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let market_id = Self::format_symbol(symbol);
         self.subscribe_stream("orders", &market_id, true).await
     }
@@ -701,7 +770,11 @@ impl WsExchange for DefxWs {
         ws.subscribe_stream("ticker", &market_id, false).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let market_id = Self::format_symbol(symbol);
         ws.subscribe_stream("depth", &market_id, false).await
@@ -713,7 +786,11 @@ impl WsExchange for DefxWs {
         ws.subscribe_stream("trades", &market_id, false).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let market_id = Self::format_symbol(symbol);
         let channel = format!("kline_{}", Self::format_interval(timeframe));
@@ -729,6 +806,7 @@ impl WsExchange for DefxWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 20,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             let _ = ws_client.connect().await?;

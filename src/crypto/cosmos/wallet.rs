@@ -21,10 +21,10 @@
 //! let signature = wallet.sign_bytes(b"Hello, dYdX!")?;
 //! ```
 
-use crate::errors::CcxtResult;
-use super::keys::{derive_private_key, parse_private_key, CosmosKeyPair};
 use super::address::{public_key_to_address, ChainConfig};
-use super::signer::{sign_bytes, sign_amino, verify_signature, CosmosSignature};
+use super::keys::{derive_private_key, parse_private_key, CosmosKeyPair};
+use super::signer::{sign_amino, sign_bytes, verify_signature, CosmosSignature};
+use crate::errors::CcxtResult;
 
 /// Cosmos 지갑
 ///
@@ -50,11 +50,7 @@ impl CosmosWallet {
     /// # Returns
     ///
     /// CosmosWallet 인스턴스
-    pub fn from_mnemonic(
-        mnemonic: &str,
-        config: &ChainConfig,
-        index: u32,
-    ) -> CcxtResult<Self> {
+    pub fn from_mnemonic(mnemonic: &str, config: &ChainConfig, index: u32) -> CcxtResult<Self> {
         let keypair = derive_private_key(mnemonic, config.coin_type, index)?;
         let address = public_key_to_address(&keypair.public_key, config.address_prefix)?;
 
@@ -75,10 +71,7 @@ impl CosmosWallet {
     /// # Returns
     ///
     /// CosmosWallet 인스턴스
-    pub fn from_private_key(
-        private_key: [u8; 32],
-        config: &ChainConfig,
-    ) -> CcxtResult<Self> {
+    pub fn from_private_key(private_key: [u8; 32], config: &ChainConfig) -> CcxtResult<Self> {
         let keypair = CosmosKeyPair::from_private_key(private_key)?;
         let address = public_key_to_address(&keypair.public_key, config.address_prefix)?;
 
@@ -99,10 +92,7 @@ impl CosmosWallet {
     /// # Returns
     ///
     /// CosmosWallet 인스턴스
-    pub fn from_private_key_hex(
-        hex_key: &str,
-        config: &ChainConfig,
-    ) -> CcxtResult<Self> {
+    pub fn from_private_key_hex(hex_key: &str, config: &ChainConfig) -> CcxtResult<Self> {
         let private_key = parse_private_key(hex_key)?;
         Self::from_private_key(private_key, config)
     }
@@ -233,17 +223,13 @@ impl CosmosWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::cosmos::address::{DYDX_MAINNET, COSMOS_HUB};
+    use crate::crypto::cosmos::address::{COSMOS_HUB, DYDX_MAINNET};
 
     const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     #[test]
     fn test_wallet_from_mnemonic() {
-        let wallet = CosmosWallet::from_mnemonic(
-            TEST_MNEMONIC,
-            &DYDX_MAINNET,
-            0,
-        ).unwrap();
+        let wallet = CosmosWallet::from_mnemonic(TEST_MNEMONIC, &DYDX_MAINNET, 0).unwrap();
 
         assert!(wallet.address().starts_with("dydx1"));
         assert_eq!(wallet.config().name, "dYdX v4 Mainnet");

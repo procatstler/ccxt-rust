@@ -9,10 +9,9 @@ use std::collections::HashMap;
 use crate::client::ExchangeConfig;
 use crate::errors::CcxtResult;
 use crate::types::{
-    Balances, Currency, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    FundingRate, FundingRateHistory, Leverage, Market, MarginMode, MarginModeInfo,
-    Order, OrderBook, OrderSide, OrderType, Position, SignedRequest,
-    Ticker, Timeframe, Trade, Transaction, OHLCV,
+    Balances, Currency, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, FundingRate,
+    FundingRateHistory, Leverage, MarginMode, MarginModeInfo, Market, Order, OrderBook, OrderSide,
+    OrderType, Position, SignedRequest, Ticker, Timeframe, Trade, Transaction, OHLCV,
 };
 
 use super::kucoin_futures::KucoinFutures;
@@ -142,7 +141,9 @@ impl Exchange for Kucoinfutures {
         amount: Decimal,
         price: Option<Decimal>,
     ) -> CcxtResult<Order> {
-        self.0.create_order(symbol, order_type, side, amount, price).await
+        self.0
+            .create_order(symbol, order_type, side, amount, price)
+            .await
     }
 
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
@@ -225,7 +226,9 @@ impl Exchange for Kucoinfutures {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> CcxtResult<Vec<FundingRateHistory>> {
-        self.0.fetch_funding_rate_history(symbol, since, limit).await
+        self.0
+            .fetch_funding_rate_history(symbol, since, limit)
+            .await
     }
 
     async fn set_margin_mode(

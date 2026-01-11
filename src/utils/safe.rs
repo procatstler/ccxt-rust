@@ -220,14 +220,20 @@ mod tests {
     #[test]
     fn test_safe_string2() {
         let obj = json!({"symbol": "BTCUSDT"});
-        assert_eq!(safe_string2(&obj, "id", "symbol"), Some("BTCUSDT".to_string()));
+        assert_eq!(
+            safe_string2(&obj, "id", "symbol"),
+            Some("BTCUSDT".to_string())
+        );
         assert_eq!(safe_string2(&obj, "missing1", "missing2"), None);
     }
 
     #[test]
     fn test_safe_string_n() {
         let obj = json!({"s": "BTC"});
-        assert_eq!(safe_string_n(&obj, &["symbol", "sym", "s"]), Some("BTC".to_string()));
+        assert_eq!(
+            safe_string_n(&obj, &["symbol", "sym", "s"]),
+            Some("BTC".to_string())
+        );
         assert_eq!(safe_string_n(&obj, &["missing1", "missing2"]), None);
     }
 
@@ -330,7 +336,10 @@ mod tests {
     #[test]
     fn test_safe_decimal_n() {
         let obj = json!({"sz": "5.0"});
-        assert_eq!(safe_decimal_n(&obj, &["amount", "qty", "sz"]), Some(dec!(5.0)));
+        assert_eq!(
+            safe_decimal_n(&obj, &["amount", "qty", "sz"]),
+            Some(dec!(5.0))
+        );
     }
 
     // === safe_timestamp tests ===

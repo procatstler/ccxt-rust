@@ -15,8 +15,8 @@
 //! - [SLIP-44](https://github.com/satoshilabs/slips/blob/master/slip-0044.md)
 
 use crate::errors::{CcxtError, CcxtResult};
+use bip32::{DerivationPath, XPrv};
 use bip39::Mnemonic;
-use bip32::{XPrv, DerivationPath};
 use k256::ecdsa::SigningKey;
 
 /// SLIP-44 Coin Types
@@ -79,8 +79,8 @@ impl std::fmt::Debug for CosmosKeyPair {
 ///
 /// 64바이트 시드
 pub fn mnemonic_to_seed(mnemonic_str: &str, passphrase: &str) -> CcxtResult<[u8; 64]> {
-    let mnemonic = Mnemonic::parse_normalized(mnemonic_str)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let mnemonic =
+        Mnemonic::parse_normalized(mnemonic_str).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Invalid mnemonic: {e}"),
         })?;
 
@@ -112,15 +112,13 @@ pub fn derive_private_key_from_seed(
 ) -> CcxtResult<[u8; 32]> {
     // BIP-44 경로: m/44'/{coin_type}'/{account}'/0/{index}
     let path_str = format!("m/44'/{coin_type}'/{account}'/0/{index}");
-    let path: DerivationPath = path_str.parse()
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid derivation path: {e}"),
-        })?;
+    let path: DerivationPath = path_str.parse().map_err(|e| CcxtError::InvalidSignature {
+        message: format!("Invalid derivation path: {e}"),
+    })?;
 
-    let xprv = XPrv::derive_from_path(seed, &path)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Key derivation failed: {e}"),
-        })?;
+    let xprv = XPrv::derive_from_path(seed, &path).map_err(|e| CcxtError::InvalidSignature {
+        message: format!("Key derivation failed: {e}"),
+    })?;
 
     let mut private_key = [0u8; 32];
     private_key.copy_from_slice(&xprv.private_key().to_bytes());
@@ -138,11 +136,7 @@ pub fn derive_private_key_from_seed(
 /// # Returns
 ///
 /// CosmosKeyPair (개인키 + 공개키)
-pub fn derive_private_key(
-    mnemonic: &str,
-    coin_type: u32,
-    index: u32,
-) -> CcxtResult<CosmosKeyPair> {
+pub fn derive_private_key(mnemonic: &str, coin_type: u32, index: u32) -> CcxtResult<CosmosKeyPair> {
     let seed = mnemonic_to_seed(mnemonic, "")?;
     let private_key = derive_private_key_from_seed(&seed, coin_type, 0, index)?;
     CosmosKeyPair::from_private_key(private_key)
@@ -160,8 +154,8 @@ pub fn derive_private_key(
 ///
 /// 33바이트 압축 공개키
 pub fn private_key_to_public_key(private_key: &[u8; 32]) -> CcxtResult<[u8; 33]> {
-    let signing_key = SigningKey::from_bytes(private_key.into())
-        .map_err(|e| CcxtError::InvalidSignature {
+    let signing_key =
+        SigningKey::from_bytes(private_key.into()).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Invalid private key: {e}"),
         })?;
 
@@ -176,10 +170,9 @@ pub fn private_key_to_public_key(private_key: &[u8; 32]) -> CcxtResult<[u8; 33]>
 /// Hex 문자열에서 개인키 파싱
 pub fn parse_private_key(hex_str: &str) -> CcxtResult<[u8; 32]> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes = hex::decode(hex_str)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid hex: {e}"),
-        })?;
+    let bytes = hex::decode(hex_str).map_err(|e| CcxtError::InvalidSignature {
+        message: format!("Invalid hex: {e}"),
+    })?;
 
     if bytes.len() != 32 {
         return Err(CcxtError::InvalidSignature {

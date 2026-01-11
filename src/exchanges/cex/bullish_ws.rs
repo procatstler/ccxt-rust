@@ -10,15 +10,15 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::client::ExchangeConfig;
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://api.exchange.bullish.com";
@@ -94,7 +94,8 @@ impl BullishWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &BullishWsTickerData) -> WsTickerEvent {
         let unified_symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.created_at_timestamp
+        let timestamp = data
+            .created_at_timestamp
             .as_ref()
             .and_then(|s| s.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -103,27 +104,53 @@ impl BullishWs {
             symbol: unified_symbol.clone(),
             timestamp: Some(timestamp),
             datetime: data.created_at_datetime.clone().or_else(|| {
-                chrono::DateTime::from_timestamp_millis(timestamp)
-                    .map(|dt| dt.to_rfc3339())
+                chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339())
             }),
             high: data.high.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             low: data.low.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            bid: data.best_bid.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            bid_volume: data.bid_volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            ask: data.best_ask.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            ask_volume: data.ask_volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            bid: data
+                .best_bid
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            bid_volume: data
+                .bid_volume
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            ask: data
+                .best_ask
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            ask_volume: data
+                .ask_volume
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             vwap: data.vwap.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             open: data.open.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             close: data.close.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             last: data.last.as_ref().and_then(|s| Decimal::from_str(s).ok()),
             previous_close: None,
             change: data.change.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            percentage: data.percentage.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            average: data.average.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            base_volume: data.base_volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            quote_volume: data.quote_volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            percentage: data
+                .percentage
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            average: data
+                .average
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            base_volume: data
+                .base_volume
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            quote_volume: data
+                .quote_volume
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             index_price: None,
-            mark_price: data.mark_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            mark_price: data
+                .mark_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
@@ -136,7 +163,8 @@ impl BullishWs {
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &BullishWsOrderBookData) -> WsOrderBookEvent {
         let unified_symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp
+        let timestamp = data
+            .timestamp
             .as_ref()
             .and_then(|s| s.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -162,19 +190,21 @@ impl BullishWs {
         let asks = parse_entries(&data.asks);
 
         // Get nonce from sequence number range
-        let nonce = data.sequence_number_range.as_ref()
+        let nonce = data
+            .sequence_number_range
+            .as_ref()
             .and_then(|seq| seq.last().copied());
 
         let order_book = OrderBook {
             symbol: unified_symbol.clone(),
             timestamp: Some(timestamp),
             datetime: data.datetime.clone().or_else(|| {
-                chrono::DateTime::from_timestamp_millis(timestamp)
-                    .map(|dt| dt.to_rfc3339())
+                chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339())
             }),
             nonce,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -188,43 +218,51 @@ impl BullishWs {
     fn parse_trades(data: &BullishWsTradesData) -> WsTradeEvent {
         let unified_symbol = Self::to_unified_symbol(&data.symbol);
 
-        let trades: Vec<Trade> = data.trades.iter().map(|t| {
-            let timestamp = t.created_at_timestamp
-                .as_ref()
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let trades: Vec<Trade> = data
+            .trades
+            .iter()
+            .map(|t| {
+                let timestamp = t
+                    .created_at_timestamp
+                    .as_ref()
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let price = t.price.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or_default();
-            let amount = t.quantity.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or_default();
+                let price = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or_default();
+                let amount = t
+                    .quantity
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or_default();
 
-            Trade {
-                id: t.trade_id.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: t.created_at_datetime.clone().or_else(|| {
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                }),
-                symbol: unified_symbol.clone(),
-                trade_type: None,
-                side: t.side.clone(),
-                taker_or_maker: if t.is_taker.unwrap_or(false) {
-                    Some(crate::types::TakerOrMaker::Taker)
-                } else {
-                    Some(crate::types::TakerOrMaker::Maker)
-                },
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: vec![],
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.trade_id.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: t.created_at_datetime.clone().or_else(|| {
+                        chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339())
+                    }),
+                    symbol: unified_symbol.clone(),
+                    trade_type: None,
+                    side: t.side.clone(),
+                    taker_or_maker: if t.is_taker.unwrap_or(false) {
+                        Some(crate::types::TakerOrMaker::Taker)
+                    } else {
+                        Some(crate::types::TakerOrMaker::Maker)
+                    },
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: vec![],
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         WsTradeEvent {
             symbol: unified_symbol,
@@ -242,35 +280,38 @@ impl BullishWs {
             match msg.data_type.as_deref() {
                 Some("V1TATickerResponse") => {
                     if let Some(data) = msg.data {
-                        if let Ok(ticker_data) = serde_json::from_value::<BullishWsTickerData>(data) {
+                        if let Ok(ticker_data) = serde_json::from_value::<BullishWsTickerData>(data)
+                        {
                             let event = Self::parse_ticker(&ticker_data);
                             let _ = tx.send(WsMessage::Ticker(event));
                         }
                     }
-                }
+                },
                 Some("V1TALevel2") => {
                     if let Some(data) = msg.data {
-                        if let Ok(ob_data) = serde_json::from_value::<BullishWsOrderBookData>(data) {
+                        if let Ok(ob_data) = serde_json::from_value::<BullishWsOrderBookData>(data)
+                        {
                             let event = Self::parse_order_book(&ob_data);
                             let _ = tx.send(WsMessage::OrderBook(event));
                         }
                     }
-                }
+                },
                 Some("V1TAAnonymousTradeUpdate") => {
                     if let Some(data) = msg.data {
-                        if let Ok(trades_data) = serde_json::from_value::<BullishWsTradesData>(data) {
+                        if let Ok(trades_data) = serde_json::from_value::<BullishWsTradesData>(data)
+                        {
                             let event = Self::parse_trades(&trades_data);
                             let _ = tx.send(WsMessage::Trade(event));
                         }
                     }
-                }
+                },
                 Some("V1TAErrorResponse") => {
                     if let Some(data) = msg.data {
                         if let Some(err_msg) = data.get("message").and_then(|v| v.as_str()) {
                             let _ = tx.send(WsMessage::Error(err_msg.to_string()));
                         }
                     }
-                }
+                },
                 _ => {
                     // Handle pong and other messages
                     if let Some(result) = msg.result {
@@ -280,7 +321,7 @@ impl BullishWs {
                             }
                         }
                     }
-                }
+                },
             }
         }
     }
@@ -291,16 +332,18 @@ impl BullishWs {
         symbol: &str,
         tx: mpsc::UnboundedSender<WsMessage>,
     ) -> CcxtResult<()> {
-        use tokio_tungstenite::connect_async;
         use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::connect_async;
 
         let market_id = Self::format_symbol(symbol);
         let url = format!("{WS_PUBLIC_URL}/trading-api/v1/market-data/tick/{market_id}");
 
-        let (ws_stream, _) = connect_async(&url).await.map_err(|e| CcxtError::NetworkError {
-            url: url.clone(),
-            message: e.to_string(),
-        })?;
+        let (ws_stream, _) = connect_async(&url)
+            .await
+            .map_err(|e| CcxtError::NetworkError {
+                url: url.clone(),
+                message: e.to_string(),
+            })?;
 
         let (mut write, mut read) = ws_stream.split();
         let _ = tx.send(WsMessage::Connected);
@@ -356,16 +399,18 @@ impl BullishWs {
         symbol: &str,
         tx: mpsc::UnboundedSender<WsMessage>,
     ) -> CcxtResult<()> {
-        use tokio_tungstenite::connect_async;
         use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::connect_async;
 
         let url = format!("{WS_PUBLIC_URL}{path}");
         let market_id = Self::format_symbol(symbol);
 
-        let (ws_stream, _) = connect_async(&url).await.map_err(|e| CcxtError::NetworkError {
-            url: url.clone(),
-            message: e.to_string(),
-        })?;
+        let (ws_stream, _) = connect_async(&url)
+            .await
+            .map_err(|e| CcxtError::NetworkError {
+                url: url.clone(),
+                message: e.to_string(),
+            })?;
 
         let (mut write, mut read) = ws_stream.split();
         let _ = tx.send(WsMessage::Connected);
@@ -465,7 +510,8 @@ impl WsExchange for BullishWs {
             "l2Orderbook",
             symbol,
             tx,
-        ).await?;
+        )
+        .await?;
         Ok(rx)
     }
 
@@ -476,7 +522,8 @@ impl WsExchange for BullishWs {
             "anonymousTrades",
             symbol,
             tx,
-        ).await?;
+        )
+        .await?;
         Ok(rx)
     }
 
@@ -626,8 +673,14 @@ mod tests {
 
         let event = BullishWs::parse_ticker(&ticker_data);
         assert_eq!(event.symbol, "BTC/USDC");
-        assert_eq!(event.ticker.last, Some(Decimal::from_str("104323.9374").unwrap()));
-        assert_eq!(event.ticker.high, Some(Decimal::from_str("105966.6577").unwrap()));
+        assert_eq!(
+            event.ticker.last,
+            Some(Decimal::from_str("104323.9374").unwrap())
+        );
+        assert_eq!(
+            event.ticker.high,
+            Some(Decimal::from_str("105966.6577").unwrap())
+        );
     }
 
     #[test]

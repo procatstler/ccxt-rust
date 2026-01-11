@@ -15,10 +15,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, TimeInForce, OHLCV,
-    Trade,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://api.crypto.com/exchange/v1";
@@ -69,17 +68,17 @@ struct CryptoComInstrument {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CryptoComTicker {
-    i: String,  // instrument name
+    i: String,          // instrument name
     h: Option<String>,  // high
     l: Option<String>,  // low
     a: Option<String>,  // last trade price
     v: Option<String>,  // 24h volume
-    vv: Option<String>,  // 24h volume in quote
+    vv: Option<String>, // 24h volume in quote
     c: Option<String>,  // 24h price change
     b: Option<String>,  // best bid
     k: Option<String>,  // best ask
-    t: i64,  // timestamp
-    oi: Option<String>,  // open interest
+    t: i64,             // timestamp
+    oi: Option<String>, // open interest
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -91,22 +90,22 @@ struct CryptoComOrderBookData {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CryptoComTrade {
-    d: String,  // trade id
-    s: String,  // side
-    p: String,  // price
-    q: String,  // quantity
-    t: i64,     // timestamp
-    i: String,  // instrument name
+    d: String, // trade id
+    s: String, // side
+    p: String, // price
+    q: String, // quantity
+    t: i64,    // timestamp
+    i: String, // instrument name
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CryptoComCandle {
-    t: i64,     // timestamp
-    o: String,  // open
-    h: String,  // high
-    l: String,  // low
-    c: String,  // close
-    v: String,  // volume
+    t: i64,    // timestamp
+    o: String, // open
+    h: String, // high
+    l: String, // low
+    c: String, // close
+    v: String, // volume
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -263,15 +262,18 @@ impl CryptoCom {
 
     /// Generate HMAC-SHA256 signature
     fn sign_message(&self, message: &str) -> CcxtResult<String> {
-        let secret = self.config.secret()
+        let secret = self
+            .config
+            .secret()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API secret required".to_string(),
             })?;
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
@@ -283,7 +285,9 @@ impl CryptoCom {
         method: &str,
         params: Option<Value>,
     ) -> CcxtResult<T> {
-        let api_key = self.config.api_key()
+        let api_key = self
+            .config
+            .api_key()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API key required".to_string(),
             })?;
@@ -300,7 +304,8 @@ impl CryptoCom {
             let obj = params_value.as_object().unwrap();
             let mut sorted_keys: Vec<_> = obj.keys().collect();
             sorted_keys.sort();
-            sorted_keys.iter()
+            sorted_keys
+                .iter()
                 .map(|k| format!("{}{}", k, obj[*k]))
                 .collect::<Vec<_>>()
                 .join("")
@@ -308,7 +313,7 @@ impl CryptoCom {
             String::new()
         };
 
-        let sig_payload = format!("{method}{id}{api_key}{params_str}", );
+        let sig_payload = format!("{method}{id}{api_key}{params_str}",);
         let signature = self.sign_message(&sig_payload)?;
 
         let body = json!({
@@ -323,7 +328,10 @@ impl CryptoCom {
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-        let response: CryptoComResponse<T> = self.client.post("/private", Some(body), Some(headers)).await?;
+        let response: CryptoComResponse<T> = self
+            .client
+            .post("/private", Some(body), Some(headers))
+            .await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -381,55 +389,75 @@ impl CryptoCom {
     /// Convert order to unified format
     fn parse_order(&self, order: &CryptoComOrder) -> Order {
         let timestamp = Some(order.create_time);
-        let datetime = chrono::DateTime::from_timestamp_millis(order.create_time)
-            .map(|dt| dt.to_rfc3339());
+        let datetime =
+            chrono::DateTime::from_timestamp_millis(order.create_time).map(|dt| dt.to_rfc3339());
 
         let side = Self::parse_order_side(&order.side);
         let status = Self::parse_order_status(&order.status);
         let order_type = Self::parse_order_type(&order.order_type);
 
-        let amount = order.quantity.parse::<f64>()
+        let amount = order
+            .quantity
+            .parse::<f64>()
             .map(|q| Decimal::from_f64_retain(q).unwrap_or_default())
             .unwrap_or_default();
-        let filled = order.cumulative_quantity.as_ref()
+        let filled = order
+            .cumulative_quantity
+            .as_ref()
             .and_then(|q| q.parse::<f64>().ok())
             .map(|q| Decimal::from_f64_retain(q).unwrap_or_default())
             .unwrap_or_default();
         let remaining = amount - filled;
-        let price = order.price.as_ref()
+        let price = order
+            .price
+            .as_ref()
             .and_then(|p| p.parse::<f64>().ok())
             .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let average = order.avg_price.as_ref()
+        let average = order
+            .avg_price
+            .as_ref()
             .and_then(|p| p.parse::<f64>().ok())
             .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let stop_price = order.trigger_price.as_ref()
+        let stop_price = order
+            .trigger_price
+            .as_ref()
             .and_then(|p| p.parse::<f64>().ok())
             .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
 
-        let cost = order.cumulative_value.as_ref()
+        let cost = order
+            .cumulative_value
+            .as_ref()
             .and_then(|v| v.parse::<f64>().ok())
             .map(|v| Decimal::from_f64_retain(v).unwrap_or_default());
 
-        let time_in_force = order.time_in_force.as_ref().map(|tif| {
-            match tif.to_uppercase().as_str() {
-                "GTC" | "GOOD_TIL_CANCEL" => TimeInForce::GTC,
-                "IOC" | "IMMEDIATE_OR_CANCEL" => TimeInForce::IOC,
-                "FOK" | "FILL_OR_KILL" => TimeInForce::FOK,
-                _ => TimeInForce::GTC,
-            }
-        });
+        let time_in_force =
+            order
+                .time_in_force
+                .as_ref()
+                .map(|tif| match tif.to_uppercase().as_str() {
+                    "GTC" | "GOOD_TIL_CANCEL" => TimeInForce::GTC,
+                    "IOC" | "IMMEDIATE_OR_CANCEL" => TimeInForce::IOC,
+                    "FOK" | "FILL_OR_KILL" => TimeInForce::FOK,
+                    _ => TimeInForce::GTC,
+                });
 
-        let post_only = order.exec_inst.as_ref()
+        let post_only = order
+            .exec_inst
+            .as_ref()
             .map(|insts| insts.iter().any(|i| i == "POST_ONLY"))
             .unwrap_or(false);
-        let reduce_only = order.exec_inst.as_ref()
+        let reduce_only = order
+            .exec_inst
+            .as_ref()
             .map(|insts| insts.iter().any(|i| i == "REDUCE_ONLY"))
             .unwrap_or(false);
 
         let fee = if let (Some(currency), Some(amount)) = (&order.fee_currency, &order.fee_amount) {
             Some(crate::types::Fee {
                 currency: Some(currency.clone()),
-                cost: amount.parse::<f64>().ok()
+                cost: amount
+                    .parse::<f64>()
+                    .ok()
                     .map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
                 rate: None,
             })
@@ -487,12 +515,12 @@ impl Exchange for CryptoCom {
             }
         }
 
-        let response: CryptoComResponse<CryptoComInstrumentsResult> = self.public_get("/public/get-instruments", None).await?;
+        let response: CryptoComResponse<CryptoComInstrumentsResult> =
+            self.public_get("/public/get-instruments", None).await?;
 
-        let instruments = response.result
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "No instruments in response".to_string(),
-            })?;
+        let instruments = response.result.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No instruments in response".to_string(),
+        })?;
 
         let mut markets = HashMap::new();
         let mut markets_by_id = HashMap::new();
@@ -530,7 +558,9 @@ impl Exchange for CryptoCom {
                 quote: None,
             };
 
-            let contract_size = inst.contract_size.as_ref()
+            let contract_size = inst
+                .contract_size
+                .as_ref()
                 .and_then(|s| s.parse::<f64>().ok())
                 .map(|s| Decimal::from_f64_retain(s).unwrap_or(Decimal::ONE))
                 .unwrap_or(Decimal::ONE);
@@ -544,10 +574,15 @@ impl Exchange for CryptoCom {
                     min: Some(Decimal::from_f64_retain(tick_size).unwrap_or_default()),
                     max: None,
                 },
-                cost: MinMax { min: None, max: None },
+                cost: MinMax {
+                    min: None,
+                    max: None,
+                },
                 leverage: MinMax {
                     min: Some(Decimal::ONE),
-                    max: inst.max_leverage.as_ref()
+                    max: inst
+                        .max_leverage
+                        .as_ref()
                         .and_then(|l| l.parse::<i32>().ok())
                         .map(Decimal::from),
                 },
@@ -561,7 +596,11 @@ impl Exchange for CryptoCom {
                 quote: inst.quote_ccy.clone(),
                 base_id: inst.base_ccy.clone(),
                 quote_id: inst.quote_ccy.clone(),
-                settle_id: if is_future { Some(inst.quote_ccy.clone()) } else { None },
+                settle_id: if is_future {
+                    Some(inst.quote_ccy.clone())
+                } else {
+                    None
+                },
                 active: inst.tradable,
                 market_type,
                 spot: is_spot,
@@ -571,7 +610,11 @@ impl Exchange for CryptoCom {
                 option: is_option,
                 index: false,
                 contract: !is_spot,
-                settle: if is_future { Some(inst.quote_ccy.clone()) } else { None },
+                settle: if is_future {
+                    Some(inst.quote_ccy.clone())
+                } else {
+                    None
+                },
                 contract_size: if is_future { Some(contract_size) } else { None },
                 linear: Some(!is_spot),
                 inverse: Some(false),
@@ -582,7 +625,9 @@ impl Exchange for CryptoCom {
                         .map(|dt| dt.to_rfc3339())
                         .unwrap_or_default()
                 }),
-                strike: inst.strike.as_ref()
+                strike: inst
+                    .strike
+                    .as_ref()
                     .and_then(|s| s.parse::<f64>().ok())
                     .map(|s| Decimal::from_f64_retain(s).unwrap_or_default()),
                 option_type: inst.put_call.clone(),
@@ -617,56 +662,86 @@ impl Exchange for CryptoCom {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
         params.insert("instrument_name".to_string(), market_id);
 
-        let response: CryptoComResponse<CryptoComTickerResult> = self.public_get("/public/get-ticker", Some(params)).await?;
+        let response: CryptoComResponse<CryptoComTickerResult> =
+            self.public_get("/public/get-ticker", Some(params)).await?;
 
-        let tickers = response.result
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "No ticker data".to_string(),
-            })?;
+        let tickers = response.result.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No ticker data".to_string(),
+        })?;
 
-        let ticker = tickers.data.first()
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+        let ticker = tickers.data.first().ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.to_string(),
+        })?;
 
         let timestamp = Some(ticker.t);
-        let datetime = chrono::DateTime::from_timestamp_millis(ticker.t)
-            .map(|dt| dt.to_rfc3339());
+        let datetime = chrono::DateTime::from_timestamp_millis(ticker.t).map(|dt| dt.to_rfc3339());
 
         Ok(Ticker {
             symbol: symbol.to_string(),
             timestamp,
             datetime,
-            high: ticker.h.as_ref().and_then(|p| p.parse::<f64>().ok())
+            high: ticker
+                .h
+                .as_ref()
+                .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            low: ticker.l.as_ref().and_then(|p| p.parse::<f64>().ok())
+            low: ticker
+                .l
+                .as_ref()
+                .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            bid: ticker.b.as_ref().and_then(|p| p.parse::<f64>().ok())
+            bid: ticker
+                .b
+                .as_ref()
+                .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             bid_volume: None,
-            ask: ticker.k.as_ref().and_then(|p| p.parse::<f64>().ok())
+            ask: ticker
+                .k
+                .as_ref()
+                .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             ask_volume: None,
             vwap: None,
             open: None,
-            close: ticker.a.as_ref().and_then(|p| p.parse::<f64>().ok())
+            close: ticker
+                .a
+                .as_ref()
+                .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            last: ticker.a.as_ref().and_then(|p| p.parse::<f64>().ok())
+            last: ticker
+                .a
+                .as_ref()
+                .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             previous_close: None,
             change: None,
-            percentage: ticker.c.as_ref().and_then(|p| p.parse::<f64>().ok())
+            percentage: ticker
+                .c
+                .as_ref()
+                .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
             average: None,
-            base_volume: ticker.v.as_ref().and_then(|v| v.parse::<f64>().ok())
+            base_volume: ticker
+                .v
+                .as_ref()
+                .and_then(|v| v.parse::<f64>().ok())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-            quote_volume: ticker.vv.as_ref().and_then(|v| v.parse::<f64>().ok())
+            quote_volume: ticker
+                .vv
+                .as_ref()
+                .and_then(|v| v.parse::<f64>().ok())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
             index_price: None,
             mark_price: None,
@@ -677,12 +752,12 @@ impl Exchange for CryptoCom {
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
         self.load_markets(false).await?;
 
-        let response: CryptoComResponse<CryptoComTickerResult> = self.public_get("/public/get-ticker", None).await?;
+        let response: CryptoComResponse<CryptoComTickerResult> =
+            self.public_get("/public/get-ticker", None).await?;
 
-        let tickers = response.result
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "No ticker data".to_string(),
-            })?;
+        let tickers = response.result.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No ticker data".to_string(),
+        })?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut result = HashMap::new();
@@ -696,37 +771,64 @@ impl Exchange for CryptoCom {
                 }
 
                 let timestamp = Some(ticker.t);
-                let datetime = chrono::DateTime::from_timestamp_millis(ticker.t)
-                    .map(|dt| dt.to_rfc3339());
+                let datetime =
+                    chrono::DateTime::from_timestamp_millis(ticker.t).map(|dt| dt.to_rfc3339());
 
                 let t = Ticker {
                     symbol: symbol.clone(),
                     timestamp,
                     datetime,
-                    high: ticker.h.as_ref().and_then(|p| p.parse::<f64>().ok())
+                    high: ticker
+                        .h
+                        .as_ref()
+                        .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    low: ticker.l.as_ref().and_then(|p| p.parse::<f64>().ok())
+                    low: ticker
+                        .l
+                        .as_ref()
+                        .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    bid: ticker.b.as_ref().and_then(|p| p.parse::<f64>().ok())
+                    bid: ticker
+                        .b
+                        .as_ref()
+                        .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     bid_volume: None,
-                    ask: ticker.k.as_ref().and_then(|p| p.parse::<f64>().ok())
+                    ask: ticker
+                        .k
+                        .as_ref()
+                        .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     ask_volume: None,
                     vwap: None,
                     open: None,
-                    close: ticker.a.as_ref().and_then(|p| p.parse::<f64>().ok())
+                    close: ticker
+                        .a
+                        .as_ref()
+                        .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    last: ticker.a.as_ref().and_then(|p| p.parse::<f64>().ok())
+                    last: ticker
+                        .a
+                        .as_ref()
+                        .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     previous_close: None,
                     change: None,
-                    percentage: ticker.c.as_ref().and_then(|p| p.parse::<f64>().ok())
+                    percentage: ticker
+                        .c
+                        .as_ref()
+                        .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p * 100.0).unwrap_or_default()),
                     average: None,
-                    base_volume: ticker.v.as_ref().and_then(|v| v.parse::<f64>().ok())
+                    base_volume: ticker
+                        .v
+                        .as_ref()
+                        .and_then(|v| v.parse::<f64>().ok())
                         .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                    quote_volume: ticker.vv.as_ref().and_then(|v| v.parse::<f64>().ok())
+                    quote_volume: ticker
+                        .vv
+                        .as_ref()
+                        .and_then(|v| v.parse::<f64>().ok())
                         .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
                     index_price: None,
                     mark_price: None,
@@ -745,9 +847,12 @@ impl Exchange for CryptoCom {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
@@ -756,19 +861,20 @@ impl Exchange for CryptoCom {
             params.insert("depth".to_string(), l.to_string());
         }
 
-        let response: CryptoComResponse<CryptoComOrderBookResult> = self.public_get("/public/get-book", Some(params)).await?;
+        let response: CryptoComResponse<CryptoComOrderBookResult> =
+            self.public_get("/public/get-book", Some(params)).await?;
 
-        let book = response.result
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "No order book data".to_string(),
-            })?;
+        let book = response.result.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No order book data".to_string(),
+        })?;
 
-        let book_data = book.data.first()
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "Empty order book".to_string(),
-            })?;
+        let book_data = book.data.first().ok_or_else(|| CcxtError::ExchangeError {
+            message: "Empty order book".to_string(),
+        })?;
 
-        let bids: Vec<OrderBookEntry> = book_data.bids.iter()
+        let bids: Vec<OrderBookEntry> = book_data
+            .bids
+            .iter()
             .filter_map(|b| {
                 if b.len() >= 2 {
                     let price = b[0].parse::<f64>().ok()?;
@@ -783,7 +889,9 @@ impl Exchange for CryptoCom {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = book_data.asks.iter()
+        let asks: Vec<OrderBookEntry> = book_data
+            .asks
+            .iter()
             .filter_map(|a| {
                 if a.len() >= 2 {
                     let price = a[0].parse::<f64>().ok()?;
@@ -806,6 +914,7 @@ impl Exchange for CryptoCom {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -819,9 +928,12 @@ impl Exchange for CryptoCom {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
@@ -830,25 +942,29 @@ impl Exchange for CryptoCom {
             params.insert("count".to_string(), l.to_string());
         }
 
-        let response: CryptoComResponse<CryptoComTradesResult> = self.public_get("/public/get-trades", Some(params)).await?;
+        let response: CryptoComResponse<CryptoComTradesResult> =
+            self.public_get("/public/get-trades", Some(params)).await?;
 
-        let trades = response.result
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "No trades data".to_string(),
-            })?;
+        let trades = response.result.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No trades data".to_string(),
+        })?;
 
-        let result: Vec<Trade> = trades.data.iter()
+        let result: Vec<Trade> = trades
+            .data
+            .iter()
             .map(|t| {
                 let timestamp = Some(t.t);
-                let datetime = chrono::DateTime::from_timestamp_millis(t.t)
-                    .map(|dt| dt.to_rfc3339());
+                let datetime =
+                    chrono::DateTime::from_timestamp_millis(t.t).map(|dt| dt.to_rfc3339());
 
-                let price = t.p.parse::<f64>()
-                    .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
-                    .unwrap_or_default();
-                let amount = t.q.parse::<f64>()
-                    .map(|q| Decimal::from_f64_retain(q).unwrap_or_default())
-                    .unwrap_or_default();
+                let price =
+                    t.p.parse::<f64>()
+                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
+                        .unwrap_or_default();
+                let amount =
+                    t.q.parse::<f64>()
+                        .map(|q| Decimal::from_f64_retain(q).unwrap_or_default())
+                        .unwrap_or_default();
 
                 Trade {
                     id: t.d.clone(),
@@ -883,12 +999,17 @@ impl Exchange for CryptoCom {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .cloned()
             .unwrap_or_else(|| "1h".to_string());
 
@@ -902,29 +1023,42 @@ impl Exchange for CryptoCom {
             params.insert("start_ts".to_string(), s.to_string());
         }
 
-        let response: CryptoComResponse<CryptoComCandlesResult> = self.public_get("/public/get-candlestick", Some(params)).await?;
+        let response: CryptoComResponse<CryptoComCandlesResult> = self
+            .public_get("/public/get-candlestick", Some(params))
+            .await?;
 
-        let candles = response.result
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "No OHLCV data".to_string(),
-            })?;
+        let candles = response.result.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No OHLCV data".to_string(),
+        })?;
 
-        let result: Vec<OHLCV> = candles.data.iter()
+        let result: Vec<OHLCV> = candles
+            .data
+            .iter()
             .map(|c| OHLCV {
                 timestamp: c.t,
-                open: c.o.parse::<f64>()
+                open: c
+                    .o
+                    .parse::<f64>()
                     .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
                     .unwrap_or_default(),
-                high: c.h.parse::<f64>()
+                high: c
+                    .h
+                    .parse::<f64>()
                     .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
                     .unwrap_or_default(),
-                low: c.l.parse::<f64>()
+                low: c
+                    .l
+                    .parse::<f64>()
                     .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
                     .unwrap_or_default(),
-                close: c.c.parse::<f64>()
+                close: c
+                    .c
+                    .parse::<f64>()
                     .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
                     .unwrap_or_default(),
-                volume: c.v.parse::<f64>()
+                volume: c
+                    .v
+                    .parse::<f64>()
                     .map(|v| Decimal::from_f64_retain(v).unwrap_or_default())
                     .unwrap_or_default(),
             })
@@ -934,28 +1068,33 @@ impl Exchange for CryptoCom {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let result_data: CryptoComBalanceResult = self.private_request(
-            "private/user-balance",
-            None,
-        ).await?;
+        let result_data: CryptoComBalanceResult =
+            self.private_request("private/user-balance", None).await?;
 
         let mut result = Balances::new();
 
         for balance in result_data.data {
-            let total = balance.balance.parse::<f64>()
+            let total = balance
+                .balance
+                .parse::<f64>()
                 .map(|b| Decimal::from_f64_retain(b).unwrap_or_default())
                 .unwrap_or_default();
-            let free = balance.available.parse::<f64>()
+            let free = balance
+                .available
+                .parse::<f64>()
                 .map(|a| Decimal::from_f64_retain(a).unwrap_or_default())
                 .unwrap_or_default();
             let used = total - free;
 
-            result.currencies.insert(balance.currency.clone(), Balance {
-                free: Some(free),
-                used: Some(used),
-                total: Some(total),
-                debt: None,
-            });
+            result.currencies.insert(
+                balance.currency.clone(),
+                Balance {
+                    free: Some(free),
+                    used: Some(used),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         Ok(result)
@@ -972,22 +1111,26 @@ impl Exchange for CryptoCom {
         let params = if let Some(sym) = symbol {
             let market_id = {
                 let markets = self.markets.read().unwrap();
-                markets.get(sym)
+                markets
+                    .get(sym)
                     .map(|m| m.id.clone())
-                    .ok_or_else(|| CcxtError::BadSymbol { symbol: sym.to_string() })?
+                    .ok_or_else(|| CcxtError::BadSymbol {
+                        symbol: sym.to_string(),
+                    })?
             };
             json!({ "instrument_name": market_id })
         } else {
             json!({})
         };
 
-        let orders: CryptoComOrdersResult = self.private_request(
-            "private/get-open-orders",
-            Some(params),
-        ).await?;
+        let orders: CryptoComOrdersResult = self
+            .private_request("private/get-open-orders", Some(params))
+            .await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let result: Vec<Order> = orders.data.iter()
+        let result: Vec<Order> = orders
+            .data
+            .iter()
             .map(|o| {
                 let mut order = self.parse_order(o);
                 if let Some(s) = markets_by_id.get(&o.instrument_name) {
@@ -1002,10 +1145,9 @@ impl Exchange for CryptoCom {
 
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let params = json!({ "order_id": id });
-        let result: CryptoComOrderResult = self.private_request(
-            "private/get-order-detail",
-            Some(params),
-        ).await?;
+        let result: CryptoComOrderResult = self
+            .private_request("private/get-order-detail", Some(params))
+            .await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut order = self.parse_order(&result.order_info);
@@ -1028,9 +1170,12 @@ impl Exchange for CryptoCom {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let side_str = match side {
@@ -1057,10 +1202,9 @@ impl Exchange for CryptoCom {
             params["price"] = json!(p.to_string());
         }
 
-        let result: CryptoComOrderResult = self.private_request(
-            "private/create-order",
-            Some(params),
-        ).await?;
+        let result: CryptoComOrderResult = self
+            .private_request("private/create-order", Some(params))
+            .await?;
 
         let mut order = self.parse_order(&result.order_info);
         order.symbol = symbol.to_string();
@@ -1073,9 +1217,12 @@ impl Exchange for CryptoCom {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let params = json!({
@@ -1083,10 +1230,9 @@ impl Exchange for CryptoCom {
             "instrument_name": market_id
         });
 
-        let result: CryptoComOrderResult = self.private_request(
-            "private/cancel-order",
-            Some(params),
-        ).await?;
+        let result: CryptoComOrderResult = self
+            .private_request("private/cancel-order", Some(params))
+            .await?;
 
         let mut order = self.parse_order(&result.order_info);
         order.symbol = symbol.to_string();
@@ -1147,14 +1293,26 @@ mod tests {
 
     #[test]
     fn test_order_status_parsing() {
-        assert!(matches!(CryptoCom::parse_order_status("NEW"), OrderStatus::Open));
-        assert!(matches!(CryptoCom::parse_order_status("FILLED"), OrderStatus::Closed));
-        assert!(matches!(CryptoCom::parse_order_status("CANCELED"), OrderStatus::Canceled));
+        assert!(matches!(
+            CryptoCom::parse_order_status("NEW"),
+            OrderStatus::Open
+        ));
+        assert!(matches!(
+            CryptoCom::parse_order_status("FILLED"),
+            OrderStatus::Closed
+        ));
+        assert!(matches!(
+            CryptoCom::parse_order_status("CANCELED"),
+            OrderStatus::Canceled
+        ));
     }
 
     #[test]
     fn test_order_side_parsing() {
         assert!(matches!(CryptoCom::parse_order_side("BUY"), OrderSide::Buy));
-        assert!(matches!(CryptoCom::parse_order_side("SELL"), OrderSide::Sell));
+        assert!(matches!(
+            CryptoCom::parse_order_side("SELL"),
+            OrderSide::Sell
+        ));
     }
 }

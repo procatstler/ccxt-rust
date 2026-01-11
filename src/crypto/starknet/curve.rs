@@ -9,7 +9,7 @@
 #![allow(dead_code)]
 
 use crate::errors::{CcxtError, CcxtResult};
-use starknet_crypto::{sign, verify, get_public_key as stark_get_public_key};
+use starknet_crypto::{get_public_key as stark_get_public_key, sign, verify};
 use starknet_types_core::felt::Felt;
 
 /// StarkNet 서명
@@ -65,8 +65,8 @@ pub fn sign_hash(
 ) -> CcxtResult<StarkNetSignature> {
     let k = seed.cloned().unwrap_or_else(generate_k);
 
-    let signature = sign(private_key, message_hash, &k)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let signature =
+        sign(private_key, message_hash, &k).map_err(|e| CcxtError::InvalidSignature {
             message: format!("StarkNet signing failed: {e:?}"),
         })?;
 
@@ -92,10 +92,11 @@ pub fn verify_signature(
     message_hash: &Felt,
     signature: &StarkNetSignature,
 ) -> CcxtResult<bool> {
-    let result = verify(public_key, message_hash, &signature.r, &signature.s)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let result = verify(public_key, message_hash, &signature.r, &signature.s).map_err(|e| {
+        CcxtError::InvalidSignature {
             message: format!("StarkNet verification failed: {e:?}"),
-        })?;
+        }
+    })?;
 
     Ok(result)
 }
@@ -159,7 +160,10 @@ fn parse_hex_to_bytes32(hex_str: &str) -> CcxtResult<[u8; 32]> {
 
 /// Felt를 16진수 문자열로 변환
 pub fn felt_to_hex(felt: &Felt) -> String {
-    format!("0x{}", hex::encode(felt.to_bytes_be()).trim_start_matches('0'))
+    format!(
+        "0x{}",
+        hex::encode(felt.to_bytes_be()).trim_start_matches('0')
+    )
 }
 
 /// 16진수 문자열을 Felt로 변환

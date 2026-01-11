@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -78,7 +78,10 @@ impl Btcturk {
         api_urls.insert("graph".into(), format!("{}/v1", Self::GRAPH_URL));
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/10e0a238-9f60-4b06-9dda-edfc7602f1d6".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/10e0a238-9f60-4b06-9dda-edfc7602f1d6"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.btcturk.com".into()),
             doc: vec!["https://github.com/BTCTrader/broker-api-docs".into()],
@@ -161,26 +164,32 @@ impl Btcturk {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
 
         // Create signature: HMAC-SHA256(apiKey + nonce, secret)
         let auth = format!("{api_key}{nonce}");
-        let secret_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            secret,
-        ).map_err(|e| CcxtError::AuthenticationError {
-            message: format!("Invalid secret key: {e}"),
-        })?;
+        let secret_bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, secret).map_err(
+                |e| CcxtError::AuthenticationError {
+                    message: format!("Invalid secret key: {e}"),
+                },
+            )?;
 
-        let mut mac = HmacSha256::new_from_slice(&secret_bytes)
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(&secret_bytes).expect("HMAC can take key of any size");
         mac.update(auth.as_bytes());
         let signature = base64::Engine::encode(
             &base64::engine::general_purpose::STANDARD,
@@ -217,7 +226,7 @@ impl Btcturk {
                     None
                 };
                 self.private_client.post(&url, body, Some(headers)).await
-            }
+            },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -227,7 +236,9 @@ impl Btcturk {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &BtcturkTicker, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -262,27 +273,39 @@ impl Btcturk {
     /// 거래 응답 파싱
     fn parse_trade(&self, data: &BtcturkTrade, market: Option<&Market>) -> Trade {
         let timestamp = data.date.or(data.timestamp);
-        let id = data.tid.as_ref().or(data.id.as_ref()).cloned().unwrap_or_default();
+        let id = data
+            .tid
+            .as_ref()
+            .or(data.id.as_ref())
+            .cloned()
+            .unwrap_or_default();
         let order = data.order_id.as_ref().map(|o| o.to_string());
         let market_id = data.pair.as_ref();
 
         let symbol = if let Some(mid) = market_id {
             let markets_by_id = self.markets_by_id.read().unwrap();
-            markets_by_id.get(mid).cloned().unwrap_or_else(|| mid.clone())
+            markets_by_id
+                .get(mid)
+                .cloned()
+                .unwrap_or_else(|| mid.clone())
         } else if let Some(m) = market {
             m.symbol.clone()
         } else {
             String::new()
         };
 
-        let side = data.side.as_ref().or(data.order_type.as_ref()).map(|s| s.to_lowercase());
+        let side = data
+            .side
+            .as_ref()
+            .or(data.order_type.as_ref())
+            .map(|s| s.to_lowercase());
         let amount = data.amount.unwrap_or_default().abs();
 
         let fee = data.fee.map(|fee_amt| crate::types::Fee {
-                cost: Some(fee_amt.abs()),
-                currency: data.denominator_symbol.clone(),
-                rate: None,
-            });
+            cost: Some(fee_amt.abs()),
+            currency: data.denominator_symbol.clone(),
+            rate: None,
+        });
 
         Trade {
             id,
@@ -333,7 +356,10 @@ impl Btcturk {
         let market_id = data.pair_symbol.as_ref();
         let symbol = if let Some(mid) = market_id {
             let markets_by_id = self.markets_by_id.read().unwrap();
-            markets_by_id.get(mid).cloned().unwrap_or_else(|| mid.clone())
+            markets_by_id
+                .get(mid)
+                .cloned()
+                .unwrap_or_else(|| mid.clone())
         } else if let Some(m) = market {
             m.symbol.clone()
         } else {
@@ -341,7 +367,9 @@ impl Btcturk {
         };
 
         let price = data.price.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.amount.as_ref()
+        let amount: Decimal = data
+            .amount
+            .as_ref()
             .or(data.quantity.as_ref())
             .and_then(|a| a.parse::<Decimal>().ok())
             .unwrap_or_default()
@@ -472,9 +500,7 @@ impl Exchange for Btcturk {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BtcturkExchangeInfo = self
-            .public_get("/server/exchangeinfo", None)
-            .await?;
+        let response: BtcturkExchangeInfo = self.public_get("/server/exchangeinfo", None).await?;
 
         let data = response.data;
         let symbols = data.symbols;
@@ -502,7 +528,10 @@ impl Exchange for Btcturk {
                     max_price = filter.max_price.as_ref().and_then(|p| p.parse().ok());
                     min_amount = filter.min_amount.as_ref().and_then(|p| p.parse().ok());
                     max_amount = filter.max_amount.as_ref().and_then(|p| p.parse().ok());
-                    min_cost = filter.min_exchange_value.as_ref().and_then(|p| p.parse().ok());
+                    min_cost = filter
+                        .min_exchange_value
+                        .as_ref()
+                        .and_then(|p| p.parse().ok());
                 }
             }
 
@@ -543,10 +572,22 @@ impl Exchange for Btcturk {
                     quote: Some(symbol_info.denominator_scale),
                 },
                 limits: MarketLimits {
-                    leverage: crate::types::MinMax { min: None, max: None },
-                    amount: crate::types::MinMax { min: min_amount, max: max_amount },
-                    price: crate::types::MinMax { min: min_price, max: max_price },
-                    cost: crate::types::MinMax { min: min_cost, max: None },
+                    leverage: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    amount: crate::types::MinMax {
+                        min: min_amount,
+                        max: max_amount,
+                    },
+                    price: crate::types::MinMax {
+                        min: min_price,
+                        max: max_price,
+                    },
+                    cost: crate::types::MinMax {
+                        min: min_cost,
+                        max: None,
+                    },
                 },
                 margin_modes: None,
                 created: None,
@@ -563,15 +604,16 @@ impl Exchange for Btcturk {
 
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let tickers = self.fetch_tickers(Some(&[symbol])).await?;
-        tickers.get(symbol).cloned().ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("Ticker not found for symbol: {symbol}"),
-        })
+        tickers
+            .get(symbol)
+            .cloned()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("Ticker not found for symbol: {symbol}"),
+            })
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: BtcturkTickerResponse = self
-            .public_get("/ticker", None)
-            .await?;
+        let response: BtcturkTickerResponse = self.public_get("/ticker", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut tickers = HashMap::new();
@@ -605,22 +647,29 @@ impl Exchange for Btcturk {
         let mut params = HashMap::new();
         params.insert("pairSymbol".into(), market_id);
 
-        let response: BtcturkOrderBookResponse = self
-            .public_get("/orderbook", Some(params))
-            .await?;
+        let response: BtcturkOrderBookResponse =
+            self.public_get("/orderbook", Some(params)).await?;
 
         let data = response.data;
         let timestamp = data.timestamp;
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().map(|b| OrderBookEntry {
-            price: b[0].parse().unwrap_or_default(),
-            amount: b[1].parse().unwrap_or_default(),
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .map(|b| OrderBookEntry {
+                price: b[0].parse().unwrap_or_default(),
+                amount: b[1].parse().unwrap_or_default(),
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().map(|a| OrderBookEntry {
-            price: a[0].parse().unwrap_or_default(),
-            amount: a[1].parse().unwrap_or_default(),
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .map(|a| OrderBookEntry {
+                price: a[0].parse().unwrap_or_default(),
+                amount: a[1].parse().unwrap_or_default(),
+            })
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
@@ -628,11 +677,12 @@ impl Exchange for Btcturk {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -656,11 +706,10 @@ impl Exchange for Btcturk {
             params.insert("last".into(), l.to_string());
         }
 
-        let response: BtcturkTradesResponse = self
-            .public_get("/trades", Some(params))
-            .await?;
+        let response: BtcturkTradesResponse = self.public_get("/trades", Some(params)).await?;
 
-        let trades: Vec<Trade> = response.data
+        let trades: Vec<Trade> = response
+            .data
             .iter()
             .map(|t| self.parse_trade(t, Some(&market)))
             .collect();
@@ -683,9 +732,12 @@ impl Exchange for Btcturk {
             market.id.clone()
         };
 
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -713,9 +765,8 @@ impl Exchange for Btcturk {
             params.insert("from".into(), from.to_string());
         }
 
-        let response: BtcturkOHLCVResponse = self
-            .graph_get("/klines/history", Some(params))
-            .await?;
+        let response: BtcturkOHLCVResponse =
+            self.graph_get("/klines/history", Some(params)).await?;
 
         let timestamps = response.t.unwrap_or_default();
         let opens = response.o.unwrap_or_default();
@@ -726,7 +777,12 @@ impl Exchange for Btcturk {
 
         let mut ohlcv_list = Vec::new();
         for i in 0..timestamps.len() {
-            if i < opens.len() && i < highs.len() && i < lows.len() && i < closes.len() && i < volumes.len() {
+            if i < opens.len()
+                && i < highs.len()
+                && i < lows.len()
+                && i < closes.len()
+                && i < volumes.len()
+            {
                 ohlcv_list.push(OHLCV {
                     timestamp: timestamps[i] * 1000, // Convert to milliseconds
                     open: opens[i],
@@ -768,17 +824,27 @@ impl Exchange for Btcturk {
         };
 
         let mut params = HashMap::new();
-        params.insert("orderType".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.to_string());
-        params.insert("orderMethod".into(), match order_type {
-            OrderType::Limit => "limit",
-            OrderType::Market => "market",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.to_string());
+        params.insert(
+            "orderType".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .to_string(),
+        );
+        params.insert(
+            "orderMethod".into(),
+            match order_type {
+                OrderType::Limit => "limit",
+                OrderType::Market => "market",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .to_string(),
+        );
         params.insert("pairSymbol".into(), market.id.clone());
         params.insert("quantity".into(), amount.to_string());
 
@@ -792,9 +858,7 @@ impl Exchange for Btcturk {
         // Generate newClientOrderId
         params.insert("newClientOrderId".into(), uuid::Uuid::new_v4().to_string());
 
-        let response: BtcturkOrderResponse = self
-            .private_request("POST", "/order", params)
-            .await?;
+        let response: BtcturkOrderResponse = self.private_request("POST", "/order", params).await?;
 
         Ok(self.parse_order(&response.data, Some(&market)))
     }
@@ -803,9 +867,8 @@ impl Exchange for Btcturk {
         let mut params = HashMap::new();
         params.insert("id".into(), id.to_string());
 
-        let response: BtcturkCancelResponse = self
-            .private_request("DELETE", "/order", params)
-            .await?;
+        let response: BtcturkCancelResponse =
+            self.private_request("DELETE", "/order", params).await?;
 
         // BTCTurk returns simple success response, construct minimal order
         Ok(Order {
@@ -861,9 +924,8 @@ impl Exchange for Btcturk {
             params.insert("pairSymbol".into(), market.id.clone());
         }
 
-        let response: BtcturkOpenOrdersResponse = self
-            .private_request("GET", "/openOrders", params)
-            .await?;
+        let response: BtcturkOpenOrdersResponse =
+            self.private_request("GET", "/openOrders", params).await?;
 
         let data = response.data;
         let mut orders = Vec::new();
@@ -907,11 +969,11 @@ impl Exchange for Btcturk {
             params.insert("startTime".into(), (s / 1000).to_string());
         }
 
-        let response: BtcturkAllOrdersResponse = self
-            .private_request("GET", "/allOrders", params)
-            .await?;
+        let response: BtcturkAllOrdersResponse =
+            self.private_request("GET", "/allOrders", params).await?;
 
-        let orders: Vec<Order> = response.data
+        let orders: Vec<Order> = response
+            .data
             .iter()
             .map(|o| self.parse_order(o, Some(&market)))
             .collect();
@@ -931,7 +993,8 @@ impl Exchange for Btcturk {
             .private_request("GET", "/users/transactions/trade", params)
             .await?;
 
-        let trades: Vec<Trade> = response.data
+        let trades: Vec<Trade> = response
+            .data
             .iter()
             .map(|t| self.parse_trade(t, None))
             .collect();
@@ -981,10 +1044,9 @@ impl Exchange for Btcturk {
             let nonce = Utc::now().timestamp_millis().to_string();
             let auth = format!("{api_key}{nonce}");
 
-            if let Ok(secret_bytes) = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                secret,
-            ) {
+            if let Ok(secret_bytes) =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, secret)
+            {
                 let mut mac = HmacSha256::new_from_slice(&secret_bytes).unwrap();
                 mac.update(auth.as_bytes());
                 let signature = base64::Engine::encode(

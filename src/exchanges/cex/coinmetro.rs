@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// Coinmetro 거래소
@@ -137,7 +137,8 @@ impl Coinmetro {
         path: &str,
         params: Option<HashMap<String, String>>,
     ) -> CcxtResult<T> {
-        self.private_request_with_body(method, path, params, None).await
+        self.private_request_with_body(method, path, params, None)
+            .await
     }
 
     /// 비공개 API 호출 (body 포함)
@@ -150,9 +151,12 @@ impl Coinmetro {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let token = self.config.token().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "JWT token required".into(),
-        })?;
+        let token = self
+            .config
+            .token()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "JWT token required".into(),
+            })?;
 
         let mut headers = HashMap::new();
         headers.insert("Authorization".into(), format!("Bearer {token}"));
@@ -172,7 +176,11 @@ impl Coinmetro {
         match method {
             "GET" => self.private_client.get(&url, None, Some(headers)).await,
             "POST" => self.private_client.post(&url, body, Some(headers)).await,
-            "PUT" => self.private_client.put_json(&url, body, Some(headers)).await,
+            "PUT" => {
+                self.private_client
+                    .put_json(&url, body, Some(headers))
+                    .await
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -330,7 +338,11 @@ impl Coinmetro {
         let timestamp = data.timestamp;
 
         Trade {
-            id: data.seq_number.as_ref().map(|n| n.to_string()).unwrap_or_default(),
+            id: data
+                .seq_number
+                .as_ref()
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
             order: data.order_id.clone(),
             timestamp: Some(timestamp),
             datetime: Some(
@@ -417,9 +429,7 @@ impl Exchange for Coinmetro {
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
         // Fetch currencies first to build currency mapping
-        let currencies_response: Vec<CoinmetroCurrency> = self
-            .public_get("/assets", None)
-            .await?;
+        let currencies_response: Vec<CoinmetroCurrency> = self.public_get("/assets", None).await?;
 
         let mut currencies_by_id = HashMap::new();
         let mut currency_ids = Vec::new();
@@ -440,9 +450,7 @@ impl Exchange for Coinmetro {
         }
 
         // Now fetch markets
-        let response: Vec<CoinmetroMarket> = self
-            .public_get("/markets", None)
-            .await?;
+        let response: Vec<CoinmetroMarket> = self.public_get("/markets", None).await?;
 
         let mut markets = Vec::new();
 
@@ -515,13 +523,9 @@ impl Exchange for Coinmetro {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: CoinmetroPricesResponse = self
-            .public_get("/exchange/prices", None)
-            .await?;
+        let response: CoinmetroPricesResponse = self.public_get("/exchange/prices", None).await?;
 
-        let markets_by_id = {
-            self.markets_by_id.read().unwrap().clone()
-        };
+        let markets_by_id = { self.markets_by_id.read().unwrap().clone() };
         let mut tickers = HashMap::new();
 
         // Merge latest prices and 24h info
@@ -563,9 +567,12 @@ impl Exchange for Coinmetro {
     async fn fetch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<OrderBook> {
         let market = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?.clone()
+            markets
+                .get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
+                .clone()
         };
 
         let response: CoinmetroOrderBookResponse = self
@@ -599,6 +606,7 @@ impl Exchange for Coinmetro {
             nonce: book.seq_number,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -610,9 +618,12 @@ impl Exchange for Coinmetro {
     ) -> CcxtResult<Vec<Trade>> {
         let market = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?.clone()
+            markets
+                .get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
+                .clone()
         };
 
         let from = since.map(|s| s.to_string()).unwrap_or_default();
@@ -639,16 +650,25 @@ impl Exchange for Coinmetro {
     ) -> CcxtResult<Vec<OHLCV>> {
         let market = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?.clone()
+            markets
+                .get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
+                .clone()
         };
 
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?.clone();
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?
+            .clone();
 
-        let from = since.map(|s| s.to_string()).unwrap_or_else(|| ":from".to_string());
+        let from = since
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| ":from".to_string());
 
         let to = if let Some(s) = since {
             if let Some(l) = limit {
@@ -668,10 +688,11 @@ impl Exchange for Coinmetro {
             ":to".to_string()
         };
 
-        let path = format!("/exchange/candles/{}/{}/{}/{}", market.id, interval, from, to);
-        let response: CoinmetroOHLCVResponse = self
-            .public_get(&path, None)
-            .await?;
+        let path = format!(
+            "/exchange/candles/{}/{}/{}/{}",
+            market.id, interval, from, to
+        );
+        let response: CoinmetroOHLCVResponse = self.public_get(&path, None).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .candle_history
@@ -690,9 +711,8 @@ impl Exchange for Coinmetro {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: CoinmetroWalletsResponse = self
-            .private_request("GET", "/users/wallets", None)
-            .await?;
+        let response: CoinmetroWalletsResponse =
+            self.private_request("GET", "/users/wallets", None).await?;
 
         Ok(self.parse_balance(&response.list))
     }
@@ -707,18 +727,27 @@ impl Exchange for Coinmetro {
     ) -> CcxtResult<Order> {
         let market = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: symbol.to_string(),
-            })?.clone()
+            markets
+                .get(symbol)
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
+                .clone()
         };
 
         let (buying_currency, selling_currency, buying_qty, selling_qty) = match side {
-            OrderSide::Buy => {
-                (market.base_id.clone(), market.quote_id.clone(), Some(amount), None)
-            }
-            OrderSide::Sell => {
-                (market.quote_id.clone(), market.base_id.clone(), None, Some(amount))
-            }
+            OrderSide::Buy => (
+                market.base_id.clone(),
+                market.quote_id.clone(),
+                Some(amount),
+                None,
+            ),
+            OrderSide::Sell => (
+                market.quote_id.clone(),
+                market.base_id.clone(),
+                None,
+                Some(amount),
+            ),
         };
 
         let mut request_body = serde_json::json!({
@@ -759,7 +788,9 @@ impl Exchange for Coinmetro {
 
         let symbol = {
             let markets_by_id = self.markets_by_id.read().unwrap();
-            response.pair.as_ref()
+            response
+                .pair
+                .as_ref()
                 .and_then(|p| markets_by_id.get(p))
                 .cloned()
                 .unwrap_or_default()
@@ -775,7 +806,9 @@ impl Exchange for Coinmetro {
 
         let symbol = {
             let markets_by_id = self.markets_by_id.read().unwrap();
-            response.pair.as_ref()
+            response
+                .pair
+                .as_ref()
                 .and_then(|p| markets_by_id.get(p))
                 .cloned()
                 .unwrap_or_default()
@@ -794,14 +827,14 @@ impl Exchange for Coinmetro {
             .private_request("GET", "/exchange/orders/active", None)
             .await?;
 
-        let markets_by_id = {
-            self.markets_by_id.read().unwrap().clone()
-        };
+        let markets_by_id = { self.markets_by_id.read().unwrap().clone() };
 
         let orders: Vec<Order> = response
             .iter()
             .filter_map(|o| {
-                let sym = o.pair.as_ref()
+                let sym = o
+                    .pair
+                    .as_ref()
                     .and_then(|p| markets_by_id.get(p))
                     .cloned()
                     .unwrap_or_default();
@@ -876,12 +909,8 @@ impl Exchange for Coinmetro {
             .private_request("GET", &format!("/exchange/fills/{since_param}"), None)
             .await?;
 
-        let markets_by_id = {
-            self.markets_by_id.read().unwrap().clone()
-        };
-        let markets = {
-            self.markets.read().unwrap().clone()
-        };
+        let markets_by_id = { self.markets_by_id.read().unwrap().clone() };
+        let markets = { self.markets.read().unwrap().clone() };
 
         let trades: Vec<Trade> = response
             .iter()

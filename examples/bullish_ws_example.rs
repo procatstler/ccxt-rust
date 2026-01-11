@@ -39,9 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 3 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -80,9 +80,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 3 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -103,10 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for trade in &event.trades {
                         println!(
                             "Trade: {} - {} @ {} ({:?})",
-                            event.symbol,
-                            trade.amount,
-                            trade.price,
-                            trade.side
+                            event.symbol, trade.amount, trade.price, trade.side
                         );
                         count += 1;
                         if count >= 5 {
@@ -116,9 +113,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 5 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });

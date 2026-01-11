@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -141,12 +141,18 @@ impl Digifinex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -166,8 +172,8 @@ impl Digifinex {
             .join("&");
 
         // Create HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(auth_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -197,7 +203,7 @@ impl Digifinex {
                     None
                 };
                 self.private_client.post(&url, body, Some(headers)).await
-            }
+            },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -222,7 +228,9 @@ impl Digifinex {
 
     /// Parse ticker response
     fn parse_ticker(&self, data: &DigifinexTicker, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -258,7 +266,7 @@ impl Digifinex {
     fn parse_order(&self, data: &DigifinexOrder, symbol: &str) -> Order {
         let status = match data.status.as_deref() {
             Some("0") => OrderStatus::Open,
-            Some("1") => OrderStatus::Open, // Partially filled
+            Some("1") => OrderStatus::Open,   // Partially filled
             Some("2") => OrderStatus::Closed, // Filled
             Some("3") => OrderStatus::Canceled,
             Some("4") => OrderStatus::Canceled, // Partially filled and canceled
@@ -278,8 +286,16 @@ impl Digifinex {
         };
 
         let price = data.price.as_deref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.amount.as_deref().and_then(|a| a.parse().ok()).unwrap_or_default();
-        let filled: Decimal = data.executed_amount.as_deref().and_then(|a| a.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .amount
+            .as_deref()
+            .and_then(|a| a.parse().ok())
+            .unwrap_or_default();
+        let filled: Decimal = data
+            .executed_amount
+            .as_deref()
+            .and_then(|a| a.parse().ok())
+            .unwrap_or_default();
         let remaining = Some(amount - filled);
         let cost = if let (Some(p), f) = (price, filled) {
             if f > Decimal::ZERO {
@@ -415,9 +431,7 @@ impl Exchange for Digifinex {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: DigifinexMarketsResponse = self
-            .public_get("/v3/spot/symbols", None)
-            .await?;
+        let response: DigifinexMarketsResponse = self.public_get("/v3/spot/symbols", None).await?;
 
         let mut markets = Vec::new();
 
@@ -488,9 +502,7 @@ impl Exchange for Digifinex {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: DigifinexTickerResponse = self
-            .public_get("/v3/ticker", Some(params))
-            .await?;
+        let response: DigifinexTickerResponse = self.public_get("/v3/ticker", Some(params)).await?;
 
         if let Some(ticker_data) = response.ticker.first() {
             Ok(self.parse_ticker(ticker_data, symbol))
@@ -502,9 +514,7 @@ impl Exchange for Digifinex {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: DigifinexTickerResponse = self
-            .public_get("/v3/ticker", None)
-            .await?;
+        let response: DigifinexTickerResponse = self.public_get("/v3/ticker", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
         let mut tickers = HashMap::new();
@@ -534,9 +544,8 @@ impl Exchange for Digifinex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: DigifinexOrderBookResponse = self
-            .public_get("/v3/order_book", Some(params))
-            .await?;
+        let response: DigifinexOrderBookResponse =
+            self.public_get("/v3/order_book", Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .bids
@@ -567,6 +576,7 @@ impl Exchange for Digifinex {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -583,9 +593,7 @@ impl Exchange for Digifinex {
             params.insert("limit".into(), l.min(100).to_string());
         }
 
-        let response: DigifinexTradesResponse = self
-            .public_get("/v3/trades", Some(params))
-            .await?;
+        let response: DigifinexTradesResponse = self.public_get("/v3/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .data
@@ -633,9 +641,12 @@ impl Exchange for Digifinex {
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
 
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -649,9 +660,7 @@ impl Exchange for Digifinex {
             params.insert("start_time".into(), (s / 1000).to_string());
         }
 
-        let response: DigifinexKlineResponse = self
-            .public_get("/v3/kline", Some(params))
-            .await?;
+        let response: DigifinexKlineResponse = self.public_get("/v3/kline", Some(params)).await?;
 
         let ohlcv_list: Vec<OHLCV> = response
             .data
@@ -693,10 +702,14 @@ impl Exchange for Digifinex {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("type".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.into());
+        params.insert(
+            "type".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .into(),
+        );
         params.insert("amount".into(), amount.to_string());
 
         match order_type {
@@ -705,15 +718,15 @@ impl Exchange for Digifinex {
                     message: "Limit order requires price".into(),
                 })?;
                 params.insert("price".into(), price_val.to_string());
-            }
+            },
             OrderType::Market => {
                 // Market orders don't need price
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type: {order_type:?}"),
                 });
-            }
+            },
         }
 
         let response: DigifinexOrderResponse = self
@@ -870,7 +883,11 @@ impl Exchange for Digifinex {
                     symbol: symbol_str.to_string(),
                     trade_type: None,
                     side: Some(t.side.clone()),
-                    taker_or_maker: if t.is_maker { Some(TakerOrMaker::Maker) } else { Some(TakerOrMaker::Taker) },
+                    taker_or_maker: if t.is_maker {
+                        Some(TakerOrMaker::Maker)
+                    } else {
+                        Some(TakerOrMaker::Taker)
+                    },
                     price,
                     amount,
                     cost: Some(cost),

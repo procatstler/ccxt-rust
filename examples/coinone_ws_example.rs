@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match msg {
                 WsMessage::Connected => {
                     println!("[Ticker] Connected to Coinone WebSocket");
-                }
+                },
                 WsMessage::Ticker(event) => {
                     count += 1;
                     println!(
@@ -34,15 +34,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("[Ticker] Received 5 updates, stopping...");
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => {
                     eprintln!("[Ticker] Error: {err}");
-                }
+                },
                 WsMessage::Disconnected => {
                     println!("[Ticker] Disconnected");
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     });
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match msg {
                 WsMessage::Connected => {
                     println!("[OrderBook] Connected to Coinone WebSocket");
-                }
+                },
                 WsMessage::OrderBook(event) => {
                     count += 1;
                     println!(
@@ -84,15 +84,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("[OrderBook] Received 3 snapshots, stopping...");
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => {
                     eprintln!("[OrderBook] Error: {err}");
-                }
+                },
                 WsMessage::Disconnected => {
                     println!("[OrderBook] Disconnected");
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     });
@@ -108,32 +108,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match msg {
                 WsMessage::Connected => {
                     println!("[Trades] Connected to Coinone WebSocket");
-                }
+                },
                 WsMessage::Trade(event) => {
                     count += 1;
                     for trade in &event.trades {
                         println!(
                             "[Trades] {} - ID: {}, Side: {:?}, Price: {}, Amount: {}",
-                            event.symbol,
-                            trade.id,
-                            trade.side,
-                            trade.price,
-                            trade.amount
+                            event.symbol, trade.id, trade.side, trade.price, trade.amount
                         );
                     }
                     if count >= 5 {
                         println!("[Trades] Received 5 trades, stopping...");
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => {
                     eprintln!("[Trades] Error: {err}");
-                }
+                },
                 WsMessage::Disconnected => {
                     println!("[Trades] Disconnected");
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     });

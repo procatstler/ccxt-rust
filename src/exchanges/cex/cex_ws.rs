@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, OHLCV, WsExchange, WsMessage,
-    WsOhlcvEvent, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOhlcvEvent,
+    WsOrderBookEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_BASE_URL: &str = "wss://ws.cex.io/ws/";
@@ -118,10 +118,9 @@ impl CexWs {
                         if let (Some(price_str), Some(amount_str)) =
                             (price_val.as_str(), amount_val.as_str())
                         {
-                            if let (Ok(price), Ok(amount)) = (
-                                price_str.parse::<Decimal>(),
-                                amount_str.parse::<Decimal>(),
-                            ) {
+                            if let (Ok(price), Ok(amount)) =
+                                (price_str.parse::<Decimal>(), amount_str.parse::<Decimal>())
+                            {
                                 bids.push(OrderBookEntry { price, amount });
                             }
                         }
@@ -138,10 +137,9 @@ impl CexWs {
                         if let (Some(price_str), Some(amount_str)) =
                             (price_val.as_str(), amount_val.as_str())
                         {
-                            if let (Ok(price), Ok(amount)) = (
-                                price_str.parse::<Decimal>(),
-                                amount_str.parse::<Decimal>(),
-                            ) {
+                            if let (Ok(price), Ok(amount)) =
+                                (price_str.parse::<Decimal>(), amount_str.parse::<Decimal>())
+                            {
                                 asks.push(OrderBookEntry { price, amount });
                             }
                         }
@@ -161,6 +159,7 @@ impl CexWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -243,42 +242,34 @@ impl CexWs {
             "tick" => {
                 if let Ok(msg_data) = serde_json::from_str::<CexTickerMessage>(msg) {
                     if let Some(ref data) = msg_data.data {
-                        let symbol = Self::to_unified_symbol(
-                            data.pair.as_deref().unwrap_or(""),
-                        );
+                        let symbol = Self::to_unified_symbol(data.pair.as_deref().unwrap_or(""));
                         return Some(WsMessage::Ticker(Self::parse_ticker(data, &symbol)));
                     }
                 }
-            }
+            },
             // 호가창 업데이트
             "md_update" | "orderbook-update" => {
                 if let Ok(msg_data) = serde_json::from_str::<CexOrderBookMessage>(msg) {
                     if let Some(ref data) = msg_data.data {
-                        let symbol = Self::to_unified_symbol(
-                            data.pair.as_deref().unwrap_or(""),
-                        );
+                        let symbol = Self::to_unified_symbol(data.pair.as_deref().unwrap_or(""));
                         return Some(WsMessage::OrderBook(Self::parse_order_book(data, &symbol)));
                     }
                 }
-            }
+            },
             // 체결 내역
             "md_trade_history" | "trade-update" => {
                 if let Ok(msg_data) = serde_json::from_str::<CexTradeMessage>(msg) {
                     if let Some(ref data) = msg_data.data {
-                        let symbol = Self::to_unified_symbol(
-                            data.pair.as_deref().unwrap_or(""),
-                        );
+                        let symbol = Self::to_unified_symbol(data.pair.as_deref().unwrap_or(""));
                         return Some(WsMessage::Trade(Self::parse_trade(data, &symbol)));
                     }
                 }
-            }
+            },
             // OHLCV 업데이트
             "ohlcv_update" | "ohlcv-update" => {
                 if let Ok(msg_data) = serde_json::from_str::<CexOhlcvMessage>(msg) {
                     if let Some(ref data) = msg_data.data {
-                        let symbol = Self::to_unified_symbol(
-                            data.pair.as_deref().unwrap_or(""),
-                        );
+                        let symbol = Self::to_unified_symbol(data.pair.as_deref().unwrap_or(""));
                         // Extract timeframe from interval
                         let timeframe = match data.i.as_deref() {
                             Some("1m") => Timeframe::Minute1,
@@ -296,7 +287,7 @@ impl CexWs {
                         )));
                     }
                 }
-            }
+            },
             // 연결 확인
             "connected" => return Some(WsMessage::Connected),
             // 구독 확인
@@ -309,8 +300,8 @@ impl CexWs {
                         });
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -334,6 +325,7 @@ impl CexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -341,11 +333,10 @@ impl CexWs {
 
         // 구독 메시지 전송
         if let Some(client) = &self.ws_client {
-            let subscribe_str = serde_json::to_string(&subscribe_msg).map_err(|e| {
-                CcxtError::ExchangeError {
+            let subscribe_str =
+                serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ExchangeError {
                     message: format!("Failed to serialize subscribe message: {e}"),
-                }
-            })?;
+                })?;
             client.send(&subscribe_str)?;
         }
 
@@ -365,19 +356,19 @@ impl CexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });

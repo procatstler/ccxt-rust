@@ -20,8 +20,8 @@ use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, OHLCV, WsExchange, WsMessage,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent, WsOhlcvEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOhlcvEvent,
+    WsOrderBookEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_URL: &str = "wss://apiws.p2pb2b.com/";
@@ -132,17 +132,22 @@ impl P2bWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -167,17 +172,17 @@ impl P2bWs {
         match method {
             "state.update" | "price.update" => {
                 Self::handle_ticker(data, subscriptions).await;
-            }
+            },
             "deals.update" => {
                 Self::handle_trades(data, subscriptions).await;
-            }
+            },
             "depth.update" => {
                 Self::handle_orderbook(data, subscriptions, orderbook_cache).await;
-            }
+            },
             "kline.update" => {
                 Self::handle_ohlcv(data, subscriptions).await;
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -201,7 +206,9 @@ impl P2bWs {
 
         let ticker = if method == "price.update" {
             // Price update: just last price
-            let last_price = params.get(1).and_then(|v| v.as_str())
+            let last_price = params
+                .get(1)
+                .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<Decimal>().ok());
 
             Ticker {
@@ -220,19 +227,33 @@ impl P2bWs {
 
             Ticker {
                 symbol: symbol.clone(),
-                high: ticker_data.get("high").and_then(|v| v.as_str())
+                high: ticker_data
+                    .get("high")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok()),
-                low: ticker_data.get("low").and_then(|v| v.as_str())
+                low: ticker_data
+                    .get("low")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok()),
-                last: ticker_data.get("last").and_then(|v| v.as_str())
+                last: ticker_data
+                    .get("last")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok()),
-                open: ticker_data.get("open").and_then(|v| v.as_str())
+                open: ticker_data
+                    .get("open")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok()),
-                close: ticker_data.get("close").and_then(|v| v.as_str())
+                close: ticker_data
+                    .get("close")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok()),
-                base_volume: ticker_data.get("volume").and_then(|v| v.as_str())
+                base_volume: ticker_data
+                    .get("volume")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok()),
-                quote_volume: ticker_data.get("deal").and_then(|v| v.as_str())
+                quote_volume: ticker_data
+                    .get("deal")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok()),
                 timestamp: Some(chrono::Utc::now().timestamp_millis()),
                 ..Default::default()
@@ -265,23 +286,32 @@ impl P2bWs {
 
         if let Some(trades) = params.get(1).and_then(|v| v.as_array()) {
             for trade_data in trades {
-                let id = trade_data.get("id")
+                let id = trade_data
+                    .get("id")
                     .and_then(|v| v.as_i64())
                     .map(|i| i.to_string())
                     .unwrap_or_default();
 
-                let price = trade_data.get("price").and_then(|v| v.as_str())
+                let price = trade_data
+                    .get("price")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
 
-                let amount = trade_data.get("amount").and_then(|v| v.as_str())
+                let amount = trade_data
+                    .get("amount")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
 
-                let time = trade_data.get("time").and_then(|v| v.as_f64())
+                let time = trade_data
+                    .get("time")
+                    .and_then(|v| v.as_f64())
                     .map(|t| (t * 1000.0) as i64); // Convert to milliseconds
 
-                let side = trade_data.get("type").and_then(|v| v.as_str())
+                let side = trade_data
+                    .get("type")
+                    .and_then(|v| v.as_str())
                     .unwrap_or("buy");
 
                 let mut trade = Trade::new(id, symbol.clone(), price, amount);
@@ -336,10 +366,16 @@ impl P2bWs {
         if let Some(asks_arr) = ob_data.get("asks").and_then(|v| v.as_array()) {
             for entry in asks_arr {
                 if let Some(arr) = entry.as_array() {
-                    let price: Decimal = arr.first().and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok()).unwrap_or_default();
-                    let amount: Decimal = arr.get(1).and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok()).unwrap_or_default();
+                    let price: Decimal = arr
+                        .first()
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default();
+                    let amount: Decimal = arr
+                        .get(1)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default();
 
                     asks.push(OrderBookEntry { price, amount });
                 }
@@ -349,10 +385,16 @@ impl P2bWs {
         if let Some(bids_arr) = ob_data.get("bids").and_then(|v| v.as_array()) {
             for entry in bids_arr {
                 if let Some(arr) = entry.as_array() {
-                    let price: Decimal = arr.first().and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok()).unwrap_or_default();
-                    let amount: Decimal = arr.get(1).and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok()).unwrap_or_default();
+                    let price: Decimal = arr
+                        .first()
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default();
+                    let amount: Decimal = arr
+                        .get(1)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default();
 
                     bids.push(OrderBookEntry { price, amount });
                 }
@@ -368,6 +410,7 @@ impl P2bWs {
                 symbol: symbol.clone(),
                 bids,
                 asks,
+                checksum: None,
                 timestamp: Some(chrono::Utc::now().timestamp_millis()),
                 datetime: None,
                 nonce: None,
@@ -386,6 +429,7 @@ impl P2bWs {
                     symbol: symbol.clone(),
                     bids,
                     asks,
+                    checksum: None,
                     timestamp: Some(chrono::Utc::now().timestamp_millis()),
                     datetime: None,
                     nonce: None,
@@ -423,27 +467,39 @@ impl P2bWs {
         // params[0] is the kline data array
         if let Some(kline) = params.first().and_then(|v| v.as_array()) {
             // [timestamp, open, close, high, low, vol_stock, vol_money, market]
-            let timestamp = kline.first().and_then(|v| v.as_i64())
+            let timestamp = kline
+                .first()
+                .and_then(|v| v.as_i64())
                 .map(|t| t * 1000) // Convert to milliseconds
                 .unwrap_or(0);
 
-            let open = kline.get(1).and_then(|v| v.as_str())
+            let open = kline
+                .get(1)
+                .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or_default();
 
-            let close = kline.get(2).and_then(|v| v.as_str())
+            let close = kline
+                .get(2)
+                .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or_default();
 
-            let high = kline.get(3).and_then(|v| v.as_str())
+            let high = kline
+                .get(3)
+                .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or_default();
 
-            let low = kline.get(4).and_then(|v| v.as_str())
+            let low = kline
+                .get(4)
+                .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or_default();
 
-            let volume = kline.get(5).and_then(|v| v.as_str())
+            let volume = kline
+                .get(5)
+                .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or_default();
 
@@ -468,7 +524,11 @@ impl P2bWs {
     }
 
     /// Apply delta updates to orderbook side
-    fn apply_deltas(book_side: &mut Vec<OrderBookEntry>, updates: &Vec<OrderBookEntry>, is_bid: bool) {
+    fn apply_deltas(
+        book_side: &mut Vec<OrderBookEntry>,
+        updates: &Vec<OrderBookEntry>,
+        is_bid: bool,
+    ) {
         for update in updates {
             // Find existing entry at this price
             let pos = book_side.iter().position(|e| e.price == update.price);
@@ -553,12 +613,16 @@ impl WsExchange for P2bWs {
         }
 
         let market_id = self.format_symbol(symbol);
-        self.subscribe("state.subscribe", json!([market_id])).await?;
+        self.subscribe("state.subscribe", json!([market_id]))
+            .await?;
 
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         let mut market_ids = Vec::new();
@@ -593,7 +657,8 @@ impl WsExchange for P2bWs {
         let depth_limit = limit.unwrap_or(100);
         let interval = "0.001"; // Default price precision interval
 
-        self.subscribe("depth.subscribe", json!([market_id, depth_limit, interval])).await?;
+        self.subscribe("depth.subscribe", json!([market_id, depth_limit, interval]))
+            .await?;
 
         Ok(rx)
     }
@@ -604,7 +669,8 @@ impl WsExchange for P2bWs {
         _limit: Option<u32>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
-            feature: "P2B WebSocket does not support watching multiple orderbooks at once".to_string(),
+            feature: "P2B WebSocket does not support watching multiple orderbooks at once"
+                .to_string(),
         })
     }
 
@@ -618,7 +684,8 @@ impl WsExchange for P2bWs {
         }
 
         let market_id = self.format_symbol(symbol);
-        self.subscribe("deals.subscribe", json!([market_id])).await?;
+        self.subscribe("deals.subscribe", json!([market_id]))
+            .await?;
 
         Ok(rx)
     }
@@ -660,7 +727,8 @@ impl WsExchange for P2bWs {
         let market_id = self.format_symbol(symbol);
         let interval = self.timeframe_to_interval(timeframe)?;
 
-        self.subscribe("kline.subscribe", json!([market_id, interval])).await?;
+        self.subscribe("kline.subscribe", json!([market_id, interval]))
+            .await?;
 
         Ok(rx)
     }
@@ -671,7 +739,8 @@ impl WsExchange for P2bWs {
         _timeframe: Timeframe,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
-            feature: "P2B WebSocket does not support watching multiple OHLCV streams at once".to_string(),
+            feature: "P2B WebSocket does not support watching multiple OHLCV streams at once"
+                .to_string(),
         })
     }
 }

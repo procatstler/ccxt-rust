@@ -19,9 +19,9 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, DepositAddress, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee,
-    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade,
-    Transaction, TransactionStatus, TransactionType, WsExchange, WsMessage, OHLCV,
+    Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Transaction,
+    TransactionStatus, TransactionType, WsExchange, WsMessage, OHLCV,
 };
 
 use super::upbit_ws::UpbitWs;
@@ -147,24 +147,31 @@ impl Upbit {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(0.67).await;
 
-        let signed = self.sign(path, "private", method, &params.unwrap_or_default(), None, None);
+        let signed = self.sign(
+            path,
+            "private",
+            method,
+            &params.unwrap_or_default(),
+            None,
+            None,
+        );
 
         match method {
             "GET" => {
                 self.client
                     .get(&signed.url, None, Some(signed.headers))
                     .await
-            }
+            },
             "POST" => {
                 self.client
                     .post(&signed.url, body, Some(signed.headers))
                     .await
-            }
+            },
             "DELETE" => {
                 self.client
                     .delete(&signed.url, None, Some(signed.headers))
                     .await
-            }
+            },
             _ => Err(CcxtError::BadRequest {
                 message: format!("Unsupported method: {method}"),
             }),
@@ -312,6 +319,7 @@ impl Upbit {
             ),
             bids,
             asks,
+            checksum: None,
             nonce: None,
         }
     }
@@ -408,9 +416,13 @@ impl Upbit {
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
-            cost: data.paid_fee.map(|f| data.executed_volume * data.avg_price.unwrap_or_default() + f),
+            cost: data
+                .paid_fee
+                .map(|f| data.executed_volume * data.avg_price.unwrap_or_default() + f),
             trades: Vec::new(),
-            fee: data.paid_fee.map(|f| Fee::new(f, data.market[..3].to_string())),
+            fee: data
+                .paid_fee
+                .map(|f| Fee::new(f, data.market[..3].to_string())),
             fees: Vec::new(),
             reduce_only: None,
             post_only: None,
@@ -431,7 +443,7 @@ impl Upbit {
             "REJECTED" | "rejected" | "canceled" | "CANCELED" => TransactionStatus::Canceled,
             "PROCESSING" | "processing" | "submitting" | "submitted" | "almost_accepted" => {
                 TransactionStatus::Pending
-            }
+            },
             _ => TransactionStatus::Pending,
         };
 
@@ -560,16 +572,21 @@ impl Exchange for Upbit {
             })
     }
 
-    async fn fetch_tickers(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<HashMap<String, Ticker>> {
+    async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
         let market_ids = match symbols {
-            Some(syms) => syms.iter().map(|s| self.to_market_id(s)).collect::<Vec<_>>().join(","),
+            Some(syms) => syms
+                .iter()
+                .map(|s| self.to_market_id(s))
+                .collect::<Vec<_>>()
+                .join(","),
             None => {
                 let markets = self.load_markets(false).await?;
-                markets.keys().map(|s| self.to_market_id(s)).collect::<Vec<_>>().join(",")
-            }
+                markets
+                    .keys()
+                    .map(|s| self.to_market_id(s))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            },
         };
 
         let mut params = HashMap::new();
@@ -662,7 +679,8 @@ impl Exchange for Upbit {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: Vec<UpbitAccount> = self.private_request("GET", "accounts", None, None).await?;
+        let response: Vec<UpbitAccount> =
+            self.private_request("GET", "accounts", None, None).await?;
         Ok(self.parse_balance(&response))
     }
 
@@ -689,12 +707,12 @@ impl Exchange for Upbit {
                 } else {
                     "market"
                 }
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type: {order_type:?}"),
                 })
-            }
+            },
         };
 
         let mut body = serde_json::json!({
@@ -838,7 +856,11 @@ impl Exchange for Upbit {
                     datetime: Some(o.created_at.clone()),
                     symbol: symbol_str,
                     trade_type: None,
-                    side: Some(if o.side == "bid" { "buy".to_string() } else { "sell".to_string() }),
+                    side: Some(if o.side == "bid" {
+                        "buy".to_string()
+                    } else {
+                        "sell".to_string()
+                    }),
                     taker_or_maker: None,
                     price,
                     amount,
@@ -1041,27 +1063,44 @@ impl Exchange for Upbit {
 
     // === WebSocket Methods ===
 
-    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ticker(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ticker(symbol).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_tickers(symbols).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_order_book(symbol, limit).await
     }
 
-    async fn watch_trades(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_trades(symbol).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ohlcv(symbol, timeframe).await
     }

@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://ws.bitso.com";
@@ -48,15 +48,20 @@ impl BitsoWs {
     }
 
     fn parse_ticker(data: &BitsoWsTicker, symbol: &str) -> Ticker {
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
         Ticker {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()).unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             high: data.high,
             low: data.low,
             bid: data.bid,
@@ -81,18 +86,26 @@ impl BitsoWs {
 
     fn parse_order_book(data: &BitsoWsOrderBook, symbol: &str) -> OrderBook {
         let timestamp = Utc::now().timestamp_millis();
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|e| {
-            Some(OrderBookEntry {
-                price: Decimal::from_str(&e.price).ok()?,
-                amount: Decimal::from_str(&e.amount).ok()?,
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|e| {
+                Some(OrderBookEntry {
+                    price: Decimal::from_str(&e.price).ok()?,
+                    amount: Decimal::from_str(&e.amount).ok()?,
+                })
             })
-        }).collect();
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|e| {
-            Some(OrderBookEntry {
-                price: Decimal::from_str(&e.price).ok()?,
-                amount: Decimal::from_str(&e.amount).ok()?,
+            .collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|e| {
+                Some(OrderBookEntry {
+                    price: Decimal::from_str(&e.price).ok()?,
+                    amount: Decimal::from_str(&e.amount).ok()?,
+                })
             })
-        }).collect();
+            .collect();
         OrderBook {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
@@ -100,11 +113,14 @@ impl BitsoWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         }
     }
 
     fn parse_trade(data: &BitsoWsTrade, symbol: &str) -> Trade {
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -114,8 +130,11 @@ impl BitsoWs {
             id: data.tid.map(|t| t.to_string()).unwrap_or_default(),
             order: None,
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()).unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             symbol: symbol.to_string(),
             trade_type: None,
             side: data.maker_side.clone(),
@@ -141,35 +160,56 @@ impl BitsoWs {
                     if let Some(payload) = json.get("payload") {
                         if let Ok(data) = serde_json::from_value::<BitsoWsTicker>(payload.clone()) {
                             let ticker = Self::parse_ticker(&data, &symbol);
-                            let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent { symbol: symbol.clone(), ticker }));
+                            let _ = event_tx.send(WsMessage::Ticker(WsTickerEvent {
+                                symbol: symbol.clone(),
+                                ticker,
+                            }));
                         }
                     }
-                }
+                },
                 "orders" | "diff-orders" => {
                     if let Some(payload) = json.get("payload") {
-                        if let Ok(data) = serde_json::from_value::<BitsoWsOrderBook>(payload.clone()) {
+                        if let Ok(data) =
+                            serde_json::from_value::<BitsoWsOrderBook>(payload.clone())
+                        {
                             let is_snapshot = msg_type == "orders";
                             let order_book = Self::parse_order_book(&data, &symbol);
-                            let _ = event_tx.send(WsMessage::OrderBook(WsOrderBookEvent { symbol: symbol.clone(), order_book, is_snapshot }));
+                            let _ = event_tx.send(WsMessage::OrderBook(WsOrderBookEvent {
+                                symbol: symbol.clone(),
+                                order_book,
+                                is_snapshot,
+                            }));
                         }
                     }
-                }
+                },
                 "trades" => {
                     if let Some(payload) = json.get("payload") {
-                        if let Ok(trades_data) = serde_json::from_value::<Vec<BitsoWsTrade>>(payload.clone()) {
-                            let trades: Vec<Trade> = trades_data.iter().map(|t| Self::parse_trade(t, &symbol)).collect();
-                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent { symbol: symbol.clone(), trades }));
+                        if let Ok(trades_data) =
+                            serde_json::from_value::<Vec<BitsoWsTrade>>(payload.clone())
+                        {
+                            let trades: Vec<Trade> = trades_data
+                                .iter()
+                                .map(|t| Self::parse_trade(t, &symbol))
+                                .collect();
+                            let _ = event_tx.send(WsMessage::Trade(WsTradeEvent {
+                                symbol: symbol.clone(),
+                                trades,
+                            }));
                         }
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
         Ok(())
     }
 
-    async fn subscribe_stream(&mut self, channel: &str, market_id: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        channel: &str,
+        market_id: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
         let mut ws_client = WsClient::new(WsConfig {
@@ -179,6 +219,7 @@ impl BitsoWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
         let mut ws_rx = ws_client.connect().await?;
 
@@ -197,11 +238,21 @@ impl BitsoWs {
         tokio::spawn(async move {
             while let Some(event) = ws_rx.recv().await {
                 match event {
-                    WsEvent::Message(msg) => { let _ = Self::process_message(&msg, &event_tx); }
-                    WsEvent::Connected => { let _ = event_tx.send(WsMessage::Connected); }
-                    WsEvent::Disconnected => { let _ = event_tx.send(WsMessage::Disconnected); break; }
-                    WsEvent::Error(e) => { let _ = event_tx.send(WsMessage::Error(e)); }
-                    WsEvent::Ping | WsEvent::Pong => {}
+                    WsEvent::Message(msg) => {
+                        let _ = Self::process_message(&msg, &event_tx);
+                    },
+                    WsEvent::Connected => {
+                        let _ = event_tx.send(WsMessage::Connected);
+                    },
+                    WsEvent::Disconnected => {
+                        let _ = event_tx.send(WsMessage::Disconnected);
+                        break;
+                    },
+                    WsEvent::Error(e) => {
+                        let _ = event_tx.send(WsMessage::Error(e));
+                    },
+                    WsEvent::Ping | WsEvent::Pong => {},
+                    _ => {},
                 }
             }
             let mut subs = subscriptions.write().await;
@@ -212,10 +263,18 @@ impl BitsoWs {
     }
 }
 
-impl Default for BitsoWs { fn default() -> Self { Self::new() } }
+impl Default for BitsoWs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Clone for BitsoWs {
     fn clone(&self) -> Self {
-        Self { ws_client: None, subscriptions: Arc::new(RwLock::new(HashMap::new())), event_tx: None }
+        Self {
+            ws_client: None,
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            event_tx: None,
+        }
     }
 }
 
@@ -223,24 +282,42 @@ impl Clone for BitsoWs {
 impl WsExchange for BitsoWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("ticker", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("ticker", &Self::format_symbol(symbol))
+            .await
     }
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("orders", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("orders", &Self::format_symbol(symbol))
+            .await
     }
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
-        ws.subscribe_stream("trades", &Self::format_symbol(symbol)).await
+        ws.subscribe_stream("trades", &Self::format_symbol(symbol))
+            .await
     }
-    async fn watch_ohlcv(&self, symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        Err(crate::errors::CcxtError::NotSupported { feature: format!("OHLCV WebSocket for {symbol}") })
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: format!("OHLCV WebSocket for {symbol}"),
+        })
     }
     async fn ws_connect(&mut self) -> CcxtResult<()> {
         if self.ws_client.is_none() {
             let mut ws_client = WsClient::new(WsConfig {
-                url: WS_URL.to_string(), auto_reconnect: true, reconnect_interval_ms: 5000,
-                max_reconnect_attempts: 10, ping_interval_secs: 30, connect_timeout_secs: 30,
+                url: WS_URL.to_string(),
+                auto_reconnect: true,
+                reconnect_interval_ms: 5000,
+                max_reconnect_attempts: 10,
+                ping_interval_secs: 30,
+                connect_timeout_secs: 30,
+                ..Default::default()
             });
             ws_client.connect().await?;
             self.ws_client = Some(ws_client);
@@ -248,63 +325,112 @@ impl WsExchange for BitsoWs {
         Ok(())
     }
     async fn ws_close(&mut self) -> CcxtResult<()> {
-        if let Some(ws_client) = &self.ws_client { ws_client.close()?; self.ws_client = None; }
+        if let Some(ws_client) = &self.ws_client {
+            ws_client.close()?;
+            self.ws_client = None;
+        }
         Ok(())
     }
     async fn ws_is_connected(&self) -> bool {
-        match &self.ws_client { Some(c) => c.is_connected().await, None => false }
+        match &self.ws_client {
+            Some(c) => c.is_connected().await,
+            None => false,
+        }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct BitsoWsTicker {
-    #[serde(default)] high: Option<Decimal>,
-    #[serde(default)] low: Option<Decimal>,
-    #[serde(default)] bid: Option<Decimal>,
-    #[serde(default)] ask: Option<Decimal>,
-    #[serde(default)] last: Option<Decimal>,
-    #[serde(default)] vwap: Option<Decimal>,
-    #[serde(default)] volume: Option<Decimal>,
-    #[serde(default)] created_at: Option<String>,
+    #[serde(default)]
+    high: Option<Decimal>,
+    #[serde(default)]
+    low: Option<Decimal>,
+    #[serde(default)]
+    bid: Option<Decimal>,
+    #[serde(default)]
+    ask: Option<Decimal>,
+    #[serde(default)]
+    last: Option<Decimal>,
+    #[serde(default)]
+    vwap: Option<Decimal>,
+    #[serde(default)]
+    volume: Option<Decimal>,
+    #[serde(default)]
+    created_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct BitsoWsOrderBookEntry {
-    #[serde(default)] price: String,
-    #[serde(default)] amount: String,
+    #[serde(default)]
+    price: String,
+    #[serde(default)]
+    amount: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct BitsoWsOrderBook {
-    #[serde(default)] bids: Vec<BitsoWsOrderBookEntry>,
-    #[serde(default)] asks: Vec<BitsoWsOrderBookEntry>,
+    #[serde(default)]
+    bids: Vec<BitsoWsOrderBookEntry>,
+    #[serde(default)]
+    asks: Vec<BitsoWsOrderBookEntry>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct BitsoWsTrade {
-    #[serde(default)] tid: Option<i64>,
-    #[serde(default)] price: Option<Decimal>,
-    #[serde(default)] amount: Option<Decimal>,
-    #[serde(default)] maker_side: Option<String>,
-    #[serde(default)] created_at: Option<String>,
+    #[serde(default)]
+    tid: Option<i64>,
+    #[serde(default)]
+    price: Option<Decimal>,
+    #[serde(default)]
+    amount: Option<Decimal>,
+    #[serde(default)]
+    maker_side: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn test_format_symbol() { assert_eq!(BitsoWs::format_symbol("BTC/MXN"), "btc_mxn"); }
-    #[test] fn test_to_unified_symbol() { assert_eq!(BitsoWs::to_unified_symbol("btc_mxn"), "BTC/MXN"); }
-    #[test] fn test_default() { let ws = BitsoWs::default(); assert!(ws.ws_client.is_none()); }
-    #[test] fn test_clone() { let ws = BitsoWs::new(); assert!(ws.clone().ws_client.is_none()); }
-    #[test] fn test_new() { let ws = BitsoWs::new(); assert!(ws.ws_client.is_none()); }
-    #[tokio::test] async fn test_ws_is_connected() { let ws = BitsoWs::new(); assert!(!ws.ws_is_connected().await); }
+    #[test]
+    fn test_format_symbol() {
+        assert_eq!(BitsoWs::format_symbol("BTC/MXN"), "btc_mxn");
+    }
+    #[test]
+    fn test_to_unified_symbol() {
+        assert_eq!(BitsoWs::to_unified_symbol("btc_mxn"), "BTC/MXN");
+    }
+    #[test]
+    fn test_default() {
+        let ws = BitsoWs::default();
+        assert!(ws.ws_client.is_none());
+    }
+    #[test]
+    fn test_clone() {
+        let ws = BitsoWs::new();
+        assert!(ws.clone().ws_client.is_none());
+    }
+    #[test]
+    fn test_new() {
+        let ws = BitsoWs::new();
+        assert!(ws.ws_client.is_none());
+    }
+    #[tokio::test]
+    async fn test_ws_is_connected() {
+        let ws = BitsoWs::new();
+        assert!(!ws.ws_is_connected().await);
+    }
     #[test]
     fn test_parse_ticker() {
         let data = BitsoWsTicker {
-            high: Some(Decimal::from(1000000)), low: Some(Decimal::from(950000)),
-            bid: Some(Decimal::from(980000)), ask: Some(Decimal::from(985000)),
-            last: Some(Decimal::from(982000)), vwap: None, volume: Some(Decimal::from(50)),
-            created_at: Some("2024-01-01T00:00:00Z".into())
+            high: Some(Decimal::from(1000000)),
+            low: Some(Decimal::from(950000)),
+            bid: Some(Decimal::from(980000)),
+            ask: Some(Decimal::from(985000)),
+            last: Some(Decimal::from(982000)),
+            vwap: None,
+            volume: Some(Decimal::from(50)),
+            created_at: Some("2024-01-01T00:00:00Z".into()),
         };
         let ticker = BitsoWs::parse_ticker(&data, "BTC/MXN");
         assert_eq!(ticker.symbol, "BTC/MXN");
@@ -312,8 +438,14 @@ mod tests {
     #[test]
     fn test_parse_order_book() {
         let data = BitsoWsOrderBook {
-            bids: vec![BitsoWsOrderBookEntry { price: "980000".into(), amount: "1.5".into() }],
-            asks: vec![BitsoWsOrderBookEntry { price: "985000".into(), amount: "1.0".into() }]
+            bids: vec![BitsoWsOrderBookEntry {
+                price: "980000".into(),
+                amount: "1.5".into(),
+            }],
+            asks: vec![BitsoWsOrderBookEntry {
+                price: "985000".into(),
+                amount: "1.0".into(),
+            }],
         };
         let ob = BitsoWs::parse_order_book(&data, "BTC/MXN");
         assert_eq!(ob.bids.len(), 1);
@@ -321,9 +453,11 @@ mod tests {
     #[test]
     fn test_parse_trade() {
         let data = BitsoWsTrade {
-            tid: Some(123), price: Some(Decimal::from(982000)),
-            amount: Some(Decimal::from(1)), maker_side: Some("buy".into()),
-            created_at: Some("2024-01-01T00:00:00Z".into())
+            tid: Some(123),
+            price: Some(Decimal::from(982000)),
+            amount: Some(Decimal::from(1)),
+            maker_side: Some("buy".into()),
+            created_at: Some("2024-01-01T00:00:00Z".into()),
         };
         let trade = BitsoWs::parse_trade(&data, "BTC/MXN");
         assert_eq!(trade.id, "123");

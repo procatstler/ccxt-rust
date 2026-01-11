@@ -33,10 +33,10 @@ use uuid::Uuid;
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, Position, PositionSide, Ticker, Timeframe, Trade, OHLCV,
-    WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent,
-    WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, Position, PositionSide, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange,
+    WsMessage, WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent,
+    WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_PUBLIC_URL: &str = "wss://openapi.blofin.com/ws/public";
@@ -95,18 +95,22 @@ impl BlofinWs {
     /// Generate signature for WebSocket authentication
     /// Format: Base64(Hex(HMAC-SHA256("/users/self/verify" + "GET" + timestamp + nonce, secret)))
     fn generate_signature(&self, timestamp: i64, nonce: &str) -> CcxtResult<String> {
-        let secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channels".to_string(),
-        })?;
+        let secret = self
+            .api_secret
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required for private channels".to_string(),
+            })?;
 
         // Build the message: path + method + timestamp + nonce
         let message = format!("/users/self/verifyGET{timestamp}{nonce}");
 
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("Invalid secret key: {e}"),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         let result = mac.finalize();
 
@@ -143,7 +147,9 @@ impl BlofinWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &BlofinTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.ts.as_ref()
+        let timestamp = data
+            .ts
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -180,30 +186,44 @@ impl BlofinWs {
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &BlofinOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+    fn parse_order_book(
+        data: &BlofinOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.ts.as_ref()
+        let timestamp = data
+            .ts
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -218,6 +238,7 @@ impl BlofinWs {
             nonce: data.seq_id,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -230,7 +251,9 @@ impl BlofinWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &BlofinTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.ts.as_ref()
+        let timestamp = data
+            .ts
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.px.parse().unwrap_or_default();
@@ -300,7 +323,9 @@ impl BlofinWs {
             if let Some(event) = &response.event {
                 if event == "subscribe" {
                     return Some(WsMessage::Subscribed {
-                        channel: response.arg.as_ref()
+                        channel: response
+                            .arg
+                            .as_ref()
                             .and_then(|a| a.channel.clone())
                             .unwrap_or_default(),
                         symbol: response.arg.as_ref().and_then(|a| a.inst_id.clone()),
@@ -315,7 +340,9 @@ impl BlofinWs {
                 // Ticker
                 if channel == "tickers" {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(ticker_data) = serde_json::from_value::<BlofinTickerData>(first.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<BlofinTickerData>(first.clone())
+                        {
                             return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                         }
                     }
@@ -324,12 +351,20 @@ impl BlofinWs {
                 // OrderBook
                 if channel.starts_with("books") {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(ob_data) = serde_json::from_value::<BlofinOrderBookData>(first.clone()) {
-                            let symbol = arg.inst_id.as_ref()
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<BlofinOrderBookData>(first.clone())
+                        {
+                            let symbol = arg
+                                .inst_id
+                                .as_ref()
                                 .map(|s| Self::to_unified_symbol(s))
                                 .unwrap_or_default();
                             let is_snapshot = response.action.as_deref() == Some("snapshot");
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol, is_snapshot)));
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data,
+                                &symbol,
+                                is_snapshot,
+                            )));
                         }
                     }
                 }
@@ -337,7 +372,9 @@ impl BlofinWs {
                 // Trade
                 if channel == "trades" {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(trade_data) = serde_json::from_value::<BlofinTradeData>(first.clone()) {
+                        if let Ok(trade_data) =
+                            serde_json::from_value::<BlofinTradeData>(first.clone())
+                        {
                             return Some(WsMessage::Trade(Self::parse_trade(&trade_data)));
                         }
                     }
@@ -346,8 +383,11 @@ impl BlofinWs {
                 // Candle
                 if channel.starts_with("candle") {
                     if let Some(first) = data_arr.first() {
-                        if let Ok(candle_arr) = serde_json::from_value::<Vec<String>>(first.clone()) {
-                            let symbol = arg.inst_id.as_ref()
+                        if let Ok(candle_arr) = serde_json::from_value::<Vec<String>>(first.clone())
+                        {
+                            let symbol = arg
+                                .inst_id
+                                .as_ref()
                                 .map(|s| Self::to_unified_symbol(s))
                                 .unwrap_or_default();
                             // Extract timeframe from channel (e.g., "candle1m")
@@ -367,7 +407,8 @@ impl BlofinWs {
                                 "1M" => Timeframe::Month1,
                                 _ => Timeframe::Minute1,
                             };
-                            if let Some(event) = Self::parse_candle(&candle_arr, &symbol, timeframe) {
+                            if let Some(event) = Self::parse_candle(&candle_arr, &symbol, timeframe)
+                            {
                                 return Some(WsMessage::Ohlcv(event));
                             }
                         }
@@ -391,7 +432,10 @@ impl BlofinWs {
                         messages.push(WsMessage::Authenticated);
                     } else {
                         messages.push(WsMessage::Error(
-                            response.msg.clone().unwrap_or_else(|| "Login failed".to_string())
+                            response
+                                .msg
+                                .clone()
+                                .unwrap_or_else(|| "Login failed".to_string()),
                         ));
                     }
                     return messages;
@@ -405,8 +449,12 @@ impl BlofinWs {
                 // Account channel (balance updates)
                 if channel == "account" {
                     for data in data_arr {
-                        if let Ok(account_data) = serde_json::from_value::<BlofinAccountData>(data.clone()) {
-                            messages.push(WsMessage::Balance(Self::parse_account_update(&account_data)));
+                        if let Ok(account_data) =
+                            serde_json::from_value::<BlofinAccountData>(data.clone())
+                        {
+                            messages.push(WsMessage::Balance(Self::parse_account_update(
+                                &account_data,
+                            )));
                         }
                     }
                 }
@@ -414,7 +462,9 @@ impl BlofinWs {
                 // Orders channel
                 if channel == "orders" {
                     for data in data_arr {
-                        if let Ok(order_data) = serde_json::from_value::<BlofinOrderData>(data.clone()) {
+                        if let Ok(order_data) =
+                            serde_json::from_value::<BlofinOrderData>(data.clone())
+                        {
                             let (order_event, trade_event) = Self::parse_order_update(&order_data);
                             messages.push(WsMessage::Order(order_event));
                             if let Some(trade) = trade_event {
@@ -427,8 +477,12 @@ impl BlofinWs {
                 // Positions channel
                 if channel == "positions" {
                     for data in data_arr {
-                        if let Ok(position_data) = serde_json::from_value::<BlofinPositionData>(data.clone()) {
-                            messages.push(WsMessage::Position(Self::parse_position_update(&position_data)));
+                        if let Ok(position_data) =
+                            serde_json::from_value::<BlofinPositionData>(data.clone())
+                        {
+                            messages.push(WsMessage::Position(Self::parse_position_update(
+                                &position_data,
+                            )));
                         }
                     }
                 }
@@ -440,33 +494,46 @@ impl BlofinWs {
 
     /// Parse account update from private stream
     fn parse_account_update(data: &BlofinAccountData) -> WsBalanceEvent {
-        let timestamp = data.u_time.as_ref()
+        let timestamp = data
+            .u_time
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let mut currencies = HashMap::new();
 
         for detail in &data.details {
-            let free = detail.available_equity.as_ref()
+            let free = detail
+                .available_equity
+                .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok());
-            let used = detail.frozen_balance.as_ref()
+            let used = detail
+                .frozen_balance
+                .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok());
-            let total = detail.equity.as_ref()
+            let total = detail
+                .equity
+                .as_ref()
                 .and_then(|v| Decimal::from_str(v).ok());
 
-            currencies.insert(detail.currency.clone(), Balance {
-                free,
-                used,
-                total,
-                debt: None,
-            });
+            currencies.insert(
+                detail.currency.clone(),
+                Balance {
+                    free,
+                    used,
+                    total,
+                    debt: None,
+                },
+            );
         }
 
         let balances = Balances {
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             currencies,
             info: serde_json::to_value(data).unwrap_or_default(),
         };
@@ -477,7 +544,9 @@ impl BlofinWs {
     /// Parse order update from private stream
     fn parse_order_update(data: &BlofinOrderData) -> (WsOrderEvent, Option<WsMyTradeEvent>) {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.u_time.as_ref()
+        let timestamp = data
+            .u_time
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -507,8 +576,14 @@ impl BlofinWs {
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
         let amount = data.size.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let filled = data.filled_size.as_ref().and_then(|f| Decimal::from_str(f).ok());
-        let average = data.average_price.as_ref().and_then(|a| Decimal::from_str(a).ok());
+        let filled = data
+            .filled_size
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok());
+        let average = data
+            .average_price
+            .as_ref()
+            .and_then(|a| Decimal::from_str(a).ok());
         let remaining = match (amount, filled) {
             (Some(a), Some(f)) => Some(a - f),
             _ => None,
@@ -526,9 +601,11 @@ impl BlofinWs {
             id: data.order_id.clone(),
             client_order_id: data.client_order_id.clone(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             last_trade_timestamp: None,
             last_update_timestamp: Some(timestamp),
             symbol: symbol.clone(),
@@ -563,12 +640,18 @@ impl BlofinWs {
                     id: data.trade_id.clone().unwrap_or_default(),
                     order: Some(data.order_id.clone()),
                     timestamp: Some(timestamp),
-                    datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
                     symbol: symbol.clone(),
                     trade_type: None,
-                    side: Some(if side == OrderSide::Buy { "buy".to_string() } else { "sell".to_string() }),
+                    side: Some(if side == OrderSide::Buy {
+                        "buy".to_string()
+                    } else {
+                        "sell".to_string()
+                    }),
                     taker_or_maker: None,
                     price: avg_price,
                     amount: fill_qty,
@@ -594,32 +677,46 @@ impl BlofinWs {
     /// Parse position update from private stream
     fn parse_position_update(data: &BlofinPositionData) -> WsPositionEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.u_time.as_ref()
+        let timestamp = data
+            .u_time
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let contracts = data.position.as_ref()
+        let contracts = data
+            .position
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let entry_price = data.average_price.as_ref()
+        let entry_price = data
+            .average_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let mark_price = data.mark_price.as_ref()
+        let mark_price = data
+            .mark_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let unrealized_pnl = data.upl.as_ref()
+        let unrealized_pnl = data.upl.as_ref().and_then(|p| Decimal::from_str(p).ok());
+        let liquidation_price = data
+            .liquidation_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let liquidation_price = data.liquidation_price.as_ref()
-            .and_then(|p| Decimal::from_str(p).ok());
-        let leverage = data.leverage.as_ref()
+        let leverage = data
+            .leverage
+            .as_ref()
             .and_then(|l| Decimal::from_str(l).ok());
-        let margin = data.margin.as_ref()
-            .and_then(|m| Decimal::from_str(m).ok());
+        let margin = data.margin.as_ref().and_then(|m| Decimal::from_str(m).ok());
 
         let side = match data.position_side.as_deref() {
             Some("long") => Some(PositionSide::Long),
             Some("short") => Some(PositionSide::Short),
             Some("net") => contracts.map(|c| {
-                if c > Decimal::ZERO { PositionSide::Long }
-                else if c < Decimal::ZERO { PositionSide::Short }
-                else { PositionSide::Long }
+                if c > Decimal::ZERO {
+                    PositionSide::Long
+                } else if c < Decimal::ZERO {
+                    PositionSide::Short
+                } else {
+                    PositionSide::Long
+                }
             }),
             _ => None,
         };
@@ -634,9 +731,11 @@ impl BlofinWs {
             id: None,
             symbol: symbol.clone(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             hedged: None,
             side,
             contracts: contracts.map(|c| c.abs()),
@@ -677,12 +776,18 @@ impl BlofinWs {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         *self.event_tx.write().await = Some(event_tx.clone());
 
-        let api_key = self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".to_string(),
-        })?;
-        let passphrase = self.passphrase.clone().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required for private channels".to_string(),
-        })?;
+        let api_key = self
+            .api_key
+            .clone()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".to_string(),
+            })?;
+        let passphrase = self
+            .passphrase
+            .clone()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required for private channels".to_string(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
         let nonce = Uuid::new_v4().to_string();
@@ -695,6 +800,7 @@ impl BlofinWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -736,7 +842,10 @@ impl BlofinWs {
 
         // Store subscription
         let key = format!("{}:{}", channel, inst_id.unwrap_or(""));
-        self.subscriptions.write().await.insert(key, channel.to_string());
+        self.subscriptions
+            .write()
+            .await
+            .insert(key, channel.to_string());
 
         // Spawn event processing task
         let tx = event_tx.clone();
@@ -745,20 +854,20 @@ impl BlofinWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         let messages = Self::process_private_message(&msg);
                         for ws_msg in messages {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(e) => {
                         let _ = tx.send(WsMessage::Error(e));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -767,7 +876,12 @@ impl BlofinWs {
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
-    async fn subscribe_stream(&self, args: Vec<serde_json::Value>, channel: &str, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &self,
+        args: Vec<serde_json::Value>,
+        channel: &str,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         *self.event_tx.write().await = Some(event_tx.clone());
 
@@ -778,6 +892,7 @@ impl BlofinWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -794,7 +909,10 @@ impl BlofinWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -804,19 +922,19 @@ impl BlofinWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -841,18 +959,27 @@ impl WsExchange for BlofinWs {
         self.subscribe_stream(args, "ticker", Some(symbol)).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let args: Vec<serde_json::Value> = symbols
             .iter()
-            .map(|s| serde_json::json!({
-                "channel": "tickers",
-                "instId": Self::format_symbol(s)
-            }))
+            .map(|s| {
+                serde_json::json!({
+                    "channel": "tickers",
+                    "instId": Self::format_symbol(s)
+                })
+            })
             .collect();
         self.subscribe_stream(args, "tickers", None).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let channel = match limit.unwrap_or(400) {
             1..=5 => "books5",
             6..=50 => "books50-l2-tbt",
@@ -873,7 +1000,11 @@ impl WsExchange for BlofinWs {
         self.subscribe_stream(args, "trades", Some(symbol)).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let interval = Self::format_interval(timeframe);
         let args = vec![serde_json::json!({
             "channel": format!("candle{}", interval),
@@ -882,11 +1013,17 @@ impl WsExchange for BlofinWs {
         self.subscribe_stream(args, "ohlcv", Some(symbol)).await
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.subscribe_private_stream("orders", symbol).await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Blofin sends trade updates via the orders channel when orders are filled
         self.subscribe_private_stream("orders", symbol).await
     }
@@ -895,7 +1032,10 @@ impl WsExchange for BlofinWs {
         self.subscribe_private_stream("account", None).await
     }
 
-    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Blofin positions channel can filter by instId, but we use first symbol if provided
         let inst_id = symbols.and_then(|s| s.first().copied());
         self.subscribe_private_stream("positions", inst_id).await
@@ -1203,16 +1343,14 @@ mod tests {
             total_equity: Some("10000.0".to_string()),
             iso_equity: None,
             available_margin: Some("5000.0".to_string()),
-            details: vec![
-                BlofinAccountDetail {
-                    currency: "USDT".to_string(),
-                    available_equity: Some("5000.0".to_string()),
-                    equity: Some("10000.0".to_string()),
-                    frozen_balance: Some("5000.0".to_string()),
-                    cash_balance: Some("10000.0".to_string()),
-                    upl: Some("100.0".to_string()),
-                },
-            ],
+            details: vec![BlofinAccountDetail {
+                currency: "USDT".to_string(),
+                available_equity: Some("5000.0".to_string()),
+                equity: Some("10000.0".to_string()),
+                frozen_balance: Some("5000.0".to_string()),
+                cash_balance: Some("10000.0".to_string()),
+                upl: Some("100.0".to_string()),
+            }],
         };
 
         let event = BlofinWs::parse_account_update(&data);
@@ -1286,13 +1424,28 @@ mod tests {
         assert_eq!(position.symbol, "BTC/USDT");
         assert_eq!(position.side, Some(PositionSide::Long));
         assert_eq!(position.contracts, Some(Decimal::from_str("1.5").unwrap()));
-        assert_eq!(position.entry_price, Some(Decimal::from_str("50000.0").unwrap()));
-        assert_eq!(position.mark_price, Some(Decimal::from_str("50500.0").unwrap()));
-        assert_eq!(position.unrealized_pnl, Some(Decimal::from_str("750.0").unwrap()));
-        assert_eq!(position.liquidation_price, Some(Decimal::from_str("45000.0").unwrap()));
+        assert_eq!(
+            position.entry_price,
+            Some(Decimal::from_str("50000.0").unwrap())
+        );
+        assert_eq!(
+            position.mark_price,
+            Some(Decimal::from_str("50500.0").unwrap())
+        );
+        assert_eq!(
+            position.unrealized_pnl,
+            Some(Decimal::from_str("750.0").unwrap())
+        );
+        assert_eq!(
+            position.liquidation_price,
+            Some(Decimal::from_str("45000.0").unwrap())
+        );
         assert_eq!(position.leverage, Some(Decimal::from_str("10").unwrap()));
         assert_eq!(position.margin_mode, Some(MarginMode::Cross));
-        assert_eq!(position.collateral, Some(Decimal::from_str("5000.0").unwrap()));
+        assert_eq!(
+            position.collateral,
+            Some(Decimal::from_str("5000.0").unwrap())
+        );
     }
 
     #[test]
@@ -1335,7 +1488,7 @@ mod tests {
         match &messages[0] {
             WsMessage::Balance(event) => {
                 assert!(event.balances.currencies.contains_key("USDT"));
-            }
+            },
             _ => panic!("Expected balance message"),
         }
     }
@@ -1363,7 +1516,7 @@ mod tests {
             WsMessage::Order(event) => {
                 assert_eq!(event.order.symbol, "BTC/USDT");
                 assert_eq!(event.order.id, "123456");
-            }
+            },
             _ => panic!("Expected order message"),
         }
     }
@@ -1391,7 +1544,7 @@ mod tests {
             WsMessage::Position(event) => {
                 assert_eq!(event.positions.len(), 1);
                 assert_eq!(event.positions[0].symbol, "BTC/USDT");
-            }
+            },
             _ => panic!("Expected position message"),
         }
     }

@@ -29,9 +29,9 @@ use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
     Balance, Balances, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
-    OrderType, Position, PositionSide, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
-    WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent,
-    WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    OrderType, Position, PositionSide, Ticker, TimeInForce, Timeframe, Trade, WsBalanceEvent,
+    WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent,
+    WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -140,24 +140,54 @@ impl ApexWs {
             symbol: symbol.clone(),
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
-            high: data.high_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            low: data.low_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            high: data
+                .high_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            low: data
+                .low_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             bid: None,
             bid_volume: None,
             ask: None,
             ask_volume: None,
             vwap: None,
-            open: data.open_price_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            close: data.last_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            last: data.last_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            open: data
+                .open_price_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            close: data
+                .last_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            last: data
+                .last_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             previous_close: None,
-            change: data.price_change_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            change: data
+                .price_change_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             percentage: None,
             average: None,
-            base_volume: data.volume_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            quote_volume: data.turnover_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            index_price: data.index_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            mark_price: data.mark_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            base_volume: data
+                .volume_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            quote_volume: data
+                .turnover_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            index_price: data
+                .index_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            mark_price: data
+                .mark_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
@@ -165,30 +195,44 @@ impl ApexWs {
     }
 
     /// Parse order book message
-    fn parse_order_book(data: &ApexOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&b[0]).ok()?,
-                    amount: Decimal::from_str(&b[1]).ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+    fn parse_order_book(
+        data: &ApexOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&b[0]).ok()?,
+                        amount: Decimal::from_str(&b[1]).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&a[0]).ok()?,
-                    amount: Decimal::from_str(&a[1]).ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&a[0]).ok()?,
+                        amount: Decimal::from_str(&a[1]).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.to_string(),
@@ -201,6 +245,7 @@ impl ApexWs {
             nonce: data.update_id,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -212,38 +257,41 @@ impl ApexWs {
 
     /// Parse trade message
     fn parse_trades(data: &[ApexTradeData], symbol: &str) -> WsTradeEvent {
-        let trades: Vec<Trade> = data.iter().map(|t| {
-            let timestamp = t.timestamp;
-            let price = Decimal::from_str(&t.price).unwrap_or(Decimal::ZERO);
-            let amount = Decimal::from_str(&t.amount).unwrap_or(Decimal::ZERO);
+        let trades: Vec<Trade> = data
+            .iter()
+            .map(|t| {
+                let timestamp = t.timestamp;
+                let price = Decimal::from_str(&t.price).unwrap_or(Decimal::ZERO);
+                let amount = Decimal::from_str(&t.amount).unwrap_or(Decimal::ZERO);
 
-            let side = match t.side.to_uppercase().as_str() {
-                "BUY" => Some("buy".to_string()),
-                "SELL" => Some("sell".to_string()),
-                _ => None,
-            };
+                let side = match t.side.to_uppercase().as_str() {
+                    "BUY" => Some("buy".to_string()),
+                    "SELL" => Some("sell".to_string()),
+                    _ => None,
+                };
 
-            Trade {
-                id: t.id.clone(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                symbol: symbol.to_string(),
-                trade_type: None,
-                side,
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: vec![],
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.id.clone(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.to_string(),
+                    trade_type: None,
+                    side,
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: vec![],
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         WsTradeEvent {
             symbol: symbol.to_string(),
@@ -252,7 +300,11 @@ impl ApexWs {
     }
 
     /// Parse OHLCV message
-    fn parse_ohlcv(data: &ApexKlineData, symbol: &str, timeframe: Timeframe) -> Option<WsOhlcvEvent> {
+    fn parse_ohlcv(
+        data: &ApexKlineData,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> Option<WsOhlcvEvent> {
         let ohlcv = OHLCV {
             timestamp: data.timestamp,
             open: Decimal::from_str(&data.open).ok()?,
@@ -271,7 +323,9 @@ impl ApexWs {
 
     /// Parse order update message
     fn parse_order(data: &ApexOrderData) -> WsOrderEvent {
-        let timestamp = data.created_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .created_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let symbol = Self::to_unified_symbol(&data.symbol);
 
         let status = match data.status.as_deref() {
@@ -309,10 +363,14 @@ impl ApexWs {
         };
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.size.as_ref()
+        let amount = data
+            .size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let filled = data.filled_size.as_ref()
+        let filled = data
+            .filled_size
+            .as_ref()
             .and_then(|f| Decimal::from_str(f).ok())
             .unwrap_or(Decimal::ZERO);
         let remaining = amount - filled;
@@ -334,15 +392,33 @@ impl ApexWs {
             time_in_force,
             side,
             price,
-            average: data.avg_fill_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            average: data
+                .avg_fill_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             amount,
             filled,
             remaining: Some(remaining),
-            stop_price: data.trigger_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            trigger_price: data.trigger_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            take_profit_price: data.take_profit_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            stop_loss_price: data.stop_loss_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            cost: data.filled_value.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            stop_price: data
+                .trigger_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            trigger_price: data
+                .trigger_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            take_profit_price: data
+                .take_profit_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            stop_loss_price: data
+                .stop_loss_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            cost: data
+                .filled_value
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             trades: vec![],
             fee: None,
             fees: vec![],
@@ -357,16 +433,26 @@ impl ApexWs {
     /// Parse position update message
     fn parse_position(data: &ApexPositionData) -> WsPositionEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.updated_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .updated_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let size = data.size.as_ref()
+        let size = data
+            .size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
         let side = match data.side.as_deref() {
             Some("LONG") => Some(PositionSide::Long),
             Some("SHORT") => Some(PositionSide::Short),
-            _ => if size > Decimal::ZERO { Some(PositionSide::Long) } else { Some(PositionSide::Short) },
+            _ => {
+                if size > Decimal::ZERO {
+                    Some(PositionSide::Long)
+                } else {
+                    Some(PositionSide::Short)
+                }
+            },
         };
 
         let position = Position {
@@ -382,18 +468,42 @@ impl ApexWs {
             contract_size: Some(Decimal::ONE),
             side,
             notional: data.value.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            leverage: data.leverage.as_ref().and_then(|l| Decimal::from_str(l).ok()),
-            unrealized_pnl: data.unrealized_pnl.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            realized_pnl: data.realized_pnl.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            leverage: data
+                .leverage
+                .as_ref()
+                .and_then(|l| Decimal::from_str(l).ok()),
+            unrealized_pnl: data
+                .unrealized_pnl
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            realized_pnl: data
+                .realized_pnl
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             collateral: None,
-            entry_price: data.entry_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            mark_price: data.mark_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            liquidation_price: data.liquidation_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            entry_price: data
+                .entry_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            mark_price: data
+                .mark_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            liquidation_price: data
+                .liquidation_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             margin_mode: Some(MarginMode::Cross),
             hedged: Some(false),
-            maintenance_margin: data.maintenance_margin.as_ref().and_then(|m| Decimal::from_str(m).ok()),
+            maintenance_margin: data
+                .maintenance_margin
+                .as_ref()
+                .and_then(|m| Decimal::from_str(m).ok()),
             maintenance_margin_percentage: None,
-            initial_margin: data.initial_margin.as_ref().and_then(|m| Decimal::from_str(m).ok()),
+            initial_margin: data
+                .initial_margin
+                .as_ref()
+                .and_then(|m| Decimal::from_str(m).ok()),
             initial_margin_percentage: None,
             margin_ratio: None,
             last_update_timestamp: Some(timestamp),
@@ -416,17 +526,22 @@ impl ApexWs {
         // Add USDC balance from perpetual account
         if let Some(available) = &data.available_balance {
             if let Ok(free) = Decimal::from_str(available) {
-                let total_equity = data.total_equity.as_ref()
+                let total_equity = data
+                    .total_equity
+                    .as_ref()
                     .and_then(|t| Decimal::from_str(t).ok())
                     .unwrap_or(free);
                 let used = total_equity - free;
 
-                currencies.insert("USDC".to_string(), Balance {
-                    free: Some(free),
-                    used: Some(used),
-                    total: Some(total_equity),
-                    debt: None,
-                });
+                currencies.insert(
+                    "USDC".to_string(),
+                    Balance {
+                        free: Some(free),
+                        used: Some(used),
+                        total: Some(total_equity),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -435,17 +550,22 @@ impl ApexWs {
             for bal in spot_balances {
                 let currency = bal.currency.clone();
                 let free = Decimal::from_str(&bal.available_balance).unwrap_or(Decimal::ZERO);
-                let frozen = bal.frozen_balance.as_ref()
+                let frozen = bal
+                    .frozen_balance
+                    .as_ref()
                     .and_then(|f| Decimal::from_str(f).ok())
                     .unwrap_or(Decimal::ZERO);
                 let total = free + frozen;
 
-                currencies.insert(currency, Balance {
-                    free: Some(free),
-                    used: Some(frozen),
-                    total: Some(total),
-                    debt: None,
-                });
+                currencies.insert(
+                    currency,
+                    Balance {
+                        free: Some(free),
+                        used: Some(frozen),
+                        total: Some(total),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -465,13 +585,12 @@ impl ApexWs {
         let json: ApexWsMessage = serde_json::from_str(msg).ok()?;
 
         // Handle subscription response
-        if json.op.as_deref() == Some("subscribe")
-            && json.success == Some(true) {
-                return Some(WsMessage::Subscribed {
-                    channel: json.topic.clone().unwrap_or_default(),
-                    symbol: None,
-                });
-            }
+        if json.op.as_deref() == Some("subscribe") && json.success == Some(true) {
+            return Some(WsMessage::Subscribed {
+                channel: json.topic.clone().unwrap_or_default(),
+                symbol: None,
+            });
+        }
 
         // Handle auth response
         if json.op.as_deref() == Some("auth") {
@@ -501,7 +620,10 @@ impl ApexWs {
 
             let trades: Vec<ApexTradeData> = serde_json::from_value(data).ok()?;
             if !trades.is_empty() {
-                return Some(WsMessage::Trade(Self::parse_trades(&trades, &unified_symbol)));
+                return Some(WsMessage::Trade(Self::parse_trades(
+                    &trades,
+                    &unified_symbol,
+                )));
             }
         } else if topic.starts_with("depth") {
             let symbol = topic.split('.').nth(1).unwrap_or("");
@@ -509,7 +631,11 @@ impl ApexWs {
 
             let book: ApexOrderBookData = serde_json::from_value(data).ok()?;
             let is_snapshot = json.msg_type.as_deref() == Some("snapshot");
-            return Some(WsMessage::OrderBook(Self::parse_order_book(&book, &unified_symbol, is_snapshot)));
+            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                &book,
+                &unified_symbol,
+                is_snapshot,
+            )));
         } else if topic.starts_with("ticker") {
             let ticker: ApexTickerData = serde_json::from_value(data).ok()?;
             return Some(WsMessage::Ticker(Self::parse_ticker(&ticker)));
@@ -545,7 +671,11 @@ impl ApexWs {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
-        let ws_url = if requires_auth { WS_PRIVATE_URL } else { WS_PUBLIC_URL };
+        let ws_url = if requires_auth {
+            WS_PRIVATE_URL
+        } else {
+            WS_PUBLIC_URL
+        };
 
         let mut ws_client = WsClient::new(WsConfig {
             url: ws_url.to_string(),
@@ -554,6 +684,7 @@ impl ApexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -593,7 +724,10 @@ impl ApexWs {
 
         // Save subscription
         {
-            self.subscriptions.write().await.insert(topic.to_string(), topic.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(topic.to_string(), topic.to_string());
         }
 
         // Event processing task
@@ -603,19 +737,19 @@ impl ApexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg, None) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -667,7 +801,11 @@ impl WsExchange for ApexWs {
         ws.subscribe_stream(&topic, false).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let apex_symbol = Self::format_symbol(symbol);
         let topic = format!("depth.{apex_symbol}");
@@ -681,7 +819,11 @@ impl WsExchange for ApexWs {
         ws.subscribe_stream(&topic, false).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let apex_symbol = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -698,6 +840,7 @@ impl WsExchange for ApexWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 20,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             ws_client.connect().await?;
@@ -952,8 +1095,14 @@ mod tests {
 
         let event = ApexWs::parse_ticker(&data);
         assert_eq!(event.symbol, "BTC/USDC:USDC");
-        assert_eq!(event.ticker.last, Some(Decimal::from_str("42000.00").unwrap()));
-        assert_eq!(event.ticker.mark_price, Some(Decimal::from_str("42001.00").unwrap()));
+        assert_eq!(
+            event.ticker.last,
+            Some(Decimal::from_str("42000.00").unwrap())
+        );
+        assert_eq!(
+            event.ticker.mark_price,
+            Some(Decimal::from_str("42001.00").unwrap())
+        );
     }
 
     #[test]
@@ -980,21 +1129,22 @@ mod tests {
 
     #[test]
     fn test_parse_trades() {
-        let data = vec![
-            ApexTradeData {
-                id: "123".to_string(),
-                timestamp: 1704067200000,
-                price: "42000.00".to_string(),
-                amount: "0.1".to_string(),
-                side: "BUY".to_string(),
-            },
-        ];
+        let data = vec![ApexTradeData {
+            id: "123".to_string(),
+            timestamp: 1704067200000,
+            price: "42000.00".to_string(),
+            amount: "0.1".to_string(),
+            side: "BUY".to_string(),
+        }];
 
         let event = ApexWs::parse_trades(&data, "BTC/USDC:USDC");
         assert_eq!(event.symbol, "BTC/USDC:USDC");
         assert_eq!(event.trades.len(), 1);
         assert_eq!(event.trades[0].id, "123");
-        assert_eq!(event.trades[0].price, Decimal::from_str("42000.00").unwrap());
+        assert_eq!(
+            event.trades[0].price,
+            Decimal::from_str("42000.00").unwrap()
+        );
     }
 
     #[test]

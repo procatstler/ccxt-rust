@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha512 = Hmac<Sha512>;
@@ -100,18 +100,27 @@ impl Coinone {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
 
         // Add access_token and nonce to params
         if let serde_json::Value::Object(ref mut map) = params {
-            map.insert("access_token".into(), serde_json::Value::String(api_key.to_string()));
+            map.insert(
+                "access_token".into(),
+                serde_json::Value::String(api_key.to_string()),
+            );
             map.insert("nonce".into(), serde_json::Value::String(nonce));
         }
 
@@ -165,7 +174,12 @@ impl Coinone {
                         _ => None,
                     };
 
-                    let balance = Balance { free, used, total, debt: None };
+                    let balance = Balance {
+                        free,
+                        used,
+                        total,
+                        debt: None,
+                    };
                     balances.add(key.to_uppercase(), balance);
                 }
             }
@@ -186,8 +200,13 @@ impl Coinone {
 
     /// 주문 응답 파싱
     fn parse_order_response(&self, data: &serde_json::Value, symbol: &str) -> Order {
-        let id = data.get("orderId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let status = data.get("status")
+        let id = data
+            .get("orderId")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let status = data
+            .get("status")
             .and_then(|v| v.as_str())
             .map(|s| self.parse_order_status(s))
             .unwrap_or(OrderStatus::Open);
@@ -197,22 +216,27 @@ impl Coinone {
             _ => OrderSide::Buy,
         };
 
-        let price: Option<Decimal> = data.get("price")
+        let price: Option<Decimal> = data
+            .get("price")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse().ok());
-        let amount: Decimal = data.get("originalQty")
+        let amount: Decimal = data
+            .get("originalQty")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.get("executedQty")
+        let filled: Decimal = data
+            .get("executedQty")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
-        let remaining: Option<Decimal> = data.get("remainQty")
+        let remaining: Option<Decimal> = data
+            .get("remainQty")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse().ok());
 
-        let timestamp = data.get("orderedAt")
+        let timestamp = data
+            .get("orderedAt")
             .and_then(|v| v.as_i64())
             .map(|t| t * 1000);
 
@@ -267,25 +291,30 @@ impl Coinone {
 
     /// 티커 데이터 파싱
     fn parse_ticker(&self, data: &serde_json::Value, symbol: &str) -> CcxtResult<Ticker> {
-        let timestamp = data.get("timestamp")
-            .and_then(|v| v.as_i64());
+        let timestamp = data.get("timestamp").and_then(|v| v.as_i64());
 
-        let high = data.get("high")
+        let high = data
+            .get("high")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok());
-        let low = data.get("low")
+        let low = data
+            .get("low")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok());
-        let last = data.get("last")
+        let last = data
+            .get("last")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok());
-        let open = data.get("first")
+        let open = data
+            .get("first")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok());
-        let base_volume = data.get("target_volume")
+        let base_volume = data
+            .get("target_volume")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok());
-        let quote_volume = data.get("quote_volume")
+        let quote_volume = data
+            .get("quote_volume")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok());
 
@@ -296,8 +325,14 @@ impl Coinone {
         let (bid, bid_volume) = best_bids
             .and_then(|arr| arr.first())
             .map(|b| {
-                let price = b.get("price").and_then(|v| v.as_str()).and_then(|s| s.parse::<Decimal>().ok());
-                let qty = b.get("qty").and_then(|v| v.as_str()).and_then(|s| s.parse::<Decimal>().ok());
+                let price = b
+                    .get("price")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<Decimal>().ok());
+                let qty = b
+                    .get("qty")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<Decimal>().ok());
                 (price, qty)
             })
             .unwrap_or((None, None));
@@ -305,16 +340,20 @@ impl Coinone {
         let (ask, ask_volume) = best_asks
             .and_then(|arr| arr.first())
             .map(|a| {
-                let price = a.get("price").and_then(|v| v.as_str()).and_then(|s| s.parse::<Decimal>().ok());
-                let qty = a.get("qty").and_then(|v| v.as_str()).and_then(|s| s.parse::<Decimal>().ok());
+                let price = a
+                    .get("price")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<Decimal>().ok());
+                let qty = a
+                    .get("qty")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<Decimal>().ok());
                 (price, qty)
             })
             .unwrap_or((None, None));
 
-        let datetime = timestamp.and_then(|ts| {
-            chrono::DateTime::from_timestamp_millis(ts)
-                .map(|dt| dt.to_rfc3339())
-        });
+        let datetime = timestamp
+            .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339()));
 
         Ok(Ticker {
             symbol: symbol.to_string(),
@@ -344,34 +383,35 @@ impl Coinone {
 
     /// 거래 데이터 파싱
     fn parse_trade(&self, data: &serde_json::Value, symbol: &str) -> CcxtResult<Trade> {
-        let id = data.get("id")
+        let id = data
+            .get("id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
 
-        let timestamp = data.get("timestamp")
-            .and_then(|v| v.as_i64());
+        let timestamp = data.get("timestamp").and_then(|v| v.as_i64());
 
-        let price = data.get("price")
+        let price = data
+            .get("price")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or(Decimal::ZERO);
 
-        let amount = data.get("qty")
+        let amount = data
+            .get("qty")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or(Decimal::ZERO);
 
-        let is_seller_maker = data.get("is_seller_maker")
+        let is_seller_maker = data
+            .get("is_seller_maker")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
         let side = if is_seller_maker { "sell" } else { "buy" };
 
-        let datetime = timestamp.and_then(|ts| {
-            chrono::DateTime::from_timestamp_millis(ts)
-                .map(|dt| dt.to_rfc3339())
-        });
+        let datetime = timestamp
+            .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339()));
 
         Ok(Trade {
             id,
@@ -523,16 +563,16 @@ impl Exchange for Coinone {
             });
         }
 
-        let tickers = response.get("tickers")
+        let tickers = response
+            .get("tickers")
             .and_then(|v| v.as_array())
             .ok_or_else(|| CcxtError::ExchangeError {
                 message: "Invalid ticker response".into(),
             })?;
 
-        let ticker_data = tickers.first()
-            .ok_or_else(|| CcxtError::ExchangeError {
-                message: "Empty ticker response".into(),
-            })?;
+        let ticker_data = tickers.first().ok_or_else(|| CcxtError::ExchangeError {
+            message: "Empty ticker response".into(),
+        })?;
 
         self.parse_ticker(ticker_data, symbol)
     }
@@ -549,7 +589,8 @@ impl Exchange for Coinone {
             });
         }
 
-        let tickers_data = response.get("tickers")
+        let tickers_data = response
+            .get("tickers")
             .and_then(|v| v.as_array())
             .ok_or_else(|| CcxtError::ExchangeError {
                 message: "Invalid tickers response".into(),
@@ -558,10 +599,12 @@ impl Exchange for Coinone {
         let mut tickers = HashMap::new();
 
         for data in tickers_data {
-            let target = data.get("target_currency")
+            let target = data
+                .get("target_currency")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let quote = data.get("quote_currency")
+            let quote = data
+                .get("quote_currency")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let symbol = self.to_symbol_from_parts(quote, target);
@@ -599,34 +642,44 @@ impl Exchange for Coinone {
             });
         }
 
-        let bids: Vec<OrderBookEntry> = response.bids.iter()
+        let bids: Vec<OrderBookEntry> = response
+            .bids
+            .iter()
             .map(|bid| OrderBookEntry {
                 price: bid.price.parse().unwrap_or(Decimal::ZERO),
                 amount: bid.qty.parse().unwrap_or(Decimal::ZERO),
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = response.asks.iter()
+        let asks: Vec<OrderBookEntry> = response
+            .asks
+            .iter()
             .map(|ask| OrderBookEntry {
                 price: ask.price.parse().unwrap_or(Decimal::ZERO),
                 amount: ask.qty.parse().unwrap_or(Decimal::ZERO),
             })
             .collect();
 
-        let datetime = chrono::DateTime::from_timestamp_millis(response.timestamp)
-            .map(|dt| dt.to_rfc3339());
+        let datetime =
+            chrono::DateTime::from_timestamp_millis(response.timestamp).map(|dt| dt.to_rfc3339());
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: Some(response.timestamp),
             datetime,
             nonce: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         self.rate_limiter.throttle(1.0).await;
 
         let (quote, target) = self.to_market_parts(symbol);
@@ -645,7 +698,8 @@ impl Exchange for Coinone {
             });
         }
 
-        let transactions = response.get("transactions")
+        let transactions = response
+            .get("transactions")
             .and_then(|v| v.as_array())
             .ok_or_else(|| CcxtError::ExchangeError {
                 message: "Invalid trades response".into(),
@@ -690,10 +744,7 @@ impl Exchange for Coinone {
 
         if response.get("result").and_then(|v| v.as_str()) != Some("success") {
             return Err(CcxtError::ExchangeError {
-                message: format!(
-                    "Error fetching balance: {:?}",
-                    response.get("errorCode")
-                ),
+                message: format!("Error fetching balance: {:?}", response.get("errorCode")),
             });
         }
 
@@ -732,16 +783,11 @@ impl Exchange for Coinone {
             OrderSide::Sell => "/order/limit_sell",
         };
 
-        let response: serde_json::Value = self
-            .private_request(endpoint, params)
-            .await?;
+        let response: serde_json::Value = self.private_request(endpoint, params).await?;
 
         if response.get("result").and_then(|v| v.as_str()) != Some("success") {
             return Err(CcxtError::ExchangeError {
-                message: format!(
-                    "Error creating order: {:?}",
-                    response.get("errorCode")
-                ),
+                message: format!("Error creating order: {:?}", response.get("errorCode")),
             });
         }
 
@@ -802,16 +848,11 @@ impl Exchange for Coinone {
             "currency": target.to_lowercase(),
         });
 
-        let response: serde_json::Value = self
-            .private_request("/order/cancel", params)
-            .await?;
+        let response: serde_json::Value = self.private_request("/order/cancel", params).await?;
 
         if response.get("result").and_then(|v| v.as_str()) != Some("success") {
             return Err(CcxtError::ExchangeError {
-                message: format!(
-                    "Error canceling order: {:?}",
-                    response.get("errorCode")
-                ),
+                message: format!("Error canceling order: {:?}", response.get("errorCode")),
             });
         }
 
@@ -854,16 +895,12 @@ impl Exchange for Coinone {
             "currency": target.to_lowercase(),
         });
 
-        let response: serde_json::Value = self
-            .private_request("/order/query_order", params)
-            .await?;
+        let response: serde_json::Value =
+            self.private_request("/order/query_order", params).await?;
 
         if response.get("result").and_then(|v| v.as_str()) != Some("success") {
             return Err(CcxtError::ExchangeError {
-                message: format!(
-                    "Error fetching order: {:?}",
-                    response.get("errorCode")
-                ),
+                message: format!("Error fetching order: {:?}", response.get("errorCode")),
             });
         }
 
@@ -886,9 +923,8 @@ impl Exchange for Coinone {
             "currency": target.to_lowercase(),
         });
 
-        let response: serde_json::Value = self
-            .private_request("/order/limit_orders", params)
-            .await?;
+        let response: serde_json::Value =
+            self.private_request("/order/limit_orders", params).await?;
 
         if response.get("result").and_then(|v| v.as_str()) != Some("success") {
             return Err(CcxtError::ExchangeError {
@@ -933,10 +969,7 @@ impl Exchange for Coinone {
 
         if response.get("result").and_then(|v| v.as_str()) != Some("success") {
             return Err(CcxtError::ExchangeError {
-                message: format!(
-                    "Error fetching my trades: {:?}",
-                    response.get("errorCode")
-                ),
+                message: format!("Error fetching my trades: {:?}", response.get("errorCode")),
             });
         }
 
@@ -949,26 +982,31 @@ impl Exchange for Coinone {
         let mut trades = Vec::new();
 
         for order_data in &complete_orders {
-            let id = order_data.get("orderId")
+            let id = order_data
+                .get("orderId")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
 
-            let timestamp = order_data.get("timestamp")
+            let timestamp = order_data
+                .get("timestamp")
                 .and_then(|v| v.as_i64())
                 .map(|t| t * 1000);
 
-            let price: Decimal = order_data.get("price")
+            let price: Decimal = order_data
+                .get("price")
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse().ok())
                 .unwrap_or_default();
 
-            let amount: Decimal = order_data.get("qty")
+            let amount: Decimal = order_data
+                .get("qty")
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse().ok())
                 .unwrap_or_default();
 
-            let fee_amount: Option<Decimal> = order_data.get("fee")
+            let fee_amount: Option<Decimal> = order_data
+                .get("fee")
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse().ok());
 
@@ -1031,12 +1069,14 @@ impl Exchange for Coinone {
             });
         }
 
-        let address = response.get("walletAddress")
+        let address = response
+            .get("walletAddress")
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
 
-        let tag = response.get("memoId")
+        let tag = response
+            .get("memoId")
             .and_then(|v| v.as_str())
             .map(String::from);
 

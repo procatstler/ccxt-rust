@@ -15,9 +15,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    Market, MarketType, Order, OrderBook,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketType,
+    Order, OrderBook, OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade,
+    OHLCV,
 };
 
 // Response structures
@@ -217,10 +217,19 @@ impl Derive {
         };
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/f835b95f-033a-43dd-b6bb-24e698fc498c".to_string()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/f835b95f-033a-43dd-b6bb-24e698fc498c"
+                    .to_string(),
+            ),
             api: HashMap::from([
-                ("public".to_string(), "https://api.lyra.finance/public".to_string()),
-                ("private".to_string(), "https://api.lyra.finance/private".to_string()),
+                (
+                    "public".to_string(),
+                    "https://api.lyra.finance/public".to_string(),
+                ),
+                (
+                    "private".to_string(),
+                    "https://api.lyra.finance/private".to_string(),
+                ),
             ]),
             www: Some("https://www.derive.xyz/".to_string()),
             doc: vec!["https://docs.derive.xyz/docs/".to_string()],
@@ -262,12 +271,16 @@ impl Derive {
 
         // Derive uses wallet-based authentication
         // api_key = wallet address, api_secret = private key
-        let wallet_address = self.config.api_key()
-            .ok_or_else(|| CcxtError::AuthenticationError {
-                message: "Wallet address (api_key) required for private endpoints".to_string(),
-            })?;
+        let wallet_address =
+            self.config
+                .api_key()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Wallet address (api_key) required for private endpoints".to_string(),
+                })?;
 
-        let private_key = self.config.secret()
+        let private_key = self
+            .config
+            .secret()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "Private key (api_secret) required for private endpoints".to_string(),
             })?;
@@ -333,24 +346,44 @@ impl Derive {
         let instrument_name = ticker_data.instrument_name.as_deref().unwrap_or("");
         let symbol = self.safe_symbol(instrument_name);
 
-        let last = ticker_data.last_price.as_ref()
+        let last = ticker_data
+            .last_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let bid = ticker_data.best_bid_price.as_ref()
+        let bid = ticker_data
+            .best_bid_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let ask = ticker_data.best_ask_price.as_ref()
+        let ask = ticker_data
+            .best_ask_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let mark = ticker_data.mark_price.as_ref()
+        let mark = ticker_data
+            .mark_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let index = ticker_data.index_price.as_ref()
+        let index = ticker_data
+            .index_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
-        let (high, low, base_volume, quote_volume, change) = if let Some(stats) = &ticker_data.stats {
+        let (high, low, base_volume, quote_volume, change) = if let Some(stats) = &ticker_data.stats
+        {
             (
                 stats.high.as_ref().and_then(|s| Decimal::from_str(s).ok()),
                 stats.low.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                stats.volume.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                stats.volume_usd.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-                stats.price_change.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+                stats
+                    .volume
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok()),
+                stats
+                    .volume_usd
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok()),
+                stats
+                    .price_change
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok()),
             )
         } else {
             (None, None, None, None, None)
@@ -367,10 +400,14 @@ impl Derive {
             high,
             low,
             bid,
-            bid_volume: ticker_data.best_bid_amount.as_ref()
+            bid_volume: ticker_data
+                .best_bid_amount
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok()),
             ask,
-            ask_volume: ticker_data.best_ask_amount.as_ref()
+            ask_volume: ticker_data
+                .best_ask_amount
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok()),
             vwap: None,
             open: None,
@@ -392,10 +429,14 @@ impl Derive {
         let instrument_name = trade_data.instrument_name.as_deref().unwrap_or("");
         let symbol = self.safe_symbol(instrument_name);
 
-        let price = trade_data.price.as_ref()
+        let price = trade_data
+            .price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let amount = trade_data.amount.as_ref()
+        let amount = trade_data
+            .amount
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
@@ -441,15 +482,23 @@ impl Derive {
         let instrument_name = order_data.instrument_name.as_deref().unwrap_or("");
         let symbol = self.safe_symbol(instrument_name);
 
-        let price = order_data.limit_price.as_ref()
+        let price = order_data
+            .limit_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let amount = order_data.amount.as_ref()
+        let amount = order_data
+            .amount
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let filled = order_data.filled_amount.as_ref()
+        let filled = order_data
+            .filled_amount
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let average = order_data.average_price.as_ref()
+        let average = order_data
+            .average_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
         let side = match order_data.direction.as_deref() {
@@ -464,7 +513,9 @@ impl Derive {
             _ => OrderType::Limit,
         };
 
-        let status = order_data.order_status.as_deref()
+        let status = order_data
+            .order_status
+            .as_deref()
             .map(|s| self.parse_order_status(s))
             .unwrap_or(OrderStatus::Open);
 
@@ -564,9 +615,12 @@ impl Exchange for Derive {
 
     async fn load_markets(&self, _reload: bool) -> CcxtResult<HashMap<String, Market>> {
         let params = HashMap::new();
-        let response: DeriveResponse<DeriveInstrumentsResult> = self.public_post("get_all_instruments", Some(&params)).await?;
+        let response: DeriveResponse<DeriveInstrumentsResult> = self
+            .public_post("get_all_instruments", Some(&params))
+            .await?;
 
-        let instruments = response.result
+        let instruments = response
+            .result
             .and_then(|r| r.instruments)
             .unwrap_or_default();
 
@@ -575,18 +629,28 @@ impl Exchange for Derive {
         for instrument in instruments {
             let instrument_name = instrument.instrument_name.clone().unwrap_or_default();
             let symbol = self.safe_symbol(&instrument_name);
-            let base = instrument.base_currency.clone().unwrap_or_else(|| {
-                instrument_name.split('-').next().unwrap_or("").to_string()
-            });
-            let quote = instrument.quote_currency.clone().unwrap_or_else(|| "USD".to_string());
+            let base = instrument
+                .base_currency
+                .clone()
+                .unwrap_or_else(|| instrument_name.split('-').next().unwrap_or("").to_string());
+            let quote = instrument
+                .quote_currency
+                .clone()
+                .unwrap_or_else(|| "USD".to_string());
 
-            let tick_size = instrument.tick_size.as_ref()
+            let tick_size = instrument
+                .tick_size
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::new(1, 8));
-            let step_size = instrument.amount_step.as_ref()
+            let step_size = instrument
+                .amount_step
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::new(1, 8));
-            let min_amount = instrument.minimum_amount.as_ref()
+            let min_amount = instrument
+                .minimum_amount
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok());
 
             let price_precision = Self::decimal_places(&tick_size);
@@ -595,9 +659,13 @@ impl Exchange for Derive {
             let is_perp = instrument_name.contains("PERP");
             let is_option = instrument.instrument_type.as_deref() == Some("option");
 
-            let taker_fee = instrument.taker_fee_rate.as_ref()
+            let taker_fee = instrument
+                .taker_fee_rate
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok());
-            let maker_fee = instrument.maker_fee_rate.as_ref()
+            let maker_fee = instrument
+                .maker_fee_rate
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok());
 
             let market = Market {
@@ -611,7 +679,13 @@ impl Exchange for Derive {
                 settle: Some(quote.clone()),
                 settle_id: Some(quote.clone()),
                 active: instrument.is_active.unwrap_or(true),
-                market_type: if is_option { MarketType::Option } else if is_perp { MarketType::Swap } else { MarketType::Spot },
+                market_type: if is_option {
+                    MarketType::Option
+                } else if is_perp {
+                    MarketType::Swap
+                } else {
+                    MarketType::Spot
+                },
                 spot: false,
                 margin: false,
                 swap: is_perp,
@@ -621,7 +695,11 @@ impl Exchange for Derive {
                 contract: is_perp || is_option,
                 linear: Some(true),
                 inverse: Some(false),
-                sub_type: Some(if is_perp { "linear".into() } else { "option".into() }),
+                sub_type: Some(if is_perp {
+                    "linear".into()
+                } else {
+                    "option".into()
+                }),
                 contract_size: Some(Decimal::ONE),
                 expiry: None,
                 expiry_datetime: None,
@@ -647,8 +725,14 @@ impl Exchange for Derive {
                         min: Some(tick_size),
                         max: None,
                     },
-                    cost: crate::types::MinMax { min: None, max: None },
-                    leverage: crate::types::MinMax { min: None, max: None },
+                    cost: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    leverage: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
                 },
                 margin_modes: None,
                 created: None,
@@ -682,7 +766,8 @@ impl Exchange for Derive {
         let mut params = HashMap::new();
         params.insert("instrument_name".to_string(), market_id);
 
-        let response: DeriveResponse<DeriveTicker> = self.public_post("get_ticker", Some(&params)).await?;
+        let response: DeriveResponse<DeriveTicker> =
+            self.public_post("get_ticker", Some(&params)).await?;
 
         let ticker_data = response.result.ok_or_else(|| CcxtError::BadResponse {
             message: "No ticker data in response".to_string(),
@@ -698,7 +783,12 @@ impl Exchange for Derive {
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.safe_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("instrument_name".to_string(), market_id);
@@ -706,11 +796,10 @@ impl Exchange for Derive {
             params.insert("count".to_string(), l.to_string());
         }
 
-        let response: DeriveResponse<DeriveTradesResult> = self.public_post("get_trade_history", Some(&params)).await?;
+        let response: DeriveResponse<DeriveTradesResult> =
+            self.public_post("get_trade_history", Some(&params)).await?;
 
-        let trades_data = response.result
-            .and_then(|r| r.trades)
-            .unwrap_or_default();
+        let trades_data = response.result.and_then(|r| r.trades).unwrap_or_default();
 
         Ok(trades_data.iter().map(|t| self.parse_trade(t)).collect())
     }
@@ -730,31 +819,42 @@ impl Exchange for Derive {
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let params = HashMap::new();
-        let response: DeriveResponse<DeriveBalanceResult> = self.private_post("get_collaterals", Some(&params)).await?;
+        let response: DeriveResponse<DeriveBalanceResult> =
+            self.private_post("get_collaterals", Some(&params)).await?;
 
-        let collaterals = response.result
+        let collaterals = response
+            .result
             .and_then(|r| r.collaterals)
             .unwrap_or_default();
 
         let mut balances = HashMap::new();
         for balance_data in collaterals {
             let currency = balance_data.currency.unwrap_or_default();
-            let balance_free = balance_data.available.as_ref()
+            let balance_free = balance_data
+                .available
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
-            let balance_locked = balance_data.locked.as_ref()
+            let balance_locked = balance_data
+                .locked
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
-            let balance_total = balance_data.amount.as_ref()
+            let balance_total = balance_data
+                .amount
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(balance_free + balance_locked);
 
-            balances.insert(currency, Balance {
-                free: Some(balance_free),
-                used: Some(balance_locked),
-                total: Some(balance_total),
-                debt: None,
-            });
+            balances.insert(
+                currency,
+                Balance {
+                    free: Some(balance_free),
+                    used: Some(balance_locked),
+                    total: Some(balance_total),
+                    debt: None,
+                },
+            );
         }
 
         Ok(Balances {
@@ -776,28 +876,37 @@ impl Exchange for Derive {
         let market_id = self.safe_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("instrument_name".to_string(), market_id);
-        params.insert("direction".to_string(), match side {
-            OrderSide::Buy => "buy".to_string(),
-            OrderSide::Sell => "sell".to_string(),
-        });
-        params.insert("order_type".to_string(), match order_type {
-            OrderType::Limit => "limit".to_string(),
-            OrderType::Market => "market".to_string(),
-            _ => "limit".to_string(),
-        });
+        params.insert(
+            "direction".to_string(),
+            match side {
+                OrderSide::Buy => "buy".to_string(),
+                OrderSide::Sell => "sell".to_string(),
+            },
+        );
+        params.insert(
+            "order_type".to_string(),
+            match order_type {
+                OrderType::Limit => "limit".to_string(),
+                OrderType::Market => "market".to_string(),
+                _ => "limit".to_string(),
+            },
+        );
         params.insert("amount".to_string(), amount.to_string());
 
         if let Some(p) = price {
             params.insert("limit_price".to_string(), p.to_string());
         }
 
-        let response: DeriveResponse<DeriveOrderResult> = self.private_post("order", Some(&params)).await?;
+        let response: DeriveResponse<DeriveOrderResult> =
+            self.private_post("order", Some(&params)).await?;
 
-        let order_data = response.result
-            .and_then(|r| r.order)
-            .ok_or_else(|| CcxtError::BadResponse {
-                message: "No order data in response".to_string(),
-            })?;
+        let order_data =
+            response
+                .result
+                .and_then(|r| r.order)
+                .ok_or_else(|| CcxtError::BadResponse {
+                    message: "No order data in response".to_string(),
+                })?;
 
         Ok(self.parse_order(&order_data))
     }
@@ -806,13 +915,16 @@ impl Exchange for Derive {
         let mut params = HashMap::new();
         params.insert("order_id".to_string(), id.to_string());
 
-        let response: DeriveResponse<DeriveOrderResult> = self.private_post("cancel", Some(&params)).await?;
+        let response: DeriveResponse<DeriveOrderResult> =
+            self.private_post("cancel", Some(&params)).await?;
 
-        let order_data = response.result
-            .and_then(|r| r.order)
-            .ok_or_else(|| CcxtError::OrderNotFound {
-                order_id: id.to_string(),
-            })?;
+        let order_data =
+            response
+                .result
+                .and_then(|r| r.order)
+                .ok_or_else(|| CcxtError::OrderNotFound {
+                    order_id: id.to_string(),
+                })?;
 
         Ok(self.parse_order(&order_data))
     }
@@ -824,7 +936,12 @@ impl Exchange for Derive {
         })
     }
 
-    async fn fetch_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             params.insert("instrument_name".to_string(), self.safe_market_id(s));
@@ -833,16 +950,20 @@ impl Exchange for Derive {
             params.insert("count".to_string(), l.to_string());
         }
 
-        let response: DeriveResponse<DeriveOrdersResult> = self.private_post("get_orders", Some(&params)).await?;
+        let response: DeriveResponse<DeriveOrdersResult> =
+            self.private_post("get_orders", Some(&params)).await?;
 
-        let orders_data = response.result
-            .and_then(|r| r.orders)
-            .unwrap_or_default();
+        let orders_data = response.result.and_then(|r| r.orders).unwrap_or_default();
 
         Ok(orders_data.iter().map(|o| self.parse_order(o)).collect())
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             params.insert("instrument_name".to_string(), self.safe_market_id(s));
@@ -851,16 +972,20 @@ impl Exchange for Derive {
             params.insert("count".to_string(), l.to_string());
         }
 
-        let response: DeriveResponse<DeriveOrdersResult> = self.private_post("get_open_orders", Some(&params)).await?;
+        let response: DeriveResponse<DeriveOrdersResult> =
+            self.private_post("get_open_orders", Some(&params)).await?;
 
-        let orders_data = response.result
-            .and_then(|r| r.orders)
-            .unwrap_or_default();
+        let orders_data = response.result.and_then(|r| r.orders).unwrap_or_default();
 
         Ok(orders_data.iter().map(|o| self.parse_order(o)).collect())
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             params.insert("instrument_name".to_string(), self.safe_market_id(s));
@@ -869,64 +994,70 @@ impl Exchange for Derive {
             params.insert("count".to_string(), l.to_string());
         }
 
-        let response: DeriveResponse<DeriveMyTradesResult> = self.private_post("get_trade_history", Some(&params)).await?;
+        let response: DeriveResponse<DeriveMyTradesResult> = self
+            .private_post("get_trade_history", Some(&params))
+            .await?;
 
-        let trades_data = response.result
-            .and_then(|r| r.trades)
-            .unwrap_or_default();
+        let trades_data = response.result.and_then(|r| r.trades).unwrap_or_default();
 
-        Ok(trades_data.iter().map(|t| {
-            let instrument_name = t.instrument_name.as_deref().unwrap_or("");
-            let symbol = self.safe_symbol(instrument_name);
+        Ok(trades_data
+            .iter()
+            .map(|t| {
+                let instrument_name = t.instrument_name.as_deref().unwrap_or("");
+                let symbol = self.safe_symbol(instrument_name);
 
-            let price = t.price.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or(Decimal::ZERO);
-            let amount = t.amount.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or(Decimal::ZERO);
+                let price = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO);
+                let amount = t
+                    .amount
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO);
 
-            let side = match t.direction.as_deref() {
-                Some("buy") => Some("buy".to_string()),
-                Some("sell") => Some("sell".to_string()),
-                _ => Some("buy".to_string()),
-            };
+                let side = match t.direction.as_deref() {
+                    Some("buy") => Some("buy".to_string()),
+                    Some("sell") => Some("sell".to_string()),
+                    _ => Some("buy".to_string()),
+                };
 
-            let taker_or_maker = match t.liquidity.as_deref() {
-                Some("maker") | Some("M") => Some(crate::types::TakerOrMaker::Maker),
-                Some("taker") | Some("T") => Some(crate::types::TakerOrMaker::Taker),
-                _ => None,
-            };
+                let taker_or_maker = match t.liquidity.as_deref() {
+                    Some("maker") | Some("M") => Some(crate::types::TakerOrMaker::Maker),
+                    Some("taker") | Some("T") => Some(crate::types::TakerOrMaker::Taker),
+                    _ => None,
+                };
 
-            let fee_cost = t.fee.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok());
-            let fee = fee_cost.map(|cost| crate::types::Fee {
-                cost: Some(cost),
-                currency: t.fee_currency.clone(),
-                rate: None,
-            });
+                let fee_cost = t.fee.as_ref().and_then(|s| Decimal::from_str(s).ok());
+                let fee = fee_cost.map(|cost| crate::types::Fee {
+                    cost: Some(cost),
+                    currency: t.fee_currency.clone(),
+                    rate: None,
+                });
 
-            Trade {
-                id: t.trade_id.clone().unwrap_or_default(),
-                order: t.order_id.clone(),
-                timestamp: t.timestamp,
-                datetime: t.timestamp.map(|ts| {
-                    chrono::DateTime::from_timestamp_millis(ts)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                }),
-                symbol,
-                trade_type: None,
-                side,
-                taker_or_maker,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee,
-                fees: vec![],
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect())
+                Trade {
+                    id: t.trade_id.clone().unwrap_or_default(),
+                    order: t.order_id.clone(),
+                    timestamp: t.timestamp,
+                    datetime: t.timestamp.map(|ts| {
+                        chrono::DateTime::from_timestamp_millis(ts)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    }),
+                    symbol,
+                    trade_type: None,
+                    side,
+                    taker_or_maker,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee,
+                    fees: vec![],
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect())
     }
 }
 
@@ -1002,8 +1133,14 @@ mod tests {
         let exchange = create_test_exchange();
         assert_eq!(exchange.parse_order_status("open"), OrderStatus::Open);
         assert_eq!(exchange.parse_order_status("filled"), OrderStatus::Closed);
-        assert_eq!(exchange.parse_order_status("cancelled"), OrderStatus::Canceled);
-        assert_eq!(exchange.parse_order_status("rejected"), OrderStatus::Rejected);
+        assert_eq!(
+            exchange.parse_order_status("cancelled"),
+            OrderStatus::Canceled
+        );
+        assert_eq!(
+            exchange.parse_order_status("rejected"),
+            OrderStatus::Rejected
+        );
     }
 
     #[test]

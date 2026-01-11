@@ -4,7 +4,7 @@
 //! US-based regulated cryptocurrency exchange
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, OHLCV, Trade,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://api.gemini.com";
@@ -216,15 +216,18 @@ impl Gemini {
 
     /// Generate HMAC-SHA384 signature
     fn sign_payload(&self, payload: &str) -> CcxtResult<String> {
-        let secret = self.config.secret()
+        let secret = self
+            .config
+            .secret()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API secret required".to_string(),
             })?;
 
-        let mut mac = HmacSha384::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha384::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(payload.as_bytes());
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
@@ -236,7 +239,9 @@ impl Gemini {
         path: &str,
         params: Option<Value>,
     ) -> CcxtResult<T> {
-        let api_key = self.config.api_key()
+        let api_key = self
+            .config
+            .api_key()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API key required".to_string(),
             })?;
@@ -306,38 +311,51 @@ impl Gemini {
     /// Convert order to unified format
     fn parse_order(&self, order: &GeminiOrder) -> Order {
         let timestamp = order.timestampms.or_else(|| {
-            order.timestamp.as_ref()
+            order
+                .timestamp
+                .as_ref()
                 .and_then(|t| t.parse::<f64>().ok())
                 .map(|t| (t * 1000.0) as i64)
         });
-        let datetime = timestamp.and_then(|t| {
-            chrono::DateTime::from_timestamp_millis(t)
-                .map(|dt| dt.to_rfc3339())
-        });
+        let datetime = timestamp
+            .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339()));
 
         let side = Self::parse_order_side(&order.side);
         let status = Self::parse_order_status(order);
         let order_type = Self::parse_order_type(&order.order_type);
 
-        let amount = order.original_amount.parse::<f64>()
+        let amount = order
+            .original_amount
+            .parse::<f64>()
             .map(|a| Decimal::from_f64_retain(a).unwrap_or_default())
             .unwrap_or_default();
-        let filled = order.executed_amount.parse::<f64>()
+        let filled = order
+            .executed_amount
+            .parse::<f64>()
             .map(|a| Decimal::from_f64_retain(a).unwrap_or_default())
             .unwrap_or_default();
-        let remaining = order.remaining_amount.parse::<f64>()
+        let remaining = order
+            .remaining_amount
+            .parse::<f64>()
             .map(|a| Decimal::from_f64_retain(a).unwrap_or_default())
             .unwrap_or_default();
-        let price = order.price.parse::<f64>().ok()
+        let price = order
+            .price
+            .parse::<f64>()
+            .ok()
             .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let average = order.avg_execution_price.as_ref()
+        let average = order
+            .avg_execution_price
+            .as_ref()
             .and_then(|p| p.parse::<f64>().ok())
             .filter(|p| *p > 0.0)
             .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
 
         let cost = average.map(|avg| avg * filled);
 
-        let post_only = order.options.as_ref()
+        let post_only = order
+            .options
+            .as_ref()
             .map(|opts| opts.iter().any(|o| o == "maker-or-cancel"))
             .unwrap_or(false);
 
@@ -397,7 +415,8 @@ impl Exchange for Gemini {
         // Get detailed info for each symbol
         let details: Vec<GeminiSymbol> = self.public_get("/v1/symbols/details", None).await?;
 
-        let details_map: HashMap<String, GeminiSymbol> = details.into_iter()
+        let details_map: HashMap<String, GeminiSymbol> = details
+            .into_iter()
             .map(|d| (d.symbol.to_lowercase(), d))
             .collect();
 
@@ -413,7 +432,10 @@ impl Exchange for Gemini {
                 // Infer from symbol (e.g., btcusd -> BTC/USD)
                 if symbol_id.len() >= 6 {
                     let mid = symbol_id.len() - 3;
-                    (symbol_id[..mid].to_uppercase(), symbol_id[mid..].to_uppercase())
+                    (
+                        symbol_id[..mid].to_uppercase(),
+                        symbol_id[mid..].to_uppercase(),
+                    )
                 } else {
                     continue;
                 }
@@ -422,7 +444,10 @@ impl Exchange for Gemini {
             let symbol = format!("{base}/{quote}");
 
             let (tick_size, min_amount) = if let Some(d) = detail {
-                (d.quote_increment, d.min_order_size.parse::<f64>().unwrap_or(0.001))
+                (
+                    d.quote_increment,
+                    d.min_order_size.parse::<f64>().unwrap_or(0.001),
+                )
             } else {
                 (0.01, 0.001)
             };
@@ -444,8 +469,14 @@ impl Exchange for Gemini {
                     min: Some(Decimal::from_f64_retain(tick_size).unwrap_or_default()),
                     max: None,
                 },
-                cost: MinMax { min: None, max: None },
-                leverage: MinMax { min: None, max: None },
+                cost: MinMax {
+                    min: None,
+                    max: None,
+                },
+                leverage: MinMax {
+                    min: None,
+                    max: None,
+                },
             };
 
             let active = detail.map(|d| d.status == "open").unwrap_or(true);
@@ -508,29 +539,31 @@ impl Exchange for Gemini {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let path = format!("/v1/pubticker/{market_id}");
         let ticker: GeminiTicker = self.public_get(&path, None).await?;
 
-        let timestamp = ticker.volume.as_ref()
-            .and_then(|v| v.timestamp);
-        let datetime = timestamp.and_then(|t| {
-            chrono::DateTime::from_timestamp_millis(t)
-                .map(|dt| dt.to_rfc3339())
-        });
+        let timestamp = ticker.volume.as_ref().and_then(|v| v.timestamp);
+        let datetime = timestamp
+            .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339()));
 
         let (base_volume, quote_volume) = if let Some(vol) = &ticker.volume {
             let base_key = symbol.split('/').next().unwrap_or("");
             let quote_key = symbol.split('/').nth(1).unwrap_or("");
             (
-                vol.volumes.get(base_key)
+                vol.volumes
+                    .get(base_key)
                     .and_then(|v| v.parse::<f64>().ok())
                     .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                vol.volumes.get(quote_key)
+                vol.volumes
+                    .get(quote_key)
                     .and_then(|v| v.parse::<f64>().ok())
                     .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
             )
@@ -544,20 +577,28 @@ impl Exchange for Gemini {
             datetime,
             high: None,
             low: None,
-            bid: ticker.bid.as_ref()
+            bid: ticker
+                .bid
+                .as_ref()
                 .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             bid_volume: None,
-            ask: ticker.ask.as_ref()
+            ask: ticker
+                .ask
+                .as_ref()
                 .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             ask_volume: None,
             vwap: None,
             open: None,
-            close: ticker.last.as_ref()
+            close: ticker
+                .last
+                .as_ref()
                 .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            last: ticker.last.as_ref()
+            last: ticker
+                .last
+                .as_ref()
                 .and_then(|p| p.parse::<f64>().ok())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             previous_close: None,
@@ -595,33 +636,49 @@ impl Exchange for Gemini {
                     symbol: symbol.clone(),
                     timestamp,
                     datetime,
-                    high: ticker.high.as_ref()
+                    high: ticker
+                        .high
+                        .as_ref()
                         .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    low: ticker.low.as_ref()
+                    low: ticker
+                        .low
+                        .as_ref()
                         .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    bid: ticker.bid.as_ref()
+                    bid: ticker
+                        .bid
+                        .as_ref()
                         .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     bid_volume: None,
-                    ask: ticker.ask.as_ref()
+                    ask: ticker
+                        .ask
+                        .as_ref()
                         .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     ask_volume: None,
                     vwap: None,
-                    open: ticker.open.as_ref()
+                    open: ticker
+                        .open
+                        .as_ref()
                         .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    close: ticker.close.as_ref()
+                    close: ticker
+                        .close
+                        .as_ref()
                         .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    last: ticker.close.as_ref()
+                    last: ticker
+                        .close
+                        .as_ref()
                         .and_then(|p| p.parse::<f64>().ok())
                         .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                     previous_close: None,
                     change: None,
-                    percentage: ticker.changes.as_ref()
+                    percentage: ticker
+                        .changes
+                        .as_ref()
                         .and_then(|c| c.first())
                         .and_then(|c| c.parse::<f64>().ok())
                         .map(|c| Decimal::from_f64_retain(c * 100.0).unwrap_or_default()),
@@ -645,9 +702,12 @@ impl Exchange for Gemini {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
@@ -659,24 +719,36 @@ impl Exchange for Gemini {
         let path = format!("/v1/book/{market_id}");
         let book: GeminiOrderBook = self.public_get(&path, Some(params)).await?;
 
-        let bids: Vec<OrderBookEntry> = book.bids.iter()
+        let bids: Vec<OrderBookEntry> = book
+            .bids
+            .iter()
             .map(|b| {
-                let price = b.price.parse::<f64>()
+                let price = b
+                    .price
+                    .parse::<f64>()
                     .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
                     .unwrap_or_default();
-                let amount = b.amount.parse::<f64>()
+                let amount = b
+                    .amount
+                    .parse::<f64>()
                     .map(|a| Decimal::from_f64_retain(a).unwrap_or_default())
                     .unwrap_or_default();
                 OrderBookEntry { price, amount }
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = book.asks.iter()
+        let asks: Vec<OrderBookEntry> = book
+            .asks
+            .iter()
             .map(|a| {
-                let price = a.price.parse::<f64>()
+                let price = a
+                    .price
+                    .parse::<f64>()
                     .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
                     .unwrap_or_default();
-                let amount = a.amount.parse::<f64>()
+                let amount = a
+                    .amount
+                    .parse::<f64>()
                     .map(|a| Decimal::from_f64_retain(a).unwrap_or_default())
                     .unwrap_or_default();
                 OrderBookEntry { price, amount }
@@ -692,6 +764,7 @@ impl Exchange for Gemini {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -705,9 +778,12 @@ impl Exchange for Gemini {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let mut params = HashMap::new();
@@ -721,16 +797,21 @@ impl Exchange for Gemini {
         let path = format!("/v1/trades/{market_id}");
         let trades: Vec<GeminiTrade> = self.public_get(&path, Some(params)).await?;
 
-        let result: Vec<Trade> = trades.iter()
+        let result: Vec<Trade> = trades
+            .iter()
             .map(|t| {
                 let timestamp = Some(t.timestampms);
                 let datetime = chrono::DateTime::from_timestamp_millis(t.timestampms)
                     .map(|dt| dt.to_rfc3339());
 
-                let price = t.price.parse::<f64>()
+                let price = t
+                    .price
+                    .parse::<f64>()
                     .map(|p| Decimal::from_f64_retain(p).unwrap_or_default())
                     .unwrap_or_default();
-                let amount = t.amount.parse::<f64>()
+                let amount = t
+                    .amount
+                    .parse::<f64>()
                     .map(|a| Decimal::from_f64_retain(a).unwrap_or_default())
                     .unwrap_or_default();
 
@@ -767,19 +848,25 @@ impl Exchange for Gemini {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .cloned()
             .unwrap_or_else(|| "1hr".to_string());
 
         let path = format!("/v2/candles/{market_id}/{interval}");
         let candles: Vec<GeminiCandle> = self.public_get(&path, None).await?;
 
-        let result: Vec<OHLCV> = candles.iter()
+        let result: Vec<OHLCV> = candles
+            .iter()
             .map(|c| OHLCV {
                 timestamp: c.0,
                 open: Decimal::from_f64_retain(c.1).unwrap_or_default(),
@@ -799,20 +886,27 @@ impl Exchange for Gemini {
         let mut result = Balances::new();
 
         for balance in balances {
-            let total = balance.amount.parse::<f64>()
+            let total = balance
+                .amount
+                .parse::<f64>()
                 .map(|b| Decimal::from_f64_retain(b).unwrap_or_default())
                 .unwrap_or_default();
-            let free = balance.available.parse::<f64>()
+            let free = balance
+                .available
+                .parse::<f64>()
                 .map(|a| Decimal::from_f64_retain(a).unwrap_or_default())
                 .unwrap_or_default();
             let used = total - free;
 
-            result.currencies.insert(balance.currency.to_uppercase(), Balance {
-                free: Some(free),
-                used: Some(used),
-                total: Some(total),
-                debt: None,
-            });
+            result.currencies.insert(
+                balance.currency.to_uppercase(),
+                Balance {
+                    free: Some(free),
+                    used: Some(used),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         Ok(result)
@@ -829,7 +923,8 @@ impl Exchange for Gemini {
         let orders: Vec<GeminiOrder> = self.private_request("/v1/orders", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let result: Vec<Order> = orders.iter()
+        let result: Vec<Order> = orders
+            .iter()
             .map(|o| {
                 let mut order = self.parse_order(o);
                 if let Some(s) = markets_by_id.get(&o.symbol.to_lowercase()) {
@@ -844,7 +939,9 @@ impl Exchange for Gemini {
 
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let params = json!({ "order_id": id });
-        let order: GeminiOrder = self.private_request("/v1/order/status", Some(params)).await?;
+        let order: GeminiOrder = self
+            .private_request("/v1/order/status", Some(params))
+            .await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut result = self.parse_order(&order);
@@ -867,9 +964,12 @@ impl Exchange for Gemini {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let side_str = match side {
@@ -904,7 +1004,9 @@ impl Exchange for Gemini {
 
     async fn cancel_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let params = json!({ "order_id": id });
-        let order: GeminiOrder = self.private_request("/v1/order/cancel", Some(params)).await?;
+        let order: GeminiOrder = self
+            .private_request("/v1/order/cancel", Some(params))
+            .await?;
 
         Ok(self.parse_order(&order))
     }
@@ -968,7 +1070,13 @@ mod tests {
 
     #[test]
     fn test_order_type_parsing() {
-        assert!(matches!(Gemini::parse_order_type("exchange limit"), OrderType::Limit));
-        assert!(matches!(Gemini::parse_order_type("market"), OrderType::Market));
+        assert!(matches!(
+            Gemini::parse_order_type("exchange limit"),
+            OrderType::Limit
+        ));
+        assert!(matches!(
+            Gemini::parse_order_type("market"),
+            OrderType::Market
+        ));
     }
 }

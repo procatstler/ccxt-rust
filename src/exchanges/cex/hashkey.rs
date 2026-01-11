@@ -16,10 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -157,12 +156,18 @@ impl Hashkey {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
 
@@ -183,8 +188,8 @@ impl Hashkey {
             .replace("%2C", ",");
 
         // Create HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -197,16 +202,19 @@ impl Hashkey {
             "GET" => {
                 let signed_query = format!("{query}&signature={signature}");
                 format!("{path}?{signed_query}")
-            }
+            },
             "POST" | "DELETE" => {
-                headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+                headers.insert(
+                    "Content-Type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
                 path.to_string()
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("HTTP method: {method}"),
                 })
-            }
+            },
         };
 
         match method {
@@ -214,13 +222,17 @@ impl Hashkey {
             "POST" => {
                 let mut form_params = total_params.clone();
                 form_params.insert("signature".into(), signature);
-                self.private_client.post_form(&url, &form_params, Some(headers)).await
-            }
+                self.private_client
+                    .post_form(&url, &form_params, Some(headers))
+                    .await
+            },
             "DELETE" => {
                 let signed_query = format!("{query}&signature={signature}");
                 let url_with_query = format!("{path}?{signed_query}");
-                self.private_client.delete(&url_with_query, None, Some(headers)).await
-            }
+                self.private_client
+                    .delete(&url_with_query, None, Some(headers))
+                    .await
+            },
             _ => unreachable!(),
         }
     }
@@ -297,12 +309,15 @@ impl Hashkey {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
         let amount: Decimal = data.orig_qty.parse().unwrap_or_default();
@@ -325,9 +340,11 @@ impl Hashkey {
             client_order_id: data.client_order_id.clone(),
             timestamp: Some(data.time.unwrap_or(data.transact_time.unwrap_or(0))),
             datetime: Some(
-                chrono::DateTime::from_timestamp_millis(data.time.unwrap_or(data.transact_time.unwrap_or(0)))
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default(),
+                chrono::DateTime::from_timestamp_millis(
+                    data.time.unwrap_or(data.transact_time.unwrap_or(0)),
+                )
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default(),
             ),
             last_trade_timestamp: None,
             last_update_timestamp: data.update_time,
@@ -484,9 +501,7 @@ impl Exchange for Hashkey {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: HashkeyExchangeInfo = self
-            .public_get("/api/v1/exchangeInfo", None)
-            .await?;
+        let response: HashkeyExchangeInfo = self.public_get("/api/v1/exchangeInfo", None).await?;
 
         let mut markets = Vec::new();
 
@@ -562,9 +577,7 @@ impl Exchange for Hashkey {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: Vec<HashkeyTicker> = self
-            .public_get("/quote/v1/ticker/24hr", None)
-            .await?;
+        let response: Vec<HashkeyTicker> = self.public_get("/quote/v1/ticker/24hr", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut tickers = HashMap::new();
@@ -593,9 +606,7 @@ impl Exchange for Hashkey {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: HashkeyOrderBook = self
-            .public_get("/quote/v1/depth", Some(params))
-            .await?;
+        let response: HashkeyOrderBook = self.public_get("/quote/v1/depth", Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .b
@@ -626,6 +637,7 @@ impl Exchange for Hashkey {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -642,9 +654,7 @@ impl Exchange for Hashkey {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<HashkeyTrade> = self
-            .public_get("/quote/v1/trades", Some(params))
-            .await?;
+        let response: Vec<HashkeyTrade> = self.public_get("/quote/v1/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -662,9 +672,12 @@ impl Exchange for Hashkey {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -676,9 +689,8 @@ impl Exchange for Hashkey {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self
-            .public_get("/quote/v1/klines", Some(params))
-            .await?;
+        let response: Vec<Vec<serde_json::Value>> =
+            self.public_get("/quote/v1/klines", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
@@ -722,19 +734,29 @@ impl Exchange for Hashkey {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT",
-            OrderType::Market => "MARKET",
-            OrderType::LimitMaker => "LIMIT_MAKER",
-            OrderType::StopLoss => "STOP",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT",
+                OrderType::Market => "MARKET",
+                OrderType::LimitMaker => "LIMIT_MAKER",
+                OrderType::StopLoss => "STOP",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("quantity".into(), amount.to_string());
 
         if order_type == OrderType::Limit || order_type == OrderType::LimitMaker {
@@ -930,7 +952,10 @@ impl Exchange for Hashkey {
             headers.insert("X-HK-APIKEY".into(), api_key.to_string());
             headers.insert("INPUT-SOURCE".into(), self.broker.clone());
             headers.insert("broker_sign".into(), signature.clone());
-            headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+            headers.insert(
+                "Content-Type".into(),
+                "application/x-www-form-urlencoded".into(),
+            );
 
             let signed_query = format!("{query}&signature={signature}");
             if method == "GET" || method == "DELETE" {

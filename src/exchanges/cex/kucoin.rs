@@ -17,15 +17,15 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, DepositAddress, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    FundingRate, FundingRateHistory, Leverage, Liquidation, Market, MarketLimits, MarketPrecision,
-    MarketType, MarginMode, MarginModeInfo, MarginModification, MarginModificationType, OpenInterest,
-    Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionMode,
-    PositionModeInfo, PositionSide, SignedRequest, Ticker, Timeframe, Trade, Transaction,
-    TransactionStatus, TransactionType, TransferEntry, WsExchange, WsMessage, OHLCV,
+    FundingRate, FundingRateHistory, Leverage, Liquidation, MarginMode, MarginModeInfo,
+    MarginModification, MarginModificationType, Market, MarketLimits, MarketPrecision, MarketType,
+    OpenInterest, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position,
+    PositionMode, PositionModeInfo, PositionSide, SignedRequest, Ticker, Timeframe, Trade,
+    Transaction, TransactionStatus, TransactionType, TransferEntry, WsExchange, WsMessage, OHLCV,
 };
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use super::kucoin_ws::KucoinWs;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -153,15 +153,24 @@ impl Kucoin {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API passphrase required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -188,14 +197,21 @@ impl Kucoin {
         let sign_string = format!("{timestamp}{method}{full_path}{body}");
 
         // HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret".into(),
+            }
+        })?;
         mac.update(sign_string.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
         // Sign the passphrase
-        let mut passphrase_mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret".into() })?;
+        let mut passphrase_mac =
+            HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+                CcxtError::AuthenticationError {
+                    message: "Invalid secret".into(),
+                }
+            })?;
         passphrase_mac.update(passphrase.as_bytes());
         let signed_passphrase = BASE64.encode(passphrase_mac.finalize().into_bytes());
 
@@ -209,9 +225,13 @@ impl Kucoin {
 
         match method {
             "GET" => {
-                let query_params = if params.is_empty() { None } else { Some(params) };
+                let query_params = if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                };
                 self.client.get(path, query_params, Some(headers)).await
-            }
+            },
             "POST" => {
                 let json_body: Option<serde_json::Value> = if body.is_empty() {
                     None
@@ -219,12 +239,18 @@ impl Kucoin {
                     Some(serde_json::from_str(&body).unwrap_or_default())
                 };
                 self.client.post(path, json_body, Some(headers)).await
-            }
+            },
             "DELETE" => {
-                let query_params = if params.is_empty() { None } else { Some(params) };
+                let query_params = if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                };
                 self.client.delete(path, query_params, Some(headers)).await
-            }
-            _ => Err(CcxtError::BadRequest { message: "Invalid HTTP method".into() }),
+            },
+            _ => Err(CcxtError::BadRequest {
+                message: "Invalid HTTP method".into(),
+            }),
         }
     }
 
@@ -237,7 +263,7 @@ impl Kucoin {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             high: data.high.as_ref().and_then(|v| v.parse().ok()),
             low: data.low.as_ref().and_then(|v| v.parse().ok()),
@@ -251,9 +277,10 @@ impl Kucoin {
             last: data.last.as_ref().and_then(|v| v.parse().ok()),
             previous_close: None,
             change: data.change_price.as_ref().and_then(|v| v.parse().ok()),
-            percentage: data.change_rate.as_ref().and_then(|v| {
-                v.parse::<Decimal>().ok().map(|d| d * Decimal::from(100))
-            }),
+            percentage: data
+                .change_rate
+                .as_ref()
+                .and_then(|v| v.parse::<Decimal>().ok().map(|d| d * Decimal::from(100))),
             average: data.average_price.as_ref().and_then(|v| v.parse().ok()),
             base_volume: data.vol.as_ref().and_then(|v| v.parse().ok()),
             quote_volume: data.vol_value.as_ref().and_then(|v| v.parse().ok()),
@@ -264,17 +291,24 @@ impl Kucoin {
     }
 
     fn parse_order(&self, data: &KucoinOrder, symbol: &str) -> Order {
-        let timestamp = data.created_at.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .created_at
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let amount: Decimal = data.size.as_ref()
+        let amount: Decimal = data
+            .size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.deal_size.as_ref()
+        let filled: Decimal = data
+            .deal_size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
         let price: Option<Decimal> = data.price.as_ref().and_then(|v| v.parse().ok());
         let average: Option<Decimal> = if filled > Decimal::ZERO {
-            data.deal_funds.as_ref()
+            data.deal_funds
+                .as_ref()
                 .and_then(|v| v.parse::<Decimal>().ok())
                 .map(|funds| funds / filled)
         } else {
@@ -308,7 +342,7 @@ impl Kucoin {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             last_trade_timestamp: None,
             last_update_timestamp: None,
@@ -345,10 +379,14 @@ impl Kucoin {
             }
 
             let currency = account.currency.clone();
-            let available: Decimal = account.available.as_ref()
+            let available: Decimal = account
+                .available
+                .as_ref()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default();
-            let holds: Decimal = account.holds.as_ref()
+            let holds: Decimal = account
+                .holds
+                .as_ref()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default();
 
@@ -367,7 +405,9 @@ impl Kucoin {
         };
 
         let timestamp = data.created_at;
-        let amount: Decimal = data.amount.as_ref()
+        let amount: Decimal = data
+            .amount
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
 
@@ -402,7 +442,9 @@ impl Kucoin {
         };
 
         let timestamp = data.created_at;
-        let amount: Decimal = data.amount.as_ref()
+        let amount: Decimal = data
+            .amount
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
         let fee_amount: Option<Decimal> = data.fee.as_ref().and_then(|v| v.parse().ok());
@@ -448,7 +490,9 @@ impl Kucoin {
 
         if response.code != "200000" {
             return Err(CcxtError::ExchangeError {
-                message: response.msg.unwrap_or_else(|| format!("Kucoin error: {}", response.code)),
+                message: response
+                    .msg
+                    .unwrap_or_else(|| format!("Kucoin error: {}", response.code)),
             });
         }
 
@@ -464,22 +508,34 @@ impl Kucoin {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
         let (query_params, body_str) = if method == "GET" {
             (Some(params.clone()), String::new())
         } else {
-            (None, serde_json::to_string(&params).unwrap_or_else(|_| "{}".into()))
+            (
+                None,
+                serde_json::to_string(&params).unwrap_or_else(|_| "{}".into()),
+            )
         };
 
         let sign_path = if method == "GET" && !params.is_empty() {
@@ -493,16 +549,22 @@ impl Kucoin {
             path.to_string()
         };
 
-        let sign_str = format!("{}{}{}{}", timestamp, method.to_uppercase(), sign_path, body_str);
+        let sign_str = format!(
+            "{}{}{}{}",
+            timestamp,
+            method.to_uppercase(),
+            sign_path,
+            body_str
+        );
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(sign_str.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
         // Sign the passphrase
-        let mut pass_mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut pass_mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         pass_mac.update(passphrase.as_bytes());
         let signed_passphrase = BASE64.encode(pass_mac.finalize().into_bytes());
 
@@ -518,23 +580,33 @@ impl Kucoin {
         let futures_client = HttpClient::new("https://api-futures.kucoin.com", &self.config)?;
 
         let response: KucoinResponse<T> = match method.to_uppercase().as_str() {
-            "GET" => futures_client.get(path, query_params, Some(headers)).await?,
+            "GET" => {
+                futures_client
+                    .get(path, query_params, Some(headers))
+                    .await?
+            },
             "POST" => {
                 let json_body: serde_json::Value = if body_str.is_empty() {
                     serde_json::Value::Object(serde_json::Map::new())
                 } else {
                     serde_json::from_str(&body_str).unwrap_or_default()
                 };
-                futures_client.post(path, Some(json_body), Some(headers)).await?
-            }
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("HTTP method: {method}"),
-            }),
+                futures_client
+                    .post(path, Some(json_body), Some(headers))
+                    .await?
+            },
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("HTTP method: {method}"),
+                })
+            },
         };
 
         if response.code != "200000" {
             return Err(CcxtError::ExchangeError {
-                message: response.msg.unwrap_or_else(|| format!("Kucoin error: {}", response.code)),
+                message: response
+                    .msg
+                    .unwrap_or_else(|| format!("Kucoin error: {}", response.code)),
             });
         }
 
@@ -560,9 +632,9 @@ impl Kucoin {
         let mark_price: Option<Decimal> = data.mark_price;
         let leverage: Option<Decimal> = data.real_leverage;
         let unrealized_pnl: Option<Decimal> = data.unrealised_pnl;
-        let liquidation_price: Option<Decimal> = data.liquidation_price.and_then(|l| {
-            if l == Decimal::ZERO { None } else { Some(l) }
-        });
+        let liquidation_price: Option<Decimal> =
+            data.liquidation_price
+                .and_then(|l| if l == Decimal::ZERO { None } else { Some(l) });
         let margin: Option<Decimal> = data.pos_margin;
 
         let margin_mode = if data.cross_mode.unwrap_or(false) {
@@ -635,7 +707,10 @@ impl Kucoin {
     }
 
     /// 펀딩 레이트 기록 파싱
-    fn parse_funding_rate_history(&self, data: &KucoinFundingRateHistoryData) -> FundingRateHistory {
+    fn parse_funding_rate_history(
+        &self,
+        data: &KucoinFundingRateHistoryData,
+    ) -> FundingRateHistory {
         let timestamp = Some(data.time_point);
         let symbol = data.symbol.replace("USDTM", "/USDT:USDT");
         let funding_rate: Decimal = data.funding_rate;
@@ -719,7 +794,8 @@ impl Exchange for Kucoin {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: KucoinResponse<Vec<KucoinSymbol>> = self.public_get("/api/v2/symbols", None).await?;
+        let response: KucoinResponse<Vec<KucoinSymbol>> =
+            self.public_get("/api/v2/symbols", None).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "No data in response".into(),
@@ -767,9 +843,13 @@ impl Exchange for Kucoin {
                 strike: None,
                 option_type: None,
                 precision: MarketPrecision {
-                    amount: symbol_data.base_increment.as_ref()
+                    amount: symbol_data
+                        .base_increment
+                        .as_ref()
                         .and_then(|v| count_decimals(v)),
-                    price: symbol_data.price_increment.as_ref()
+                    price: symbol_data
+                        .price_increment
+                        .as_ref()
                         .and_then(|v| count_decimals(v)),
                     cost: None,
                     base: None,
@@ -794,19 +874,24 @@ impl Exchange for Kucoin {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: KucoinResponse<KucoinTicker> = self.public_get("/api/v1/market/stats", Some(params)).await?;
+        let response: KucoinResponse<KucoinTicker> = self
+            .public_get("/api/v1/market/stats", Some(params))
+            .await?;
 
-        let ticker = response.data
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.into() })?;
+        let ticker = response.data.ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.into(),
+        })?;
 
         Ok(self.parse_ticker(&ticker, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: KucoinResponse<KucoinAllTickers> = self.public_get("/api/v1/market/allTickers", None).await?;
+        let response: KucoinResponse<KucoinAllTickers> =
+            self.public_get("/api/v1/market/allTickers", None).await?;
 
-        let all_tickers = response.data
-            .ok_or_else(|| CcxtError::ExchangeError { message: "No data in response".into() })?;
+        let all_tickers = response.data.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No data in response".into(),
+        })?;
 
         let mut tickers = HashMap::new();
 
@@ -825,7 +910,11 @@ impl Exchange for Kucoin {
 
             let ticker = Ticker {
                 symbol: symbol_str.clone(),
-                timestamp: Some(all_tickers.time.unwrap_or_else(|| Utc::now().timestamp_millis())),
+                timestamp: Some(
+                    all_tickers
+                        .time
+                        .unwrap_or_else(|| Utc::now().timestamp_millis()),
+                ),
                 datetime: Some(Utc::now().to_rfc3339()),
                 high: data.high.as_ref().and_then(|v| v.parse().ok()),
                 low: data.low.as_ref().and_then(|v| v.parse().ok()),
@@ -839,9 +928,10 @@ impl Exchange for Kucoin {
                 last: data.last.as_ref().and_then(|v| v.parse().ok()),
                 previous_close: None,
                 change: data.change_price.as_ref().and_then(|v| v.parse().ok()),
-                percentage: data.change_rate.as_ref().and_then(|v| {
-                    v.parse::<Decimal>().ok().map(|d| d * Decimal::from(100))
-                }),
+                percentage: data
+                    .change_rate
+                    .as_ref()
+                    .and_then(|v| v.parse::<Decimal>().ok().map(|d| d * Decimal::from(100))),
                 average: data.average_price.as_ref().and_then(|v| v.parse().ok()),
                 base_volume: data.vol.as_ref().and_then(|v| v.parse().ok()),
                 quote_volume: data.vol_value.as_ref().and_then(|v| v.parse().ok()),
@@ -868,10 +958,13 @@ impl Exchange for Kucoin {
 
         let response: KucoinResponse<KucoinOrderBook> = self.public_get(path, Some(params)).await?;
 
-        let data = response.data
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.into() })?;
+        let data = response.data.ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.into(),
+        })?;
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|b| {
                 if b.len() >= 2 {
                     Some(OrderBookEntry {
@@ -884,7 +977,9 @@ impl Exchange for Kucoin {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|a| {
                 if a.len() >= 2 {
                     Some(OrderBookEntry {
@@ -905,11 +1000,12 @@ impl Exchange for Kucoin {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             nonce: data.sequence.map(|s| s as i64),
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -923,41 +1019,53 @@ impl Exchange for Kucoin {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: KucoinResponse<Vec<KucoinTrade>> = self.public_get("/api/v1/market/histories", Some(params)).await?;
+        let response: KucoinResponse<Vec<KucoinTrade>> = self
+            .public_get("/api/v1/market/histories", Some(params))
+            .await?;
 
         let data = response.data.unwrap_or_default();
 
-        let trades: Vec<Trade> = data.iter().map(|t| {
-            // Kucoin time is in nanoseconds
-            let timestamp = t.time.map(|ts| ts / 1_000_000).unwrap_or_else(|| Utc::now().timestamp_millis());
-            let price: Decimal = t.price.as_ref()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_default();
-            let amount: Decimal = t.size.as_ref()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_default();
+        let trades: Vec<Trade> = data
+            .iter()
+            .map(|t| {
+                // Kucoin time is in nanoseconds
+                let timestamp = t
+                    .time
+                    .map(|ts| ts / 1_000_000)
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
+                let price: Decimal = t
+                    .price
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default();
+                let amount: Decimal = t
+                    .size
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default();
 
-            Trade {
-                id: t.sequence.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                ),
-                symbol: symbol.to_string(),
-                trade_type: None,
-                side: t.side.clone(),
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: Vec::new(),
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.sequence.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.to_string(),
+                    trade_type: None,
+                    side: t.side.clone(),
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: Vec::new(),
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         Ok(trades)
     }
@@ -970,9 +1078,12 @@ impl Exchange for Kucoin {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -981,23 +1092,28 @@ impl Exchange for Kucoin {
             params.insert("startAt".into(), (s / 1000).to_string());
         }
 
-        let response: KucoinResponse<Vec<Vec<String>>> = self.public_get("/api/v1/market/candles", Some(params)).await?;
+        let response: KucoinResponse<Vec<Vec<String>>> = self
+            .public_get("/api/v1/market/candles", Some(params))
+            .await?;
 
         let data = response.data.unwrap_or_default();
 
-        let mut ohlcv: Vec<OHLCV> = data.iter().filter_map(|c| {
-            if c.len() < 7 {
-                return None;
-            }
-            Some(OHLCV {
-                timestamp: c[0].parse::<i64>().ok()? * 1000,
-                open: c[1].parse().ok()?,
-                close: c[2].parse().ok()?,
-                high: c[3].parse().ok()?,
-                low: c[4].parse().ok()?,
-                volume: c[5].parse().ok()?,
+        let mut ohlcv: Vec<OHLCV> = data
+            .iter()
+            .filter_map(|c| {
+                if c.len() < 7 {
+                    return None;
+                }
+                Some(OHLCV {
+                    timestamp: c[0].parse::<i64>().ok()? * 1000,
+                    open: c[1].parse().ok()?,
+                    close: c[2].parse().ok()?,
+                    high: c[3].parse().ok()?,
+                    low: c[4].parse().ok()?,
+                    volume: c[5].parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
         // Kucoin returns data in descending order
         ohlcv.reverse();
@@ -1032,10 +1148,14 @@ impl Exchange for Kucoin {
         let mut params = HashMap::new();
         params.insert("clientOid".into(), client_oid);
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .into(),
+        );
         params.insert("size".into(), amount.to_string());
 
         match order_type {
@@ -1045,21 +1165,24 @@ impl Exchange for Kucoin {
                 })?;
                 params.insert("type".into(), "limit".into());
                 params.insert("price".into(), price_val.to_string());
-            }
+            },
             OrderType::Market => {
                 params.insert("type".into(), "market".into());
-            }
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            },
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         }
 
         let response: KucoinResponse<KucoinOrderId> = self
             .private_request("POST", "/api/v1/orders", params)
             .await?;
 
-        let order_id = response.data
-            .ok_or_else(|| CcxtError::ExchangeError { message: "No order ID returned".into() })?;
+        let order_id = response.data.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No order ID returned".into(),
+        })?;
 
         // Fetch the created order
         self.fetch_order(&order_id.order_id, symbol).await
@@ -1079,7 +1202,7 @@ impl Exchange for Kucoin {
             Some(mut o) => {
                 o.status = OrderStatus::Canceled;
                 Ok(o)
-            }
+            },
             None => Ok(Order {
                 id: id.to_string(),
                 client_order_id: None,
@@ -1108,18 +1231,18 @@ impl Exchange for Kucoin {
                 reduce_only: None,
                 post_only: None,
                 info: serde_json::Value::Null,
-            })
+            }),
         }
     }
 
     async fn fetch_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let path = format!("/api/v1/orders/{id}");
-        let response: KucoinResponse<KucoinOrder> = self
-            .private_request("GET", &path, HashMap::new())
-            .await?;
+        let response: KucoinResponse<KucoinOrder> =
+            self.private_request("GET", &path, HashMap::new()).await?;
 
-        let order_data = response.data
-            .ok_or_else(|| CcxtError::OrderNotFound { order_id: id.into() })?;
+        let order_data = response.data.ok_or_else(|| CcxtError::OrderNotFound {
+            order_id: id.into(),
+        })?;
 
         Ok(self.parse_order(&order_data, symbol))
     }
@@ -1144,14 +1267,21 @@ impl Exchange for Kucoin {
         let order_list = response.data.unwrap_or_default();
         let symbol_str = symbol.unwrap_or("");
 
-        Ok(order_list.items.iter().map(|o| {
-            let sym = if symbol_str.is_empty() {
-                o.symbol.as_ref().map(|s| s.replace('-', "/")).unwrap_or_default()
-            } else {
-                symbol_str.to_string()
-            };
-            self.parse_order(o, &sym)
-        }).collect())
+        Ok(order_list
+            .items
+            .iter()
+            .map(|o| {
+                let sym = if symbol_str.is_empty() {
+                    o.symbol
+                        .as_ref()
+                        .map(|s| s.replace('-', "/"))
+                        .unwrap_or_default()
+                } else {
+                    symbol_str.to_string()
+                };
+                self.parse_order(o, &sym)
+            })
+            .collect())
     }
 
     async fn fetch_closed_orders(
@@ -1177,14 +1307,21 @@ impl Exchange for Kucoin {
         let order_list = response.data.unwrap_or_default();
         let symbol_str = symbol.unwrap_or("");
 
-        Ok(order_list.items.iter().map(|o| {
-            let sym = if symbol_str.is_empty() {
-                o.symbol.as_ref().map(|s| s.replace('-', "/")).unwrap_or_default()
-            } else {
-                symbol_str.to_string()
-            };
-            self.parse_order(o, &sym)
-        }).collect())
+        Ok(order_list
+            .items
+            .iter()
+            .map(|o| {
+                let sym = if symbol_str.is_empty() {
+                    o.symbol
+                        .as_ref()
+                        .map(|s| s.replace('-', "/"))
+                        .unwrap_or_default()
+                } else {
+                    symbol_str.to_string()
+                };
+                self.parse_order(o, &sym)
+            })
+            .collect())
     }
 
     async fn fetch_my_trades(
@@ -1202,9 +1339,8 @@ impl Exchange for Kucoin {
             params.insert("pageSize".into(), l.min(100).to_string());
         }
 
-        let response: KucoinResponse<KucoinFillList> = self
-            .private_request("GET", "/api/v1/fills", params)
-            .await?;
+        let response: KucoinResponse<KucoinFillList> =
+            self.private_request("GET", "/api/v1/fills", params).await?;
 
         let fill_list = response.data.unwrap_or_default();
 
@@ -1213,15 +1349,21 @@ impl Exchange for Kucoin {
             .iter()
             .map(|f| {
                 let timestamp = f.created_at;
-                let price: Decimal = f.price.as_ref()
+                let price: Decimal = f
+                    .price
+                    .as_ref()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or_default();
-                let amount: Decimal = f.size.as_ref()
+                let amount: Decimal = f
+                    .size
+                    .as_ref()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or_default();
                 let fee_amount: Option<Decimal> = f.fee.as_ref().and_then(|v| v.parse().ok());
 
-                let symbol_str = f.symbol.as_ref()
+                let symbol_str = f
+                    .symbol
+                    .as_ref()
                     .map(|s| s.replace('-', "/"))
                     .unwrap_or_default();
 
@@ -1427,48 +1569,58 @@ impl Exchange for Kucoin {
 
     // === WebSocket Methods ===
 
-    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ticker(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ticker(symbol).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_tickers(symbols).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_order_book(symbol, limit).await
     }
 
-    async fn watch_trades(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_trades(symbol).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ohlcv(symbol, timeframe).await
     }
 
     // === Futures Methods ===
 
-    async fn fetch_positions(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
+    async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         let response: Vec<KucoinPosition> = self
             .futures_private_request("GET", "/api/v1/positions", HashMap::new())
             .await?;
 
         let mut positions: Vec<Position> = response
             .iter()
-            .filter(|p| {
-                p.current_qty
-                    .map(|q| q != Decimal::ZERO)
-                    .unwrap_or(false)
-            })
+            .filter(|p| p.current_qty.map(|q| q != Decimal::ZERO).unwrap_or(false))
             .map(|p| self.parse_position(p))
             .collect();
 
@@ -1479,11 +1631,7 @@ impl Exchange for Kucoin {
         Ok(positions)
     }
 
-    async fn set_leverage(
-        &self,
-        leverage: Decimal,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn set_leverage(&self, leverage: Decimal, symbol: &str) -> CcxtResult<Leverage> {
         let market_id = self.to_futures_market_id(symbol);
 
         let mut params = HashMap::new();
@@ -1497,10 +1645,7 @@ impl Exchange for Kucoin {
         Ok(Leverage::new(symbol, MarginMode::Cross, leverage, leverage))
     }
 
-    async fn fetch_leverage(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn fetch_leverage(&self, symbol: &str) -> CcxtResult<Leverage> {
         let positions = self.fetch_positions(Some(&[symbol])).await?;
 
         if let Some(pos) = positions.first() {
@@ -1508,7 +1653,12 @@ impl Exchange for Kucoin {
             let margin_mode = pos.margin_mode.clone().unwrap_or(MarginMode::Cross);
             Ok(Leverage::new(symbol, margin_mode, leverage, leverage))
         } else {
-            Ok(Leverage::new(symbol, MarginMode::Cross, Decimal::ONE, Decimal::ONE))
+            Ok(Leverage::new(
+                symbol,
+                MarginMode::Cross,
+                Decimal::ONE,
+                Decimal::ONE,
+            ))
         }
     }
 
@@ -1522,9 +1672,11 @@ impl Exchange for Kucoin {
         let is_isolated = match margin_mode {
             MarginMode::Cross => false,
             MarginMode::Isolated => true,
-            MarginMode::Unknown => return Err(CcxtError::BadRequest {
-                message: "Unknown margin mode is not supported".into(),
-            }),
+            MarginMode::Unknown => {
+                return Err(CcxtError::BadRequest {
+                    message: "Unknown margin mode is not supported".into(),
+                })
+            },
         };
 
         let mut params = HashMap::new();
@@ -1532,16 +1684,17 @@ impl Exchange for Kucoin {
         params.insert("isIsolated".into(), is_isolated.to_string());
 
         let _response: serde_json::Value = self
-            .futures_private_request("POST", "/api/v1/position/margin/auto-deposit-status", params)
+            .futures_private_request(
+                "POST",
+                "/api/v1/position/margin/auto-deposit-status",
+                params,
+            )
             .await?;
 
         Ok(MarginModeInfo::new(symbol, margin_mode))
     }
 
-    async fn fetch_funding_rate(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<FundingRate> {
+    async fn fetch_funding_rate(&self, symbol: &str) -> CcxtResult<FundingRate> {
         let market_id = self.to_futures_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -1570,7 +1723,13 @@ impl Exchange for Kucoin {
             let mut params = HashMap::new();
             params.insert("symbol".into(), contract.symbol.clone());
 
-            if let Ok(data) = self.futures_public_get::<KucoinFundingRateData>("/api/v1/funding-rate/current", Some(params)).await {
+            if let Ok(data) = self
+                .futures_public_get::<KucoinFundingRateData>(
+                    "/api/v1/funding-rate/current",
+                    Some(params),
+                )
+                .await
+            {
                 let rate = self.parse_funding_rate(&data);
 
                 if let Some(filter) = symbols {
@@ -1624,7 +1783,9 @@ impl Exchange for Kucoin {
             .await?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let amount: Decimal = response.open_interest.as_ref()
+        let amount: Decimal = response
+            .open_interest
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
 
@@ -1659,10 +1820,14 @@ impl Exchange for Kucoin {
             .await?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let index_price: Decimal = response.index_price.as_ref()
+        let index_price: Decimal = response
+            .index_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let mark_price: Decimal = response.value.as_ref()
+        let mark_price: Decimal = response
+            .value
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
 
@@ -1686,7 +1851,9 @@ impl Exchange for Kucoin {
             .await?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let mark_price: Decimal = response.value.as_ref()
+        let mark_price: Decimal = response
+            .value
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
 
@@ -1715,7 +1882,12 @@ impl Exchange for Kucoin {
 
         for data in &response {
             let market_id = &data.symbol;
-            let symbol = match self.markets_by_id.read().ok().and_then(|m| m.get(market_id).cloned()) {
+            let symbol = match self
+                .markets_by_id
+                .read()
+                .ok()
+                .and_then(|m| m.get(market_id).cloned())
+            {
                 Some(s) => s,
                 None => continue,
             };
@@ -1731,14 +1903,17 @@ impl Exchange for Kucoin {
                 None => continue,
             };
 
-            tickers.insert(symbol.clone(), Ticker {
-                symbol,
-                timestamp: Some(timestamp),
-                datetime: Some(Utc::now().to_rfc3339()),
-                mark_price: Some(mark_price),
-                info: serde_json::to_value(data).unwrap_or_default(),
-                ..Default::default()
-            });
+            tickers.insert(
+                symbol.clone(),
+                Ticker {
+                    symbol,
+                    timestamp: Some(timestamp),
+                    datetime: Some(Utc::now().to_rfc3339()),
+                    mark_price: Some(mark_price),
+                    info: serde_json::to_value(data).unwrap_or_default(),
+                    ..Default::default()
+                },
+            );
         }
 
         Ok(tickers)
@@ -1792,7 +1967,8 @@ impl Exchange for Kucoin {
         }
 
         Err(CcxtError::NotSupported {
-            feature: "Order editing is not supported by Kucoin. Cancel and recreate instead.".into(),
+            feature: "Order editing is not supported by Kucoin. Cancel and recreate instead."
+                .into(),
         })
     }
 
@@ -1867,11 +2043,13 @@ impl Exchange for Kucoin {
             let amount: Decimal = item.amount.parse().unwrap_or_default();
             let timestamp: i64 = item.created_at.unwrap_or(0);
 
-            transfers.push(TransferEntry::new()
-                .with_currency(&item.currency)
-                .with_amount(amount)
-                .with_id(item.id)
-                .with_timestamp(timestamp));
+            transfers.push(
+                TransferEntry::new()
+                    .with_currency(&item.currency)
+                    .with_amount(amount)
+                    .with_id(item.id)
+                    .with_timestamp(timestamp),
+            );
         }
 
         Ok(transfers)
@@ -1888,19 +2066,12 @@ impl Exchange for Kucoin {
         })
     }
 
-    async fn fetch_position_mode(
-        &self,
-        _symbol: Option<&str>,
-    ) -> CcxtResult<PositionModeInfo> {
+    async fn fetch_position_mode(&self, _symbol: Option<&str>) -> CcxtResult<PositionModeInfo> {
         // Kucoin Futures uses one-way mode by default
         Ok(PositionModeInfo::new(PositionMode::OneWay))
     }
 
-    async fn add_margin(
-        &self,
-        symbol: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginModification> {
+    async fn add_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<MarginModification> {
         let market_id = self.to_futures_market_id(symbol);
 
         let mut params = HashMap::new();
@@ -1921,11 +2092,7 @@ impl Exchange for Kucoin {
         })
     }
 
-    async fn reduce_margin(
-        &self,
-        symbol: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginModification> {
+    async fn reduce_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<MarginModification> {
         let market_id = self.to_futures_market_id(symbol);
 
         let mut params = HashMap::new();

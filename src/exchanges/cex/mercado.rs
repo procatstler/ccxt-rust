@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -118,12 +118,18 @@ impl Mercado {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
 
@@ -131,7 +137,8 @@ impl Mercado {
         post_params.insert("tapi_method".into(), method.to_string());
         post_params.insert("tapi_nonce".into(), nonce);
 
-        let query_string: String = post_params.iter()
+        let query_string: String = post_params
+            .iter()
             .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("&");
@@ -139,17 +146,25 @@ impl Mercado {
         let path = "/tapi/v3/";
         let message = format!("{path}?{query_string}");
 
-        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
         let mut headers = HashMap::new();
         headers.insert("TAPI-ID".into(), api_key.to_string());
         headers.insert("TAPI-MAC".into(), signature);
-        headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+        headers.insert(
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
 
-        self.client.post_form("/tapi/v3/", &post_params, Some(headers)).await
+        self.client
+            .post_form("/tapi/v3/", &post_params, Some(headers))
+            .await
     }
 
     /// Convert symbol to market ID (BTC/BRL -> BTC)
@@ -320,7 +335,9 @@ impl Exchange for Mercado {
         let path = format!("/{market_id}/ticker");
 
         let response: MercadoTicker = self.public_get(&path, None).await?;
-        let timestamp = response.date.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .date
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Ticker {
             symbol: symbol.to_string(),
@@ -382,19 +399,26 @@ impl Exchange for Mercado {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let path = format!("/{market_id}/trades");
 
         let response: Vec<MercadoTrade> = self.public_get(&path, None).await?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .take(limit)
             .map(|t| {
                 let timestamp = t.date * 1000;
@@ -432,10 +456,12 @@ impl Exchange for Mercado {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let timeframe_str = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::NotSupported {
-                feature: format!("Timeframe {timeframe:?}"),
-            })?;
+        let timeframe_str =
+            self.timeframes
+                .get(&timeframe)
+                .ok_or_else(|| CcxtError::NotSupported {
+                    feature: format!("Timeframe {timeframe:?}"),
+                })?;
 
         let path = format!("/{market_id}/candles");
         let mut params = HashMap::new();
@@ -446,7 +472,8 @@ impl Exchange for Mercado {
 
         let response: Vec<MercadoCandle> = self.public_get(&path, Some(params)).await?;
 
-        let candles: Vec<OHLCV> = response.iter()
+        let candles: Vec<OHLCV> = response
+            .iter()
             .map(|c| OHLCV {
                 timestamp: c.timestamp,
                 open: c.open,
@@ -559,7 +586,8 @@ impl Exchange for Mercado {
         params.insert("coin_pair".into(), format!("BRL{market_id}"));
         params.insert("order_id".into(), id.to_string());
 
-        let _response: MercadoOrderResponse = self.private_request("cancel_order", Some(params)).await?;
+        let _response: MercadoOrderResponse =
+            self.private_request("cancel_order", Some(params)).await?;
 
         let timestamp = Utc::now().timestamp_millis();
         Ok(Order {
@@ -602,7 +630,9 @@ impl Exchange for Mercado {
 
         let response: MercadoOrderDetail = self.private_request("get_order", Some(params)).await?;
 
-        let timestamp = response.created_timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .created_timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let status = match response.status {
             Some(2) => OrderStatus::Open,
             Some(3) => OrderStatus::Canceled,
@@ -660,7 +690,9 @@ impl Exchange for Mercado {
         _since: Option<i64>,
         _limit: Option<u32>,
     ) -> CcxtResult<Vec<Order>> {
-        let market_id = symbol.map(|s| self.convert_to_market_id(s)).unwrap_or("BTC".into());
+        let market_id = symbol
+            .map(|s| self.convert_to_market_id(s))
+            .unwrap_or("BTC".into());
         let symbol_str = symbol.unwrap_or("BTC/BRL");
 
         let mut params = HashMap::new();
@@ -669,9 +701,14 @@ impl Exchange for Mercado {
 
         let response: MercadoOrderList = self.private_request("list_orders", Some(params)).await?;
 
-        let orders: Vec<Order> = response.orders.unwrap_or_default().iter()
+        let orders: Vec<Order> = response
+            .orders
+            .unwrap_or_default()
+            .iter()
             .map(|o| {
-                let timestamp = o.created_timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+                let timestamp = o
+                    .created_timestamp
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
                 let side = match o.order_type {
                     Some(1) => OrderSide::Buy,
                     Some(2) => OrderSide::Sell,

@@ -14,14 +14,14 @@ use tokio::sync::RwLock as TokioRwLock;
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::crypto::starknet::{
-    StarkNetWallet, ParadexAuthMessage, ParadexOnboardingMessage, ParadexOrderMessage,
+    ParadexAuthMessage, ParadexOnboardingMessage, ParadexOrderMessage, StarkNetWallet,
     PARADEX_CHAIN_ID_MAINNET, PARADEX_CHAIN_ID_TESTNET,
 };
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// Cached JWT authentication token
@@ -99,7 +99,11 @@ impl Paradex {
         wallet: Option<StarkNetWallet>,
         testnet: bool,
     ) -> CcxtResult<Self> {
-        let base_url = if testnet { Self::TESTNET_URL } else { Self::BASE_URL };
+        let base_url = if testnet {
+            Self::TESTNET_URL
+        } else {
+            Self::BASE_URL
+        };
         let chain_id = if testnet {
             PARADEX_CHAIN_ID_TESTNET.to_string()
         } else {
@@ -144,7 +148,10 @@ impl Paradex {
         api_urls.insert("test".into(), Self::TESTNET_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/84628770-784e-4ec4-a759-ec2fbb2244ea".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/84628770-784e-4ec4-a759-ec2fbb2244ea"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.paradex.trade/".into()),
             doc: vec!["https://docs.api.testnet.paradex.trade/".into()],
@@ -259,13 +266,20 @@ impl Paradex {
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
         headers.insert("PARADEX-STARKNET-ACCOUNT".to_string(), wallet.address_hex());
-        headers.insert("PARADEX-STARKNET-SIGNATURE".to_string(), format!("[\"{sig_r}\",\"{sig_s}\"]"));
+        headers.insert(
+            "PARADEX-STARKNET-SIGNATURE".to_string(),
+            format!("[\"{sig_r}\",\"{sig_s}\"]"),
+        );
         headers.insert("PARADEX-TIMESTAMP".to_string(), now.to_string());
-        headers.insert("PARADEX-SIGNATURE-EXPIRATION".to_string(), expiry.to_string());
+        headers.insert(
+            "PARADEX-SIGNATURE-EXPIRATION".to_string(),
+            expiry.to_string(),
+        );
 
         // POST to /auth endpoint
         self.rate_limiter.throttle(1.0).await;
-        let response: ParadexAuthResponse = self.private_client
+        let response: ParadexAuthResponse = self
+            .private_client
             .post("/auth", Some(auth_request), Some(headers))
             .await?;
 
@@ -289,9 +303,12 @@ impl Paradex {
     ///
     /// Call this once to register your StarkNet account with Paradex
     pub async fn onboard(&self) -> CcxtResult<()> {
-        let wallet = self.wallet.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "StarkNet wallet required for onboarding".into(),
-        })?;
+        let wallet = self
+            .wallet
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "StarkNet wallet required for onboarding".into(),
+            })?;
 
         // Create and sign onboarding message
         let onboard_msg = ParadexOnboardingMessage::new(&self.chain_id);
@@ -301,7 +318,10 @@ impl Paradex {
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
         headers.insert("PARADEX-STARKNET-ACCOUNT".to_string(), wallet.address_hex());
-        headers.insert("PARADEX-STARKNET-SIGNATURE".to_string(), format!("[\"{sig_r}\",\"{sig_s}\"]"));
+        headers.insert(
+            "PARADEX-STARKNET-SIGNATURE".to_string(),
+            format!("[\"{sig_r}\",\"{sig_s}\"]"),
+        );
 
         // Build request body
         let body = serde_json::json!({
@@ -310,7 +330,8 @@ impl Paradex {
 
         // POST to /onboarding endpoint
         self.rate_limiter.throttle(1.0).await;
-        let _response: serde_json::Value = self.private_client
+        let _response: serde_json::Value = self
+            .private_client
             .post("/onboarding", Some(body), Some(headers))
             .await?;
 
@@ -328,18 +349,15 @@ impl Paradex {
         size: &str,
         price: &str,
     ) -> CcxtResult<(String, String)> {
-        let wallet = self.wallet.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "StarkNet wallet required for order signing".into(),
-        })?;
+        let wallet = self
+            .wallet
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "StarkNet wallet required for order signing".into(),
+            })?;
 
-        let order_msg = ParadexOrderMessage::new(
-            &self.chain_id,
-            market,
-            side,
-            order_type,
-            size,
-            price,
-        );
+        let order_msg =
+            ParadexOrderMessage::new(&self.chain_id, market, side, order_type, size, price);
 
         order_msg.sign(wallet)
     }
@@ -359,7 +377,9 @@ impl Paradex {
         let mut headers = HashMap::new();
         headers.insert("Authorization".to_string(), format!("Bearer {token}"));
 
-        self.private_client.get(path, Some(params), Some(headers)).await
+        self.private_client
+            .get(path, Some(params), Some(headers))
+            .await
     }
 
     /// Private API POST request (requires authentication)
@@ -403,7 +423,9 @@ impl Paradex {
         let mut headers = HashMap::new();
         headers.insert("Authorization".to_string(), format!("Bearer {token}"));
 
-        self.private_client.delete(path, Some(params), Some(headers)).await
+        self.private_client
+            .delete(path, Some(params), Some(headers))
+            .await
     }
 
     /// Parse market data
@@ -414,7 +436,11 @@ impl Paradex {
         let symbol = format!("{base}/{quote}:{settle}");
 
         let is_option = data.asset_kind == "PERP_OPTION";
-        let market_type = if is_option { MarketType::Option } else { MarketType::Swap };
+        let market_type = if is_option {
+            MarketType::Option
+        } else {
+            MarketType::Swap
+        };
 
         Market {
             id: data.symbol.clone(),
@@ -502,7 +528,10 @@ impl Paradex {
             last: data.last_traded_price.as_ref().and_then(|s| s.parse().ok()),
             previous_close: None,
             change: None,
-            percentage: data.price_change_rate_24h.as_ref().and_then(|s| s.parse().ok()),
+            percentage: data
+                .price_change_rate_24h
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             average: None,
             base_volume: data.volume_24h.as_ref().and_then(|s| s.parse().ok()),
             quote_volume: None,
@@ -693,9 +722,7 @@ impl Exchange for Paradex {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: ParadexMarketsResponse = self
-            .public_get("/markets", None)
-            .await?;
+        let response: ParadexMarketsResponse = self.public_get("/markets", None).await?;
 
         let mut markets = Vec::new();
         for market_data in response.results {
@@ -715,13 +742,15 @@ impl Exchange for Paradex {
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
 
-        let response: ParadexSummaryResponse = self
-            .public_get("/markets/summary", Some(params))
-            .await?;
+        let response: ParadexSummaryResponse =
+            self.public_get("/markets/summary", Some(params)).await?;
 
-        let ticker_data = response.results.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No ticker data returned".into(),
-        })?;
+        let ticker_data = response
+            .results
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No ticker data returned".into(),
+            })?;
 
         Ok(self.parse_ticker(ticker_data, symbol))
     }
@@ -730,9 +759,8 @@ impl Exchange for Paradex {
         let mut params = HashMap::new();
         params.insert("market".into(), "ALL".to_string());
 
-        let response: ParadexSummaryResponse = self
-            .public_get("/markets/summary", Some(params))
-            .await?;
+        let response: ParadexSummaryResponse =
+            self.public_get("/markets/summary", Some(params)).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
         let mut tickers = HashMap::new();
@@ -767,7 +795,14 @@ impl Exchange for Paradex {
         }
 
         let response: ParadexOrderBook = self
-            .public_get(&path, if params.is_empty() { None } else { Some(params) })
+            .public_get(
+                &path,
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         let bids: Vec<OrderBookEntry> = response
@@ -799,6 +834,7 @@ impl Exchange for Paradex {
             nonce: Some(response.seq_no),
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -820,9 +856,7 @@ impl Exchange for Paradex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: ParadexTradesResponse = self
-            .public_get("/trades", Some(params))
-            .await?;
+        let response: ParadexTradesResponse = self.public_get("/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .results
@@ -846,9 +880,12 @@ impl Exchange for Paradex {
         })?;
         let market_id = market.id.clone();
 
-        let resolution = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let resolution = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -872,9 +909,8 @@ impl Exchange for Paradex {
             params.insert("end_at".into(), now.to_string());
         }
 
-        let response: ParadexOHLCVResponse = self
-            .public_get("/markets/klines", Some(params))
-            .await?;
+        let response: ParadexOHLCVResponse =
+            self.public_get("/markets/klines", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .results
@@ -898,9 +934,7 @@ impl Exchange for Paradex {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: ParadexBalanceResponse = self
-            .private_get("/balance", HashMap::new())
-            .await?;
+        let response: ParadexBalanceResponse = self.private_get("/balance", HashMap::new()).await?;
 
         Ok(self.parse_balance(&response.results))
     }
@@ -927,15 +961,19 @@ impl Exchange for Paradex {
         let type_str = match order_type {
             OrderType::Limit => "LIMIT",
             OrderType::Market => "MARKET",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
 
         let price_str = if order_type == OrderType::Limit {
-            price.ok_or_else(|| CcxtError::ArgumentsRequired {
-                message: "Limit order requires price".into(),
-            })?.to_string()
+            price
+                .ok_or_else(|| CcxtError::ArgumentsRequired {
+                    message: "Limit order requires price".into(),
+                })?
+                .to_string()
         } else {
             "0".to_string()
         };
@@ -969,7 +1007,8 @@ impl Exchange for Paradex {
 
         // POST order
         self.rate_limiter.throttle(1.0).await;
-        let response: ParadexOrder = self.private_client
+        let response: ParadexOrder = self
+            .private_client
             .post("/orders", Some(order_body), Some(headers))
             .await?;
 
@@ -979,9 +1018,7 @@ impl Exchange for Paradex {
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let path = format!("/orders/{id}");
 
-        let response: ParadexOrder = self
-            .private_delete(&path, HashMap::new())
-            .await?;
+        let response: ParadexOrder = self.private_delete(&path, HashMap::new()).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -989,9 +1026,7 @@ impl Exchange for Paradex {
     async fn fetch_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let path = format!("/orders/{id}");
 
-        let response: ParadexOrder = self
-            .private_get(&path, HashMap::new())
-            .await?;
+        let response: ParadexOrder = self.private_get(&path, HashMap::new()).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -1012,9 +1047,7 @@ impl Exchange for Paradex {
             params.insert("market".into(), market.id.clone());
         }
 
-        let response: ParadexOrdersResponse = self
-            .private_get("/orders", params)
-            .await?;
+        let response: ParadexOrdersResponse = self.private_get("/orders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
 
@@ -1047,9 +1080,7 @@ impl Exchange for Paradex {
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
 
-        let response: ParadexOrdersResponse = self
-            .private_delete("/orders", params)
-            .await?;
+        let response: ParadexOrdersResponse = self.private_delete("/orders", params).await?;
 
         let orders: Vec<Order> = response
             .results
@@ -1080,9 +1111,7 @@ impl Exchange for Paradex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: ParadexTradesResponse = self
-            .private_get("/fills", params)
-            .await?;
+        let response: ParadexTradesResponse = self.private_get("/fills", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
 
@@ -1302,10 +1331,9 @@ mod tests {
     fn test_from_starknet_key() {
         let config = ExchangeConfig::new();
         let paradex = Paradex::from_starknet_key(
-            config,
-            "0x123abc",
-            true, // testnet
-        ).unwrap();
+            config, "0x123abc", true, // testnet
+        )
+        .unwrap();
 
         assert!(paradex.has_wallet());
         assert!(paradex.public_key_hex().is_some());
@@ -1319,10 +1347,9 @@ mod tests {
         let config = ExchangeConfig::new();
         let eth_key = [0x42u8; 32];
         let paradex = Paradex::from_eth_key(
-            config,
-            &eth_key,
-            false, // mainnet
-        ).unwrap();
+            config, &eth_key, false, // mainnet
+        )
+        .unwrap();
 
         assert!(paradex.has_wallet());
         assert!(paradex.public_key_hex().is_some());
@@ -1334,19 +1361,11 @@ mod tests {
     #[test]
     fn test_sign_order() {
         let config = ExchangeConfig::new();
-        let paradex = Paradex::from_starknet_key(
-            config,
-            "0x123abc",
-            true,
-        ).unwrap();
+        let paradex = Paradex::from_starknet_key(config, "0x123abc", true).unwrap();
 
-        let (sig_r, sig_s) = paradex.sign_order(
-            "ETH-USD-PERP",
-            "BUY",
-            "LIMIT",
-            "1.5",
-            "2000.0",
-        ).unwrap();
+        let (sig_r, sig_s) = paradex
+            .sign_order("ETH-USD-PERP", "BUY", "LIMIT", "1.5", "2000.0")
+            .unwrap();
 
         assert!(sig_r.starts_with("0x"));
         assert!(sig_s.starts_with("0x"));
@@ -1357,13 +1376,7 @@ mod tests {
         let config = ExchangeConfig::new();
         let paradex = Paradex::new(config).unwrap();
 
-        let result = paradex.sign_order(
-            "ETH-USD-PERP",
-            "BUY",
-            "LIMIT",
-            "1.0",
-            "2000.0",
-        );
+        let result = paradex.sign_order("ETH-USD-PERP", "BUY", "LIMIT", "1.0", "2000.0");
 
         assert!(result.is_err());
     }

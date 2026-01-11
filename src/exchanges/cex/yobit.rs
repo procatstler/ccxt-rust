@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha512 = Hmac<Sha512>;
@@ -145,12 +145,18 @@ impl Yobit {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = self.next_nonce();
         let mut body_params = params.clone();
@@ -164,8 +170,8 @@ impl Yobit {
             .join("&");
 
         // Create HMAC-SHA512 signature
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha512::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(body.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -179,9 +185,11 @@ impl Yobit {
             .await?;
 
         if response.success == 1 {
-            response.return_value.ok_or_else(|| CcxtError::ExchangeError {
-                message: "Missing return value in response".into(),
-            })
+            response
+                .return_value
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "Missing return value in response".into(),
+                })
         } else {
             Err(CcxtError::ExchangeError {
                 message: response.error.unwrap_or_else(|| "Unknown error".into()),
@@ -206,10 +214,9 @@ impl Yobit {
         Ticker {
             symbol: symbol.to_string(),
             timestamp,
-            datetime: timestamp.and_then(|t|
-                chrono::DateTime::<Utc>::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            ),
+            datetime: timestamp.and_then(|t| {
+                chrono::DateTime::<Utc>::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
+            }),
             high: data.high,
             low: data.low,
             bid: data.buy,
@@ -249,11 +256,15 @@ impl Yobit {
         };
 
         let price: Option<Decimal> = data.rate.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.start_amount.as_ref()
+        let amount: Decimal = data
+            .start_amount
+            .as_ref()
             .or(data.amount.as_ref())
             .and_then(|a| a.parse().ok())
             .unwrap_or_default();
-        let remaining: Decimal = data.amount.as_ref()
+        let remaining: Decimal = data
+            .amount
+            .as_ref()
             .and_then(|a| a.parse().ok())
             .unwrap_or_default();
         let filled = amount - remaining;
@@ -262,10 +273,9 @@ impl Yobit {
             id: order_id.unwrap_or_default().to_string(),
             client_order_id: None,
             timestamp: data.timestamp_created.map(|t| t * 1000),
-            datetime: data.timestamp_created.and_then(|t|
-                chrono::DateTime::from_timestamp_millis(t * 1000)
-                    .map(|dt| dt.to_rfc3339())
-            ),
+            datetime: data.timestamp_created.and_then(|t| {
+                chrono::DateTime::from_timestamp_millis(t * 1000).map(|dt| dt.to_rfc3339())
+            }),
             last_trade_timestamp: None,
             last_update_timestamp: None,
             status,
@@ -304,11 +314,15 @@ impl Yobit {
             _ => None,
         };
 
-        let price: Decimal = data.price.as_ref()
+        let price: Decimal = data
+            .price
+            .as_ref()
             .or(data.rate.as_ref())
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.amount.as_ref()
+        let amount: Decimal = data
+            .amount
+            .as_ref()
             .and_then(|a| a.parse().ok())
             .unwrap_or_default();
 
@@ -316,10 +330,9 @@ impl Yobit {
             id: trade_id.unwrap_or_default().to_string(),
             order: data.order_id.as_ref().map(|id| id.to_string()),
             timestamp,
-            datetime: timestamp.and_then(|t|
-                chrono::DateTime::<Utc>::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            ),
+            datetime: timestamp.and_then(|t| {
+                chrono::DateTime::<Utc>::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
+            }),
             symbol: symbol.to_string(),
             trade_type: None,
             side,
@@ -453,9 +466,7 @@ impl Exchange for Yobit {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: YobitInfoResponse = self
-            .public_get("/api/3/info", None)
-            .await?;
+        let response: YobitInfoResponse = self.public_get("/api/3/info", None).await?;
 
         let mut markets = Vec::new();
 
@@ -547,13 +558,13 @@ impl Exchange for Yobit {
         let market_id = self.to_market_id(symbol);
         let path = format!("/api/3/ticker/{market_id}");
 
-        let response: HashMap<String, YobitTickerData> = self
-            .public_get(&path, None)
-            .await?;
+        let response: HashMap<String, YobitTickerData> = self.public_get(&path, None).await?;
 
-        let ticker_data = response.get(&market_id).ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("Ticker data not found for {symbol}"),
-        })?;
+        let ticker_data = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("Ticker data not found for {symbol}"),
+            })?;
 
         Ok(self.parse_ticker(ticker_data, symbol))
     }
@@ -572,9 +583,7 @@ impl Exchange for Yobit {
         };
 
         let path = format!("/api/3/ticker/{market_ids}");
-        let response: HashMap<String, YobitTickerData> = self
-            .public_get(&path, None)
-            .await?;
+        let response: HashMap<String, YobitTickerData> = self.public_get(&path, None).await?;
 
         // Clone markets_by_id after the await
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
@@ -598,13 +607,13 @@ impl Exchange for Yobit {
             path = format!("{path}?limit={l}");
         }
 
-        let response: HashMap<String, YobitOrderBookData> = self
-            .public_get(&path, None)
-            .await?;
+        let response: HashMap<String, YobitOrderBookData> = self.public_get(&path, None).await?;
 
-        let orderbook_data = response.get(&market_id).ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("Order book not found for {symbol}"),
-        })?;
+        let orderbook_data = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("Order book not found for {symbol}"),
+            })?;
 
         let bids: Vec<OrderBookEntry> = orderbook_data
             .bids
@@ -631,6 +640,7 @@ impl Exchange for Yobit {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -647,13 +657,13 @@ impl Exchange for Yobit {
             path = format!("{path}?limit={l}");
         }
 
-        let response: HashMap<String, Vec<YobitPublicTrade>> = self
-            .public_get(&path, None)
-            .await?;
+        let response: HashMap<String, Vec<YobitPublicTrade>> = self.public_get(&path, None).await?;
 
-        let trades_data = response.get(&market_id).ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("Trades not found for {symbol}"),
-        })?;
+        let trades_data = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("Trades not found for {symbol}"),
+            })?;
 
         let trades: Vec<Trade> = trades_data
             .iter()
@@ -704,9 +714,7 @@ impl Exchange for Yobit {
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let params = HashMap::new();
-        let response: YobitBalanceInfo = self
-            .private_post("getInfo", params)
-            .await?;
+        let response: YobitBalanceInfo = self.private_post("getInfo", params).await?;
 
         Ok(self.parse_balance(&response))
     }
@@ -732,16 +740,18 @@ impl Exchange for Yobit {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("pair".into(), market_id);
-        params.insert("type".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.to_string());
+        params.insert(
+            "type".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .to_string(),
+        );
         params.insert("amount".into(), amount.to_string());
         params.insert("rate".into(), price_val.to_string());
 
-        let response: YobitTradeResponse = self
-            .private_post("Trade", params)
-            .await?;
+        let response: YobitTradeResponse = self.private_post("Trade", params).await?;
 
         let order = Order {
             id: response.order_id.to_string(),
@@ -788,9 +798,7 @@ impl Exchange for Yobit {
         let mut params = HashMap::new();
         params.insert("order_id".into(), id.to_string());
 
-        let response: YobitCancelOrderResponse = self
-            .private_post("CancelOrder", params)
-            .await?;
+        let response: YobitCancelOrderResponse = self.private_post("CancelOrder", params).await?;
 
         let order = Order {
             id: response.order_id.to_string(),
@@ -833,17 +841,24 @@ impl Exchange for Yobit {
         let mut params = HashMap::new();
         params.insert("order_id".into(), id.to_string());
 
-        let response: HashMap<String, YobitOrderInfo> = self
-            .private_post("OrderInfo", params)
-            .await?;
+        let response: HashMap<String, YobitOrderInfo> =
+            self.private_post("OrderInfo", params).await?;
 
         let order_info = response.get(id).ok_or_else(|| CcxtError::OrderNotFound {
             order_id: id.to_string(),
         })?;
 
         // We need to get the symbol from the order info
-        let symbol = order_info.pair.as_ref()
-            .map(|p| self.to_symbol(p, p.split('_').nth(0).unwrap_or(""), p.split('_').nth(1).unwrap_or("")))
+        let symbol = order_info
+            .pair
+            .as_ref()
+            .map(|p| {
+                self.to_symbol(
+                    p,
+                    p.split('_').nth(0).unwrap_or(""),
+                    p.split('_').nth(1).unwrap_or(""),
+                )
+            })
             .unwrap_or_default();
 
         Ok(self.parse_order(order_info, &symbol, Some(id)))
@@ -863,9 +878,8 @@ impl Exchange for Yobit {
         let mut params = HashMap::new();
         params.insert("pair".into(), market_id);
 
-        let response: HashMap<String, YobitOrderInfo> = self
-            .private_post("ActiveOrders", params)
-            .await?;
+        let response: HashMap<String, YobitOrderInfo> =
+            self.private_post("ActiveOrders", params).await?;
 
         let orders: Vec<Order> = response
             .iter()
@@ -917,7 +931,10 @@ impl Exchange for Yobit {
             mac.update(body_str.as_bytes());
             let signature = hex::encode(mac.finalize().into_bytes());
 
-            headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+            headers.insert(
+                "Content-Type".into(),
+                "application/x-www-form-urlencoded".into(),
+            );
             headers.insert("Key".into(), api_key.to_string());
             headers.insert("Sign".into(), signature);
 
@@ -961,9 +978,8 @@ impl Exchange for Yobit {
             params.insert("count".into(), l.to_string());
         }
 
-        let response: HashMap<String, YobitTrade> = self
-            .private_post("TradeHistory", params)
-            .await?;
+        let response: HashMap<String, YobitTrade> =
+            self.private_post("TradeHistory", params).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -982,9 +998,7 @@ impl Exchange for Yobit {
         params.insert("coinName".into(), code.to_lowercase());
         params.insert("need_new".into(), "0".to_string());
 
-        let response: YobitDepositAddress = self
-            .private_post("GetDepositAddress", params)
-            .await?;
+        let response: YobitDepositAddress = self.private_post("GetDepositAddress", params).await?;
 
         Ok(crate::types::DepositAddress::new(
             code.to_string(),
@@ -1005,9 +1019,8 @@ impl Exchange for Yobit {
         params.insert("amount".into(), amount.to_string());
         params.insert("address".into(), address.to_string());
 
-        let _response: serde_json::Value = self
-            .private_post("WithdrawCoinsToAddress", params)
-            .await?;
+        let _response: serde_json::Value =
+            self.private_post("WithdrawCoinsToAddress", params).await?;
 
         Ok(crate::types::Transaction {
             id: String::new(),

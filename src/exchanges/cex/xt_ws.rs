@@ -19,10 +19,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderSide, OrderStatus, OrderType,
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, OHLCV,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent, WsOhlcvEvent,
-    WsBalanceEvent, WsOrderEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -83,14 +82,18 @@ impl XtWs {
 
     /// Sign a payload using HMAC-SHA256
     fn sign(&self, payload: &str) -> CcxtResult<String> {
-        let secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for signing".into(),
-        })?;
-
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
-                message: "Invalid secret key".into(),
+        let secret = self
+            .api_secret
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required for signing".into(),
             })?;
+
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
 
         mac.update(payload.as_bytes());
         let result = mac.finalize();
@@ -123,8 +126,14 @@ impl XtWs {
         };
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.orig_qty.as_ref().and_then(|q| Decimal::from_str(q).ok());
-        let filled = data.executed_qty.as_ref().and_then(|q| Decimal::from_str(q).ok());
+        let amount = data
+            .orig_qty
+            .as_ref()
+            .and_then(|q| Decimal::from_str(q).ok());
+        let filled = data
+            .executed_qty
+            .as_ref()
+            .and_then(|q| Decimal::from_str(q).ok());
         let remaining = match (amount, filled) {
             (Some(a), Some(f)) => Some(a - f),
             _ => None,
@@ -157,7 +166,10 @@ impl XtWs {
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
-            cost: match (price, filled) { (Some(p), Some(f)) => Some(p * f), _ => None },
+            cost: match (price, filled) {
+                (Some(p), Some(f)) => Some(p * f),
+                _ => None,
+            },
             reduce_only: None,
             post_only: None,
             trades: vec![],
@@ -166,9 +178,7 @@ impl XtWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        Some(WsMessage::Order(WsOrderEvent {
-            order,
-        }))
+        Some(WsMessage::Order(WsOrderEvent { order }))
     }
 
     /// Parse balance update from private message
@@ -177,16 +187,28 @@ impl XtWs {
 
         for data in balances_data {
             if let Some(currency) = &data.currency {
-                let free = data.available_amount.as_ref().and_then(|a| Decimal::from_str(a).ok());
-                let used = data.frozen_amount.as_ref().and_then(|f| Decimal::from_str(f).ok());
-                let total = data.total_amount.as_ref().and_then(|t| Decimal::from_str(t).ok());
+                let free = data
+                    .available_amount
+                    .as_ref()
+                    .and_then(|a| Decimal::from_str(a).ok());
+                let used = data
+                    .frozen_amount
+                    .as_ref()
+                    .and_then(|f| Decimal::from_str(f).ok());
+                let total = data
+                    .total_amount
+                    .as_ref()
+                    .and_then(|t| Decimal::from_str(t).ok());
 
-                currencies.insert(currency.clone(), Balance {
-                    free,
-                    used,
-                    total,
-                    debt: None,
-                });
+                currencies.insert(
+                    currency.clone(),
+                    Balance {
+                        free,
+                        used,
+                        total,
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -287,7 +309,10 @@ impl XtWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsTickerEvent { symbol: unified_symbol, ticker }
+        WsTickerEvent {
+            symbol: unified_symbol,
+            ticker,
+        }
     }
 
     /// OHLCV 메시지 파싱
@@ -316,7 +341,9 @@ impl XtWs {
         let unified_symbol = Self::to_unified_symbol(&data.s);
         let timestamp = Utc::now().timestamp_millis();
 
-        let bids: Vec<OrderBookEntry> = data.b.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .b
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     let price = entry[0].parse::<Decimal>().ok()?;
@@ -328,7 +355,9 @@ impl XtWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.a.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .a
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     let price = entry[0].parse::<Decimal>().ok()?;
@@ -349,6 +378,7 @@ impl XtWs {
             nonce,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -366,10 +396,9 @@ impl XtWs {
         // 비드 업데이트
         for entry in &data.b {
             if entry.len() >= 2 {
-                if let (Ok(price), Ok(qty)) = (
-                    entry[0].parse::<Decimal>(),
-                    entry[1].parse::<Decimal>()
-                ) {
+                if let (Ok(price), Ok(qty)) =
+                    (entry[0].parse::<Decimal>(), entry[1].parse::<Decimal>())
+                {
                     cache.bids.retain(|e| e.price != price);
                     if qty > Decimal::ZERO {
                         cache.bids.push(OrderBookEntry { price, amount: qty });
@@ -382,10 +411,9 @@ impl XtWs {
         // 애스크 업데이트
         for entry in &data.a {
             if entry.len() >= 2 {
-                if let (Ok(price), Ok(qty)) = (
-                    entry[0].parse::<Decimal>(),
-                    entry[1].parse::<Decimal>()
-                ) {
+                if let (Ok(price), Ok(qty)) =
+                    (entry[0].parse::<Decimal>(), entry[1].parse::<Decimal>())
+                {
                     cache.asks.retain(|e| e.price != price);
                     if qty > Decimal::ZERO {
                         cache.asks.push(OrderBookEntry { price, amount: qty });
@@ -417,8 +445,14 @@ impl XtWs {
 
         // 사이드 결정
         let side = if let Some(b) = data.b {
-            if b { Some("buy".to_string()) } else { Some("sell".to_string()) }
-        } else { data.m.as_ref().map(|m| m.to_lowercase()) };
+            if b {
+                Some("buy".to_string())
+            } else {
+                Some("sell".to_string())
+            }
+        } else {
+            data.m.as_ref().map(|m| m.to_lowercase())
+        };
 
         let trade = Trade {
             id: data.i.clone().unwrap_or_default(),
@@ -448,7 +482,10 @@ impl XtWs {
     }
 
     /// 메시지 처리
-    fn process_message(msg: &str, order_book_cache: &mut HashMap<String, OrderBook>) -> Option<WsMessage> {
+    fn process_message(
+        msg: &str,
+        order_book_cache: &mut HashMap<String, OrderBook>,
+    ) -> Option<WsMessage> {
         // Pong 처리
         if msg == "pong" {
             return None;
@@ -463,26 +500,26 @@ impl XtWs {
                     if let Some(data) = response.data_ticker {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&data)));
                     }
-                }
+                },
                 Some("tickers") | Some("agg_tickers") => {
                     if let Some(data_list) = response.data_tickers {
                         if let Some(data) = data_list.first() {
                             return Some(WsMessage::Ticker(Self::parse_ticker(data)));
                         }
                     }
-                }
+                },
                 Some("kline") => {
                     if let Some(data) = response.data_kline {
                         // event에서 timeframe 추출 (예: kline@btc_usdt,5m)
                         let timeframe = event.split(',').next_back().unwrap_or("1m");
                         return Some(WsMessage::Ohlcv(Self::parse_ohlcv(&data, timeframe)));
                     }
-                }
+                },
                 Some("trade") => {
                     if let Some(data) = response.data_trade {
                         return Some(WsMessage::Trade(Self::parse_trade(&data)));
                     }
-                }
+                },
                 Some("depth") => {
                     if let Some(data) = response.data_depth {
                         let unified_symbol = Self::to_unified_symbol(&data.s);
@@ -490,7 +527,7 @@ impl XtWs {
                         order_book_cache.insert(unified_symbol, event.order_book.clone());
                         return Some(WsMessage::OrderBook(event));
                     }
-                }
+                },
                 Some("depth_update") => {
                     if let Some(data) = response.data_depth {
                         let unified_symbol = Self::to_unified_symbol(&data.s);
@@ -504,8 +541,8 @@ impl XtWs {
                             return Some(WsMessage::OrderBook(event));
                         }
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -530,7 +567,11 @@ impl XtWs {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
-        let url = if self.use_contract { WS_CONTRACT_URL } else { WS_SPOT_URL };
+        let url = if self.use_contract {
+            WS_CONTRACT_URL
+        } else {
+            WS_SPOT_URL
+        };
 
         let mut ws_client = WsClient::new(WsConfig {
             url: url.to_string(),
@@ -539,12 +580,17 @@ impl XtWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
 
         // 구독 메시지 전송
-        let method = if self.use_contract { "SUBSCRIBE" } else { "subscribe" };
+        let method = if self.use_contract {
+            "SUBSCRIBE"
+        } else {
+            "subscribe"
+        };
         let id = format!("{}{}", Utc::now().timestamp_millis(), channels.join("_"));
         let subscribe_msg = serde_json::json!({
             "method": method,
@@ -570,20 +616,20 @@ impl XtWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         let mut cache = order_book_cache.write().await;
                         if let Some(ws_msg) = Self::process_message(&msg, &mut cache) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -601,20 +647,39 @@ impl Default for XtWs {
 #[async_trait]
 impl WsExchange for XtWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if self.use_contract { Self::new_contract() } else { Self::new() };
+        let mut client = if self.use_contract {
+            Self::new_contract()
+        } else {
+            Self::new()
+        };
         let xt_symbol = Self::format_symbol(symbol);
         let channel = format!("ticker@{xt_symbol}");
         client.subscribe_stream(vec![channel]).await
     }
 
-    async fn watch_tickers(&self, _symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if self.use_contract { Self::new_contract() } else { Self::new() };
+    async fn watch_tickers(
+        &self,
+        _symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if self.use_contract {
+            Self::new_contract()
+        } else {
+            Self::new()
+        };
         // XT는 tickers로 전체 티커를 구독
         client.subscribe_stream(vec!["tickers".to_string()]).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if self.use_contract { Self::new_contract() } else { Self::new() };
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if self.use_contract {
+            Self::new_contract()
+        } else {
+            Self::new()
+        };
         let xt_symbol = Self::format_symbol(symbol);
         let channel = if let Some(l) = limit {
             format!("depth@{xt_symbol},{l}")
@@ -624,9 +689,18 @@ impl WsExchange for XtWs {
         client.subscribe_stream(vec![channel]).await
     }
 
-    async fn watch_order_book_for_symbols(&self, symbols: &[&str], limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if self.use_contract { Self::new_contract() } else { Self::new() };
-        let channels: Vec<String> = symbols.iter()
+    async fn watch_order_book_for_symbols(
+        &self,
+        symbols: &[&str],
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if self.use_contract {
+            Self::new_contract()
+        } else {
+            Self::new()
+        };
+        let channels: Vec<String> = symbols
+            .iter()
             .map(|s| {
                 let xt_symbol = Self::format_symbol(s);
                 if let Some(l) = limit {
@@ -640,22 +714,42 @@ impl WsExchange for XtWs {
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if self.use_contract { Self::new_contract() } else { Self::new() };
+        let mut client = if self.use_contract {
+            Self::new_contract()
+        } else {
+            Self::new()
+        };
         let xt_symbol = Self::format_symbol(symbol);
         let channel = format!("trade@{xt_symbol}");
         client.subscribe_stream(vec![channel]).await
     }
 
-    async fn watch_trades_for_symbols(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if self.use_contract { Self::new_contract() } else { Self::new() };
-        let channels: Vec<String> = symbols.iter()
+    async fn watch_trades_for_symbols(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if self.use_contract {
+            Self::new_contract()
+        } else {
+            Self::new()
+        };
+        let channels: Vec<String> = symbols
+            .iter()
             .map(|s| format!("trade@{}", Self::format_symbol(s)))
             .collect();
         client.subscribe_stream(channels).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if self.use_contract { Self::new_contract() } else { Self::new() };
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if self.use_contract {
+            Self::new_contract()
+        } else {
+            Self::new()
+        };
         let xt_symbol = Self::format_symbol(symbol);
         let tf_str = match timeframe {
             Timeframe::Second1 => "1m", // XT doesn't support 1s, use 1m
@@ -680,8 +774,16 @@ impl WsExchange for XtWs {
         client.subscribe_stream(vec![channel]).await
     }
 
-    async fn watch_ohlcv_for_symbols(&self, symbols: &[&str], timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if self.use_contract { Self::new_contract() } else { Self::new() };
+    async fn watch_ohlcv_for_symbols(
+        &self,
+        symbols: &[&str],
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if self.use_contract {
+            Self::new_contract()
+        } else {
+            Self::new()
+        };
         let tf_str = match timeframe {
             Timeframe::Minute1 => "1m",
             Timeframe::Minute5 => "5m",
@@ -692,7 +794,8 @@ impl WsExchange for XtWs {
             Timeframe::Day1 => "1d",
             _ => "1h",
         };
-        let channels: Vec<String> = symbols.iter()
+        let channels: Vec<String> = symbols
+            .iter()
             .map(|s| format!("kline@{},{}", Self::format_symbol(s), tf_str))
             .collect();
         client.subscribe_stream(channels).await
@@ -720,7 +823,10 @@ impl WsExchange for XtWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -734,11 +840,15 @@ impl WsExchange for XtWs {
         // 3. Subscribe to order update channel
         // 4. Process messages through parse_order
         Err(CcxtError::NotSupported {
-            feature: "watch_orders - XT private WebSocket requires dedicated implementation".to_string(),
+            feature: "watch_orders - XT private WebSocket requires dedicated implementation"
+                .to_string(),
         })
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -747,7 +857,8 @@ impl WsExchange for XtWs {
 
         // XT private channels require private WebSocket connection
         Err(CcxtError::NotSupported {
-            feature: "watch_my_trades - XT private WebSocket requires dedicated implementation".to_string(),
+            feature: "watch_my_trades - XT private WebSocket requires dedicated implementation"
+                .to_string(),
         })
     }
 
@@ -760,7 +871,8 @@ impl WsExchange for XtWs {
 
         // XT private channels require private WebSocket connection
         Err(CcxtError::NotSupported {
-            feature: "watch_balance - XT private WebSocket requires dedicated implementation".to_string(),
+            feature: "watch_balance - XT private WebSocket requires dedicated implementation"
+                .to_string(),
         })
     }
 
@@ -802,9 +914,9 @@ struct XtWsResponse {
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 struct XtTickerData {
     #[serde(default)]
-    s: String,        // symbol
+    s: String, // symbol
     #[serde(default)]
-    t: Option<i64>,   // timestamp
+    t: Option<i64>, // timestamp
     #[serde(default)]
     cv: Option<Decimal>, // price change value (spot)
     #[serde(default)]
@@ -812,23 +924,23 @@ struct XtTickerData {
     #[serde(default)]
     ch: Option<Decimal>, // price change (contract)
     #[serde(default)]
-    o: Option<Decimal>,  // open
+    o: Option<Decimal>, // open
     #[serde(default)]
-    c: Option<Decimal>,  // close
+    c: Option<Decimal>, // close
     #[serde(default)]
-    h: Option<Decimal>,  // high
+    h: Option<Decimal>, // high
     #[serde(default)]
-    l: Option<Decimal>,  // low
+    l: Option<Decimal>, // low
     #[serde(default)]
-    q: Option<Decimal>,  // quantity (base volume)
+    q: Option<Decimal>, // quantity (base volume)
     #[serde(default)]
-    v: Option<Decimal>,  // volume (quote volume)
+    v: Option<Decimal>, // volume (quote volume)
     #[serde(default)]
-    a: Option<Decimal>,  // amount (contract)
+    a: Option<Decimal>, // amount (contract)
     #[serde(default)]
-    i: Option<Decimal>,  // index price
+    i: Option<Decimal>, // index price
     #[serde(default)]
-    m: Option<Decimal>,  // mark price
+    m: Option<Decimal>, // mark price
     #[serde(default)]
     bp: Option<Decimal>, // best bid
     #[serde(default)]
@@ -838,9 +950,9 @@ struct XtTickerData {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct XtKlineData {
     #[serde(default)]
-    s: String,        // symbol
+    s: String, // symbol
     #[serde(default)]
-    t: Option<i64>,   // timestamp
+    t: Option<i64>, // timestamp
     #[serde(default)]
     i: Option<String>, // interval
     #[serde(default)]
@@ -852,21 +964,21 @@ struct XtKlineData {
     #[serde(default)]
     c: Option<Decimal>,
     #[serde(default)]
-    q: Option<Decimal>,  // quantity (spot)
+    q: Option<Decimal>, // quantity (spot)
     #[serde(default)]
-    v: Option<Decimal>,  // volume
+    v: Option<Decimal>, // volume
     #[serde(default)]
-    a: Option<Decimal>,  // amount (contract)
+    a: Option<Decimal>, // amount (contract)
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct XtTradeData {
     #[serde(default)]
-    s: String,        // symbol
+    s: String, // symbol
     #[serde(default)]
     i: Option<String>, // trade id
     #[serde(default)]
-    t: Option<i64>,   // timestamp
+    t: Option<i64>, // timestamp
     #[serde(default)]
     p: Option<Decimal>, // price
     #[serde(default)]
@@ -874,27 +986,27 @@ struct XtTradeData {
     #[serde(default)]
     a: Option<Decimal>, // amount (contract)
     #[serde(default)]
-    b: Option<bool>,    // is buy (spot)
+    b: Option<bool>, // is buy (spot)
     #[serde(default)]
-    m: Option<String>,  // side: BID/ASK (contract)
+    m: Option<String>, // side: BID/ASK (contract)
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct XtDepthData {
     #[serde(default)]
-    s: String,        // symbol
+    s: String, // symbol
     #[serde(default)]
-    fi: Option<i64>,  // first update id (spot)
+    fi: Option<i64>, // first update id (spot)
     #[serde(default)]
-    i: Option<i64>,   // update id (spot)
+    i: Option<i64>, // update id (spot)
     #[serde(default)]
-    pu: Option<i64>,  // previous update id (contract)
+    pu: Option<i64>, // previous update id (contract)
     #[serde(default)]
-    fu: Option<i64>,  // first update id (contract)
+    fu: Option<i64>, // first update id (contract)
     #[serde(default)]
-    u: Option<i64>,   // update id (contract)
+    u: Option<i64>, // update id (contract)
     #[serde(default)]
-    t: Option<i64>,   // timestamp
+    t: Option<i64>, // timestamp
     #[serde(default)]
     a: Vec<Vec<String>>, // asks [[price, qty], ...]
     #[serde(default)]
@@ -1007,10 +1119,7 @@ mod tests {
 
     #[test]
     fn test_sign() {
-        let ws = XtWs::with_credentials(
-            "test_api_key".to_string(),
-            "test_api_secret".to_string(),
-        );
+        let ws = XtWs::with_credentials("test_api_key".to_string(), "test_api_secret".to_string());
 
         let signature = ws.sign("test_payload").unwrap();
         assert!(!signature.is_empty());

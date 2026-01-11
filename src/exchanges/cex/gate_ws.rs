@@ -18,9 +18,9 @@ use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
     Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
-    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
+    OrderType, Position, PositionSide, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade,
     WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent,
-    WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha512 = Hmac<Sha512>;
@@ -74,7 +74,12 @@ impl GateWs {
     /// Generate signature for authentication
     /// Gate.io uses HMAC-SHA512
     /// message = "channel={channel}&event=subscribe&time={timestamp}"
-    fn generate_auth_signature(api_secret: &str, channel: &str, event: &str, timestamp: i64) -> String {
+    fn generate_auth_signature(
+        api_secret: &str,
+        channel: &str,
+        event: &str,
+        timestamp: i64,
+    ) -> String {
         let message = format!("channel={channel}&event={event}&time={timestamp}");
         let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes())
             .expect("HMAC can take key of any size");
@@ -116,7 +121,9 @@ impl GateWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &GateTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.currency_pair);
-        let timestamp = data.time.map(|t| (t * 1000.0) as i64)
+        let timestamp = data
+            .time
+            .map(|t| (t * 1000.0) as i64)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
@@ -152,31 +159,42 @@ impl GateWs {
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &GateOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+    fn parse_order_book(
+        data: &GateOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.t
-            .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data.t.unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.to_string(),
@@ -189,6 +207,7 @@ impl GateWs {
             nonce: data.u,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -201,7 +220,9 @@ impl GateWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &GateTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.currency_pair);
-        let timestamp = data.create_time.map(|t| (t * 1000.0) as i64)
+        let timestamp = data
+            .create_time
+            .map(|t| (t * 1000.0) as i64)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.price.parse().unwrap_or_default();
         let amount: Decimal = data.amount.parse().unwrap_or_default();
@@ -254,7 +275,9 @@ impl GateWs {
     /// 주문 메시지 파싱
     fn parse_order(data: &GateOrderData) -> WsOrderEvent {
         let symbol = Self::to_unified_symbol(&data.currency_pair);
-        let timestamp = data.update_time_ms.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .update_time_ms
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let side = match data.side.to_lowercase().as_str() {
             "buy" => OrderSide::Buy,
@@ -262,7 +285,13 @@ impl GateWs {
             _ => OrderSide::Buy,
         };
 
-        let order_type = match data.order_type.as_deref().unwrap_or("limit").to_lowercase().as_str() {
+        let order_type = match data
+            .order_type
+            .as_deref()
+            .unwrap_or("limit")
+            .to_lowercase()
+            .as_str()
+        {
             "limit" => OrderType::Limit,
             "market" => OrderType::Market,
             _ => OrderType::Limit,
@@ -275,7 +304,13 @@ impl GateWs {
             _ => OrderStatus::Open,
         };
 
-        let time_in_force = match data.time_in_force.as_deref().unwrap_or("gtc").to_lowercase().as_str() {
+        let time_in_force = match data
+            .time_in_force
+            .as_deref()
+            .unwrap_or("gtc")
+            .to_lowercase()
+            .as_str()
+        {
             "gtc" => TimeInForce::GTC,
             "ioc" => TimeInForce::IOC,
             "poc" => TimeInForce::PO,
@@ -285,7 +320,11 @@ impl GateWs {
 
         let price: Decimal = data.price.parse().unwrap_or_default();
         let amount: Decimal = data.amount.parse().unwrap_or_default();
-        let filled: Decimal = data.filled_total.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+        let filled: Decimal = data
+            .filled_total
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
 
         let order = Order {
             id: data.id.clone(),
@@ -331,7 +370,9 @@ impl GateWs {
     /// 체결 메시지 파싱 (Private)
     fn parse_fill(data: &GateFillData) -> WsMyTradeEvent {
         let symbol = Self::to_unified_symbol(&data.currency_pair);
-        let timestamp = data.create_time_ms.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .create_time_ms
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.price.parse().unwrap_or_default();
         let amount: Decimal = data.amount.parse().unwrap_or_default();
 
@@ -358,7 +399,11 @@ impl GateWs {
             ),
             symbol: symbol.clone(),
             trade_type: None,
-            side: Some(if side == OrderSide::Buy { "buy".to_string() } else { "sell".to_string() }),
+            side: Some(if side == OrderSide::Buy {
+                "buy".to_string()
+            } else {
+                "sell".to_string()
+            }),
             taker_or_maker: Some(taker_or_maker),
             price,
             amount,
@@ -378,7 +423,10 @@ impl GateWs {
     /// 포지션 메시지 파싱
     fn parse_position(data: &GatePositionData) -> WsPositionEvent {
         let symbol = Self::to_unified_symbol(&data.contract);
-        let timestamp = data.update_time.map(|t| t * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .update_time
+            .map(|t| t * 1000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let side = if data.size > 0 {
             PositionSide::Long
@@ -395,8 +443,16 @@ impl GateWs {
         };
 
         let size = Decimal::from(data.size.abs());
-        let entry_price: Decimal = data.entry_price.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
-        let mark_price: Decimal = data.mark_price.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+        let entry_price: Decimal = data
+            .entry_price
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
+        let mark_price: Decimal = data
+            .mark_price
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
 
         let position = Position {
             id: None,
@@ -422,7 +478,10 @@ impl GateWs {
             margin_mode: Some(margin_mode),
             hedged: None,
             maintenance_margin: data.maintenance_rate.as_ref().and_then(|v| v.parse().ok()),
-            maintenance_margin_percentage: data.maintenance_rate.as_ref().and_then(|v| v.parse().ok()),
+            maintenance_margin_percentage: data
+                .maintenance_rate
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             initial_margin: data.margin.as_ref().and_then(|v| v.parse().ok()),
             initial_margin_percentage: None,
             margin_ratio: None,
@@ -446,15 +505,22 @@ impl GateWs {
         for item in data {
             let currency = item.currency.clone();
             let free: Decimal = item.available.parse().unwrap_or_default();
-            let used: Decimal = item.freeze.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+            let used: Decimal = item
+                .freeze
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_default();
             let total = free + used;
 
-            currencies_map.insert(currency, Balance {
-                free: Some(free),
-                used: Some(used),
-                total: Some(total),
-                debt: None,
-            });
+            currencies_map.insert(
+                currency,
+                Balance {
+                    free: Some(free),
+                    used: Some(used),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         let balances = Balances {
@@ -479,16 +545,22 @@ impl GateWs {
                 if event == "subscribe" {
                     // Check for auth success (spot.orders with auth)
                     if let Some(channel) = &response.channel {
-                        if channel == "spot.orders" || channel == "spot.usertrades" ||
-                           channel == "spot.balances" || channel == "futures.orders" ||
-                           channel == "futures.usertrades" || channel == "futures.positions" ||
-                           channel == "futures.balances" {
+                        if channel == "spot.orders"
+                            || channel == "spot.usertrades"
+                            || channel == "spot.balances"
+                            || channel == "futures.orders"
+                            || channel == "futures.usertrades"
+                            || channel == "futures.positions"
+                            || channel == "futures.balances"
+                        {
                             // Check if error
                             if response.error.is_some() {
                                 return Some(WsMessage::Error(
-                                    response.error.as_ref()
+                                    response
+                                        .error
+                                        .as_ref()
                                         .and_then(|e| e.message.clone())
-                                        .unwrap_or_else(|| "Auth failed".to_string())
+                                        .unwrap_or_else(|| "Auth failed".to_string()),
                                 ));
                             }
                             return Some(WsMessage::Authenticated);
@@ -505,32 +577,44 @@ impl GateWs {
             if let (Some(channel), Some(result)) = (&response.channel, &response.result) {
                 // Ticker
                 if channel == "spot.tickers" {
-                    if let Ok(ticker_data) = serde_json::from_value::<GateTickerData>(result.clone()) {
+                    if let Ok(ticker_data) =
+                        serde_json::from_value::<GateTickerData>(result.clone())
+                    {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                     }
                 }
 
                 // OrderBook
                 if channel == "spot.order_book_update" {
-                    if let Ok(ob_data) = serde_json::from_value::<GateOrderBookData>(result.clone()) {
-                        let symbol = ob_data.s.as_ref()
+                    if let Ok(ob_data) = serde_json::from_value::<GateOrderBookData>(result.clone())
+                    {
+                        let symbol = ob_data
+                            .s
+                            .as_ref()
                             .map(|s| Self::to_unified_symbol(s))
                             .unwrap_or_default();
                         let is_snapshot = response.event.as_deref() == Some("all");
-                        return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol, is_snapshot)));
+                        return Some(WsMessage::OrderBook(Self::parse_order_book(
+                            &ob_data,
+                            &symbol,
+                            is_snapshot,
+                        )));
                     }
                 }
 
                 // Trades
                 if channel == "spot.trades" {
-                    if let Ok(trade_data) = serde_json::from_value::<GateTradeData>(result.clone()) {
+                    if let Ok(trade_data) = serde_json::from_value::<GateTradeData>(result.clone())
+                    {
                         return Some(WsMessage::Trade(Self::parse_trade(&trade_data)));
                     }
                 }
 
                 // Candles
                 if channel == "spot.candlesticks" {
-                    if let Ok(candle_data) = serde_json::from_value::<GateCandleData>(result.clone()) {
+                    if let Ok(candle_data) =
+                        serde_json::from_value::<GateCandleData>(result.clone())
+                    {
                         // Extract timeframe from candle name (e.g., "1m_BTC_USDT")
                         let parts: Vec<&str> = candle_data.n.split('_').collect();
                         let timeframe = if !parts.is_empty() {
@@ -563,7 +647,9 @@ impl GateWs {
 
                 // Private Channels - Orders
                 if channel == "spot.orders" || channel == "futures.orders" {
-                    if let Ok(order_data) = serde_json::from_value::<Vec<GateOrderData>>(result.clone()) {
+                    if let Ok(order_data) =
+                        serde_json::from_value::<Vec<GateOrderData>>(result.clone())
+                    {
                         if let Some(order) = order_data.first() {
                             return Some(WsMessage::Order(Self::parse_order(order)));
                         }
@@ -572,7 +658,9 @@ impl GateWs {
 
                 // Private Channels - User Trades
                 if channel == "spot.usertrades" || channel == "futures.usertrades" {
-                    if let Ok(fill_data) = serde_json::from_value::<Vec<GateFillData>>(result.clone()) {
+                    if let Ok(fill_data) =
+                        serde_json::from_value::<Vec<GateFillData>>(result.clone())
+                    {
                         if let Some(fill) = fill_data.first() {
                             return Some(WsMessage::MyTrade(Self::parse_fill(fill)));
                         }
@@ -581,7 +669,9 @@ impl GateWs {
 
                 // Private Channels - Positions (Futures only)
                 if channel == "futures.positions" {
-                    if let Ok(position_data) = serde_json::from_value::<Vec<GatePositionData>>(result.clone()) {
+                    if let Ok(position_data) =
+                        serde_json::from_value::<Vec<GatePositionData>>(result.clone())
+                    {
                         if let Some(position) = position_data.first() {
                             return Some(WsMessage::Position(Self::parse_position(position)));
                         }
@@ -590,7 +680,9 @@ impl GateWs {
 
                 // Private Channels - Balance
                 if channel == "spot.balances" || channel == "futures.balances" {
-                    if let Ok(balance_data) = serde_json::from_value::<Vec<GateBalanceData>>(result.clone()) {
+                    if let Ok(balance_data) =
+                        serde_json::from_value::<Vec<GateBalanceData>>(result.clone())
+                    {
                         return Some(WsMessage::Balance(Self::parse_account(&balance_data)));
                     }
                 }
@@ -601,7 +693,13 @@ impl GateWs {
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
-    async fn subscribe_stream(&mut self, channel: &str, payload: Vec<String>, channel_name: &str, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        channel: &str,
+        payload: Vec<String>,
+        channel_name: &str,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -612,6 +710,7 @@ impl GateWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -631,7 +730,10 @@ impl GateWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel_name, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -641,19 +743,19 @@ impl GateWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -668,11 +770,12 @@ impl GateWs {
         payload: Vec<String>,
         channel_name: &str,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.clone().ok_or_else(|| {
-            crate::errors::CcxtError::AuthenticationError {
-                message: "API key not set".into(),
-            }
-        })?;
+        let api_key =
+            self.api_key
+                .clone()
+                .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
+                    message: "API key not set".into(),
+                })?;
         let api_secret = self.api_secret.clone().ok_or_else(|| {
             crate::errors::CcxtError::AuthenticationError {
                 message: "API secret not set".into(),
@@ -689,6 +792,7 @@ impl GateWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -716,7 +820,10 @@ impl GateWs {
         // Save subscription
         {
             let key = format!("private:{}:{}", channel_name, "");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Event processing task
@@ -726,19 +833,19 @@ impl GateWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -758,34 +865,65 @@ impl WsExchange for GateWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
-        client.subscribe_stream("spot.tickers", vec![market_id], "ticker", Some(symbol)).await
+        client
+            .subscribe_stream("spot.tickers", vec![market_id], "ticker", Some(symbol))
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_ids: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
-        client.subscribe_stream("spot.tickers", market_ids, "tickers", None).await
+        client
+            .subscribe_stream("spot.tickers", market_ids, "tickers", None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         // Gate uses "100ms" for real-time updates
-        client.subscribe_stream("spot.order_book_update", vec![market_id, "100ms".to_string()], "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream(
+                "spot.order_book_update",
+                vec![market_id, "100ms".to_string()],
+                "orderBook",
+                Some(symbol),
+            )
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
-        client.subscribe_stream("spot.trades", vec![market_id], "trades", Some(symbol)).await
+        client
+            .subscribe_stream("spot.trades", vec![market_id], "trades", Some(symbol))
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
         let subscription = format!("{interval}_{market_id}");
-        client.subscribe_stream("spot.candlesticks", vec![subscription], "ohlcv", Some(symbol)).await
+        client
+            .subscribe_stream(
+                "spot.candlesticks",
+                vec![subscription],
+                "ohlcv",
+                Some(symbol),
+            )
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -810,7 +948,10 @@ impl WsExchange for GateWs {
 
     // === Private Streams ===
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
             self.api_key.clone().unwrap_or_default(),
             self.api_secret.clone().unwrap_or_default(),
@@ -820,10 +961,15 @@ impl WsExchange for GateWs {
         } else {
             vec!["!all".to_string()]
         };
-        client.subscribe_private_stream("spot.orders", payload, "orders").await
+        client
+            .subscribe_private_stream("spot.orders", payload, "orders")
+            .await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
             self.api_key.clone().unwrap_or_default(),
             self.api_secret.clone().unwrap_or_default(),
@@ -833,10 +979,15 @@ impl WsExchange for GateWs {
         } else {
             vec!["!all".to_string()]
         };
-        client.subscribe_private_stream("spot.usertrades", payload, "usertrades").await
+        client
+            .subscribe_private_stream("spot.usertrades", payload, "usertrades")
+            .await
     }
 
-    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
             self.api_key.clone().unwrap_or_default(),
             self.api_secret.clone().unwrap_or_default(),
@@ -846,7 +997,9 @@ impl WsExchange for GateWs {
         } else {
             vec!["!all".to_string()]
         };
-        client.subscribe_private_stream("futures.positions", payload, "positions").await
+        client
+            .subscribe_private_stream("futures.positions", payload, "positions")
+            .await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -854,7 +1007,9 @@ impl WsExchange for GateWs {
             self.api_key.clone().unwrap_or_default(),
             self.api_secret.clone().unwrap_or_default(),
         );
-        client.subscribe_private_stream("spot.balances", vec![], "balances").await
+        client
+            .subscribe_private_stream("spot.balances", vec![], "balances")
+            .await
     }
 
     async fn ws_authenticate(&mut self) -> CcxtResult<()> {
@@ -940,13 +1095,13 @@ struct GateTradeData {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct GateCandleData {
-    t: String,  // timestamp
-    o: String,  // open
-    h: String,  // high
-    l: String,  // low
-    c: String,  // close
-    v: String,  // volume
-    n: String,  // name (interval_symbol)
+    t: String, // timestamp
+    o: String, // open
+    h: String, // high
+    l: String, // low
+    c: String, // close
+    v: String, // volume
+    n: String, // name (interval_symbol)
 }
 
 // === Private Data Types ===
@@ -1051,10 +1206,7 @@ mod tests {
 
     #[test]
     fn test_with_credentials() {
-        let client = GateWs::with_credentials(
-            "test_key".to_string(),
-            "test_secret".to_string(),
-        );
+        let client = GateWs::with_credentials("test_key".to_string(), "test_secret".to_string());
         assert_eq!(client.get_api_key(), Some("test_key"));
     }
 
@@ -1068,12 +1220,8 @@ mod tests {
 
     #[test]
     fn test_generate_auth_signature() {
-        let signature = GateWs::generate_auth_signature(
-            "test_secret",
-            "spot.orders",
-            "subscribe",
-            1234567890,
-        );
+        let signature =
+            GateWs::generate_auth_signature("test_secret", "spot.orders", "subscribe", 1234567890);
         // Gate uses HMAC-SHA512, signature should be hex-encoded
         assert!(!signature.is_empty());
         assert_eq!(signature.len(), 128); // SHA512 produces 64 bytes = 128 hex chars

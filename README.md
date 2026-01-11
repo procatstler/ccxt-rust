@@ -2,6 +2,10 @@
 
 A Rust port of the popular [CCXT](https://github.com/ccxt/ccxt) cryptocurrency exchange trading library.
 
+[![CI](https://github.com/onlyhyde/trading/actions/workflows/ci.yml/badge.svg)](https://github.com/onlyhyde/trading/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/onlyhyde/trading/branch/main/graph/badge.svg)](https://codecov.io/gh/onlyhyde/trading)
+[![Crates.io](https://img.shields.io/crates/v/ccxt-rust.svg)](https://crates.io/crates/ccxt-rust)
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://onlyhyde.github.io/trading/docs/ccxt_rust/)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -52,6 +56,32 @@ Add to your `Cargo.toml`:
 [dependencies]
 ccxt-rust = { git = "https://github.com/onlyhyde/trading", path = "ccxt-rust" }
 tokio = { version = "1.0", features = ["full"] }
+```
+
+## Feature Flags
+
+The library supports optional features to reduce compile time and binary size:
+
+| Feature | Default | Description |
+|---------|:-------:|-------------|
+| `cex` | ✅ | Centralized exchange support (Binance, OKX, etc.) |
+| `dex` | ❌ | Decentralized exchange support (Hyperliquid, dYdX, Paradex) + crypto primitives |
+| `full` | ❌ | All features enabled |
+
+### Examples
+
+```toml
+# CEX only (default, smaller binary)
+ccxt-rust = "0.1"
+
+# DEX support (includes EVM, StarkNet, Cosmos crypto)
+ccxt-rust = { version = "0.1", features = ["dex"] }
+
+# All features
+ccxt-rust = { version = "0.1", features = ["full"] }
+
+# DEX only (no CEX)
+ccxt-rust = { version = "0.1", default-features = false, features = ["dex"] }
 ```
 
 ## Quick Start
@@ -237,20 +267,28 @@ cargo build
 
 # Run tests
 cargo test
+cargo test --features full    # All features
 
 # Run clippy
 cargo clippy
 
 # Generate docs
 cargo doc --open
+
+# Live API tests (manual execution - calls real exchange APIs)
+cargo test --features full live_api -- --ignored --test-threads=1
+cargo test --features full live_dex -- --ignored --test-threads=1
 ```
 
 ## Status
 
 | Category | Progress |
 |----------|----------|
-| REST API | 113/119 (95%) |
-| WebSocket | 55/81 (68%) |
+| CEX REST API | 101/105 (96%) |
+| CEX WebSocket | 100/105 (95%) |
+| DEX REST API | 8/8 (100%) |
+| DEX WebSocket | 8/8 (100%) |
+| **Total Tests** | **1,747+** |
 
 See [PORTING_STATUS.md](docs/PORTING_STATUS.md) for detailed exchange support.
 
@@ -260,7 +298,11 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+- [Bug Reports](.github/ISSUE_TEMPLATE/bug_report.md)
+- [Feature Requests](.github/ISSUE_TEMPLATE/feature_request.md)
+- [Exchange Requests](.github/ISSUE_TEMPLATE/exchange_request.md)
 
 ## Acknowledgments
 

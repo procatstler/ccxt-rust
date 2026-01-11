@@ -25,10 +25,10 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide, MarginMode,
-    Ticker, TimeInForce, Timeframe, Trade, TakerOrMaker,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent, WsOhlcvEvent,
-    WsOrderEvent, WsPositionEvent, WsMyTradeEvent, OHLCV,
+    MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position,
+    PositionSide, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, WsExchange, WsMessage,
+    WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsTickerEvent,
+    WsTradeEvent, OHLCV,
 };
 
 const WS_PUBLIC_URL: &str = "wss://indexer.dydx.trade/v4/ws";
@@ -118,24 +118,51 @@ impl DydxWs {
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default(),
             ),
-            high: data.high_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            low: data.low_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            bid: data.oracle_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            high: data
+                .high_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            low: data
+                .low_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            bid: data
+                .oracle_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             bid_volume: None,
-            ask: data.oracle_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            ask: data
+                .oracle_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             ask_volume: None,
             vwap: None,
             open: None,
-            close: data.oracle_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            last: data.oracle_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            close: data
+                .oracle_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            last: data
+                .oracle_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             previous_close: None,
             change: None,
             percentage: None,
             average: None,
-            base_volume: data.volume_24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            base_volume: data
+                .volume_24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             quote_volume: None,
-            index_price: data.index_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            mark_price: data.oracle_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            index_price: data
+                .index_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            mark_price: data
+                .oracle_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
@@ -148,12 +175,15 @@ impl DydxWs {
         let timestamp = Utc::now().timestamp_millis();
 
         let parse_entries = |entries: &Vec<DydxOrderBookLevel>| -> Vec<OrderBookEntry> {
-            entries.iter().filter_map(|e| {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&e.price).ok()?,
-                    amount: Decimal::from_str(&e.size).ok()?,
+            entries
+                .iter()
+                .filter_map(|e| {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&e.price).ok()?,
+                        amount: Decimal::from_str(&e.size).ok()?,
+                    })
                 })
-            }).collect()
+                .collect()
         };
 
         let bids = parse_entries(&data.bids);
@@ -170,6 +200,7 @@ impl DydxWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -183,36 +214,42 @@ impl DydxWs {
     fn parse_trades(data: &DydxTradeData, symbol: &str) -> WsTradeEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
 
-        let trades: Vec<Trade> = data.trades.iter().filter_map(|t| {
-            let timestamp = t.created_at.as_ref()
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.timestamp_millis())
-                .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let trades: Vec<Trade> = data
+            .trades
+            .iter()
+            .filter_map(|t| {
+                let timestamp = t
+                    .created_at
+                    .as_ref()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.timestamp_millis())
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let price = Decimal::from_str(&t.price).ok()?;
-            let amount = Decimal::from_str(&t.size).ok()?;
+                let price = Decimal::from_str(&t.price).ok()?;
+                let amount = Decimal::from_str(&t.size).ok()?;
 
-            Some(Trade {
-                id: t.id.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                symbol: unified_symbol.clone(),
-                trade_type: None,
-                side: t.side.clone(),
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: Vec::new(),
-                info: serde_json::to_value(t).unwrap_or_default(),
+                Some(Trade {
+                    id: t.id.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: unified_symbol.clone(),
+                    trade_type: None,
+                    side: t.side.clone(),
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: Vec::new(),
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                })
             })
-        }).collect();
+            .collect();
 
         WsTradeEvent {
             symbol: unified_symbol,
@@ -221,11 +258,17 @@ impl DydxWs {
     }
 
     /// Parse OHLCV message from v4_candles channel
-    fn parse_candles(data: &DydxCandleData, symbol: &str, timeframe: Timeframe) -> Option<WsOhlcvEvent> {
+    fn parse_candles(
+        data: &DydxCandleData,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> Option<WsOhlcvEvent> {
         let unified_symbol = Self::to_unified_symbol(symbol);
 
         let candle = data.candles.first()?;
-        let timestamp = candle.started_at.as_ref()
+        let timestamp = candle
+            .started_at
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())?;
 
@@ -251,32 +294,40 @@ impl DydxWs {
 
         match json.msg_type.as_str() {
             "connected" => Some(WsMessage::Connected),
-            "subscribed" => {
-                Some(WsMessage::Subscribed {
-                    channel: json.channel?,
-                    symbol: json.id.clone(),
-                })
-            }
+            "subscribed" => Some(WsMessage::Subscribed {
+                channel: json.channel?,
+                symbol: json.id.clone(),
+            }),
             "channel_data" => {
                 let channel = json.channel.as_ref()?;
                 let contents = json.contents.as_ref()?;
 
                 if channel == "v4_markets" {
-                    if let Ok(market_data) = serde_json::from_value::<DydxMarketData>(contents.clone()) {
+                    if let Ok(market_data) =
+                        serde_json::from_value::<DydxMarketData>(contents.clone())
+                    {
                         return Self::parse_ticker(&market_data).map(WsMessage::Ticker);
                     }
                 } else if channel == "v4_orderbook" {
-                    if let Ok(ob_data) = serde_json::from_value::<DydxOrderBookData>(contents.clone()) {
+                    if let Ok(ob_data) =
+                        serde_json::from_value::<DydxOrderBookData>(contents.clone())
+                    {
                         let symbol = json.id.as_ref()?;
-                        return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, symbol)));
+                        return Some(WsMessage::OrderBook(Self::parse_order_book(
+                            &ob_data, symbol,
+                        )));
                     }
                 } else if channel == "v4_trades" {
-                    if let Ok(trade_data) = serde_json::from_value::<DydxTradeData>(contents.clone()) {
+                    if let Ok(trade_data) =
+                        serde_json::from_value::<DydxTradeData>(contents.clone())
+                    {
                         let symbol = json.id.as_ref()?;
                         return Some(WsMessage::Trade(Self::parse_trades(&trade_data, symbol)));
                     }
                 } else if channel == "v4_candles" {
-                    if let Ok(candle_data) = serde_json::from_value::<DydxCandleData>(contents.clone()) {
+                    if let Ok(candle_data) =
+                        serde_json::from_value::<DydxCandleData>(contents.clone())
+                    {
                         // Extract symbol and timeframe from id (format: "BTC-USD/1MIN")
                         let id_parts: Vec<&str> = json.id.as_ref()?.split('/').collect();
                         if id_parts.len() == 2 {
@@ -291,12 +342,15 @@ impl DydxWs {
                                 "1DAY" => Timeframe::Day1,
                                 _ => return None,
                             };
-                            return Self::parse_candles(&candle_data, symbol, timeframe).map(WsMessage::Ohlcv);
+                            return Self::parse_candles(&candle_data, symbol, timeframe)
+                                .map(WsMessage::Ohlcv);
                         }
                     }
                 } else if channel == "v4_subaccounts" {
                     // Private channel - contains orders, positions, fills
-                    if let Ok(subaccount_data) = serde_json::from_value::<DydxSubaccountData>(contents.clone()) {
+                    if let Ok(subaccount_data) =
+                        serde_json::from_value::<DydxSubaccountData>(contents.clone())
+                    {
                         // Process orders if present
                         if let Some(ref orders) = subaccount_data.orders {
                             if !orders.is_empty() {
@@ -319,150 +373,173 @@ impl DydxWs {
                 }
 
                 None
-            }
+            },
             _ => None,
         }
     }
 
     /// Parse order updates from v4_subaccounts channel
     fn parse_orders(orders: &[DydxOrderUpdate]) -> Option<WsOrderEvent> {
-        let parsed_orders: Vec<Order> = orders.iter().filter_map(|o| {
-            let timestamp = o.updated_at.as_ref()
-                .or(o.created_at.as_ref())
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.timestamp_millis())
-                .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let parsed_orders: Vec<Order> = orders
+            .iter()
+            .filter_map(|o| {
+                let timestamp = o
+                    .updated_at
+                    .as_ref()
+                    .or(o.created_at.as_ref())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.timestamp_millis())
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let symbol = Self::to_unified_symbol(&o.ticker);
+                let symbol = Self::to_unified_symbol(&o.ticker);
 
-            let status = match o.status.as_str() {
-                "OPEN" | "PENDING" => OrderStatus::Open,
-                "FILLED" => OrderStatus::Closed,
-                "PARTIALLY_FILLED" | "BEST_EFFORT_OPENED" => OrderStatus::Open,
-                "CANCELED" | "CANCELLED" => OrderStatus::Canceled,
-                "BEST_EFFORT_CANCELED" => OrderStatus::Canceled,
-                _ => OrderStatus::Rejected,
-            };
+                let status = match o.status.as_str() {
+                    "OPEN" | "PENDING" => OrderStatus::Open,
+                    "FILLED" => OrderStatus::Closed,
+                    "PARTIALLY_FILLED" | "BEST_EFFORT_OPENED" => OrderStatus::Open,
+                    "CANCELED" | "CANCELLED" => OrderStatus::Canceled,
+                    "BEST_EFFORT_CANCELED" => OrderStatus::Canceled,
+                    _ => OrderStatus::Rejected,
+                };
 
-            let side = match o.side.as_str() {
-                "BUY" => OrderSide::Buy,
-                "SELL" => OrderSide::Sell,
-                _ => return None, // Skip orders with unknown side
-            };
+                let side = match o.side.as_str() {
+                    "BUY" => OrderSide::Buy,
+                    "SELL" => OrderSide::Sell,
+                    _ => return None, // Skip orders with unknown side
+                };
 
-            let order_type = match o.order_type.as_str() {
-                "LIMIT" => OrderType::Limit,
-                "MARKET" => OrderType::Market,
-                "STOP_LIMIT" => OrderType::StopLimit,
-                "STOP_MARKET" => OrderType::StopMarket,
-                "TAKE_PROFIT" => OrderType::TakeProfit,
-                "TAKE_PROFIT_MARKET" => OrderType::TakeProfitMarket,
-                _ => OrderType::Limit,
-            };
+                let order_type = match o.order_type.as_str() {
+                    "LIMIT" => OrderType::Limit,
+                    "MARKET" => OrderType::Market,
+                    "STOP_LIMIT" => OrderType::StopLimit,
+                    "STOP_MARKET" => OrderType::StopMarket,
+                    "TAKE_PROFIT" => OrderType::TakeProfit,
+                    "TAKE_PROFIT_MARKET" => OrderType::TakeProfitMarket,
+                    _ => OrderType::Limit,
+                };
 
-            let time_in_force = match o.time_in_force.as_deref() {
-                Some("GTT") => Some(TimeInForce::GTT),
-                Some("GTC") => Some(TimeInForce::GTC),
-                Some("IOC") => Some(TimeInForce::IOC),
-                Some("FOK") => Some(TimeInForce::FOK),
-                _ => None,
-            };
+                let time_in_force = match o.time_in_force.as_deref() {
+                    Some("GTT") => Some(TimeInForce::GTT),
+                    Some("GTC") => Some(TimeInForce::GTC),
+                    Some("IOC") => Some(TimeInForce::IOC),
+                    Some("FOK") => Some(TimeInForce::FOK),
+                    _ => None,
+                };
 
-            let price = o.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-            let amount = Decimal::from_str(&o.size).ok()?;
-            let filled = o.total_filled.as_ref().and_then(|f| Decimal::from_str(f).ok()).unwrap_or(Decimal::ZERO);
-            let remaining = amount - filled;
+                let price = o.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
+                let amount = Decimal::from_str(&o.size).ok()?;
+                let filled = o
+                    .total_filled
+                    .as_ref()
+                    .and_then(|f| Decimal::from_str(f).ok())
+                    .unwrap_or(Decimal::ZERO);
+                let remaining = amount - filled;
 
-            Some(Order {
-                id: o.id.clone(),
-                client_order_id: o.client_id.clone(),
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                last_trade_timestamp: None,
-                last_update_timestamp: Some(timestamp),
-                status,
-                symbol,
-                order_type,
-                time_in_force,
-                side,
-                price,
-                average: None,
-                amount,
-                filled,
-                remaining: Some(remaining),
-                stop_price: o.trigger_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-                trigger_price: o.trigger_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-                take_profit_price: None,
-                stop_loss_price: None,
-                cost: None,
-                trades: Vec::new(),
-                fee: None,
-                fees: Vec::new(),
-                reduce_only: o.reduce_only,
-                post_only: o.post_only,
-                info: serde_json::to_value(o).unwrap_or_default(),
+                Some(Order {
+                    id: o.id.clone(),
+                    client_order_id: o.client_id.clone(),
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    last_trade_timestamp: None,
+                    last_update_timestamp: Some(timestamp),
+                    status,
+                    symbol,
+                    order_type,
+                    time_in_force,
+                    side,
+                    price,
+                    average: None,
+                    amount,
+                    filled,
+                    remaining: Some(remaining),
+                    stop_price: o
+                        .trigger_price
+                        .as_ref()
+                        .and_then(|p| Decimal::from_str(p).ok()),
+                    trigger_price: o
+                        .trigger_price
+                        .as_ref()
+                        .and_then(|p| Decimal::from_str(p).ok()),
+                    take_profit_price: None,
+                    stop_loss_price: None,
+                    cost: None,
+                    trades: Vec::new(),
+                    fee: None,
+                    fees: Vec::new(),
+                    reduce_only: o.reduce_only,
+                    post_only: o.post_only,
+                    info: serde_json::to_value(o).unwrap_or_default(),
+                })
             })
-        }).collect();
+            .collect();
 
         // WsOrderEvent expects a single order, return the first one
-        parsed_orders.into_iter().next().map(|order| WsOrderEvent { order })
+        parsed_orders
+            .into_iter()
+            .next()
+            .map(|order| WsOrderEvent { order })
     }
 
     /// Parse fill updates from v4_subaccounts channel
     fn parse_fills(fills: &[DydxFillUpdate]) -> Option<WsMyTradeEvent> {
-        let trades: Vec<Trade> = fills.iter().filter_map(|f| {
-            let timestamp = f.created_at.as_ref()
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.timestamp_millis())
-                .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let trades: Vec<Trade> = fills
+            .iter()
+            .filter_map(|f| {
+                let timestamp = f
+                    .created_at
+                    .as_ref()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.timestamp_millis())
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let symbol = Self::to_unified_symbol(&f.ticker);
-            let price = Decimal::from_str(&f.price).ok()?;
-            let amount = Decimal::from_str(&f.size).ok()?;
+                let symbol = Self::to_unified_symbol(&f.ticker);
+                let price = Decimal::from_str(&f.price).ok()?;
+                let amount = Decimal::from_str(&f.size).ok()?;
 
-            let side = match f.side.as_str() {
-                "BUY" => Some(String::from("buy")),
-                "SELL" => Some(String::from("sell")),
-                _ => None,
-            };
+                let side = match f.side.as_str() {
+                    "BUY" => Some(String::from("buy")),
+                    "SELL" => Some(String::from("sell")),
+                    _ => None,
+                };
 
-            let taker_or_maker = f.liquidity.as_ref().and_then(|l| match l.as_str() {
-                "TAKER" => Some(TakerOrMaker::Taker),
-                "MAKER" => Some(TakerOrMaker::Maker),
-                _ => None,
-            });
+                let taker_or_maker = f.liquidity.as_ref().and_then(|l| match l.as_str() {
+                    "TAKER" => Some(TakerOrMaker::Taker),
+                    "MAKER" => Some(TakerOrMaker::Maker),
+                    _ => None,
+                });
 
-            Some(Trade {
-                id: f.id.clone(),
-                order: f.order_id.clone(),
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                symbol,
-                trade_type: f.fill_type.clone(),
-                side,
-                taker_or_maker,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: f.fee.as_ref().and_then(|fee| {
-                    Decimal::from_str(fee).ok().map(|cost| crate::types::Fee {
-                        cost: Some(cost),
-                        currency: Some("USDC".to_string()),
-                        rate: None,
-                    })
-                }),
-                fees: Vec::new(),
-                info: serde_json::to_value(f).unwrap_or_default(),
+                Some(Trade {
+                    id: f.id.clone(),
+                    order: f.order_id.clone(),
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol,
+                    trade_type: f.fill_type.clone(),
+                    side,
+                    taker_or_maker,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: f.fee.as_ref().and_then(|fee| {
+                        Decimal::from_str(fee).ok().map(|cost| crate::types::Fee {
+                            cost: Some(cost),
+                            currency: Some("USDC".to_string()),
+                            rate: None,
+                        })
+                    }),
+                    fees: Vec::new(),
+                    info: serde_json::to_value(f).unwrap_or_default(),
+                })
             })
-        }).collect();
+            .collect();
 
         if trades.is_empty() {
             return None;
@@ -476,59 +553,79 @@ impl DydxWs {
 
     /// Parse position updates from v4_subaccounts channel
     fn parse_positions(positions: &HashMap<String, DydxPositionUpdate>) -> Option<WsPositionEvent> {
-        let parsed_positions: Vec<Position> = positions.iter().filter_map(|(ticker, p)| {
-            let symbol = Self::to_unified_symbol(ticker);
-            let timestamp = p.updated_at.as_ref()
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.timestamp_millis())
-                .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let parsed_positions: Vec<Position> = positions
+            .iter()
+            .filter_map(|(ticker, p)| {
+                let symbol = Self::to_unified_symbol(ticker);
+                let timestamp = p
+                    .updated_at
+                    .as_ref()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.timestamp_millis())
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let size = Decimal::from_str(&p.size).ok()?;
-            let side = match p.side.as_str() {
-                "LONG" => Some(PositionSide::Long),
-                "SHORT" => Some(PositionSide::Short),
-                _ => if size > Decimal::ZERO { Some(PositionSide::Long) } else { Some(PositionSide::Short) },
-            };
+                let size = Decimal::from_str(&p.size).ok()?;
+                let side = match p.side.as_str() {
+                    "LONG" => Some(PositionSide::Long),
+                    "SHORT" => Some(PositionSide::Short),
+                    _ => {
+                        if size > Decimal::ZERO {
+                            Some(PositionSide::Long)
+                        } else {
+                            Some(PositionSide::Short)
+                        }
+                    },
+                };
 
-            let entry_price = p.entry_price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-            let unrealized_pnl = p.unrealized_pnl.as_ref().and_then(|p| Decimal::from_str(p).ok());
-            let realized_pnl = p.realized_pnl.as_ref().and_then(|p| Decimal::from_str(p).ok());
+                let entry_price = p
+                    .entry_price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok());
+                let unrealized_pnl = p
+                    .unrealized_pnl
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok());
+                let realized_pnl = p
+                    .realized_pnl
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok());
 
-            Some(Position {
-                symbol: symbol.clone(),
-                id: Some(format!("{}:{}", symbol, p.subaccount_number)),
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                contracts: Some(size.abs()),
-                contract_size: Some(Decimal::ONE),
-                side,
-                notional: None,
-                leverage: None,
-                unrealized_pnl,
-                realized_pnl,
-                collateral: None,
-                entry_price,
-                mark_price: None,
-                liquidation_price: None,
-                margin_mode: Some(MarginMode::Cross),
-                hedged: Some(false),
-                maintenance_margin: None,
-                maintenance_margin_percentage: None,
-                initial_margin: None,
-                initial_margin_percentage: None,
-                margin_ratio: None,
-                last_update_timestamp: Some(timestamp),
-                last_price: None,
-                stop_loss_price: None,
-                take_profit_price: None,
-                percentage: None,
-                info: serde_json::to_value(p).unwrap_or_default(),
+                Some(Position {
+                    symbol: symbol.clone(),
+                    id: Some(format!("{}:{}", symbol, p.subaccount_number)),
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    contracts: Some(size.abs()),
+                    contract_size: Some(Decimal::ONE),
+                    side,
+                    notional: None,
+                    leverage: None,
+                    unrealized_pnl,
+                    realized_pnl,
+                    collateral: None,
+                    entry_price,
+                    mark_price: None,
+                    liquidation_price: None,
+                    margin_mode: Some(MarginMode::Cross),
+                    hedged: Some(false),
+                    maintenance_margin: None,
+                    maintenance_margin_percentage: None,
+                    initial_margin: None,
+                    initial_margin_percentage: None,
+                    margin_ratio: None,
+                    last_update_timestamp: Some(timestamp),
+                    last_price: None,
+                    stop_loss_price: None,
+                    take_profit_price: None,
+                    percentage: None,
+                    info: serde_json::to_value(p).unwrap_or_default(),
+                })
             })
-        }).collect();
+            .collect();
 
         if parsed_positions.is_empty() {
             return None;
@@ -555,6 +652,7 @@ impl DydxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -573,7 +671,10 @@ impl DydxWs {
         // Save subscription
         {
             let key = format!("{channel}:{id}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Event processing task
@@ -583,19 +684,19 @@ impl DydxWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -622,14 +723,21 @@ impl DydxWs {
     /// }
     /// ```
     pub async fn watch_orders(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let subaccount_id = self.subaccount_id.as_ref()
-            .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
-                message: "Subaccount ID required for private channels. Use DydxWs::with_subaccount()".to_string(),
-            })?;
+        let subaccount_id = self.subaccount_id.as_ref().ok_or_else(|| {
+            crate::errors::CcxtError::AuthenticationError {
+                message:
+                    "Subaccount ID required for private channels. Use DydxWs::with_subaccount()"
+                        .to_string(),
+            }
+        })?;
 
         let mut ws = DydxWs::with_subaccount(
             subaccount_id.split('/').next().unwrap_or(""),
-            subaccount_id.split('/').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0),
+            subaccount_id
+                .split('/')
+                .nth(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
             self.testnet,
         );
         ws.subscribe_stream("v4_subaccounts", subaccount_id).await
@@ -640,14 +748,21 @@ impl DydxWs {
     /// Returns a stream of position updates including size changes,
     /// PnL updates, and liquidations.
     pub async fn watch_positions(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let subaccount_id = self.subaccount_id.as_ref()
-            .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
-                message: "Subaccount ID required for private channels. Use DydxWs::with_subaccount()".to_string(),
-            })?;
+        let subaccount_id = self.subaccount_id.as_ref().ok_or_else(|| {
+            crate::errors::CcxtError::AuthenticationError {
+                message:
+                    "Subaccount ID required for private channels. Use DydxWs::with_subaccount()"
+                        .to_string(),
+            }
+        })?;
 
         let mut ws = DydxWs::with_subaccount(
             subaccount_id.split('/').next().unwrap_or(""),
-            subaccount_id.split('/').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0),
+            subaccount_id
+                .split('/')
+                .nth(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
             self.testnet,
         );
         ws.subscribe_stream("v4_subaccounts", subaccount_id).await
@@ -657,14 +772,21 @@ impl DydxWs {
     ///
     /// Returns a stream of fill updates for your orders.
     pub async fn watch_my_trades(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let subaccount_id = self.subaccount_id.as_ref()
-            .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
-                message: "Subaccount ID required for private channels. Use DydxWs::with_subaccount()".to_string(),
-            })?;
+        let subaccount_id = self.subaccount_id.as_ref().ok_or_else(|| {
+            crate::errors::CcxtError::AuthenticationError {
+                message:
+                    "Subaccount ID required for private channels. Use DydxWs::with_subaccount()"
+                        .to_string(),
+            }
+        })?;
 
         let mut ws = DydxWs::with_subaccount(
             subaccount_id.split('/').next().unwrap_or(""),
-            subaccount_id.split('/').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0),
+            subaccount_id
+                .split('/')
+                .nth(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
             self.testnet,
         );
         ws.subscribe_stream("v4_subaccounts", subaccount_id).await
@@ -675,14 +797,21 @@ impl DydxWs {
     /// This is the most efficient way to get all account updates
     /// as they all come from the same v4_subaccounts channel.
     pub async fn watch_account(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let subaccount_id = self.subaccount_id.as_ref()
-            .ok_or_else(|| crate::errors::CcxtError::AuthenticationError {
-                message: "Subaccount ID required for private channels. Use DydxWs::with_subaccount()".to_string(),
-            })?;
+        let subaccount_id = self.subaccount_id.as_ref().ok_or_else(|| {
+            crate::errors::CcxtError::AuthenticationError {
+                message:
+                    "Subaccount ID required for private channels. Use DydxWs::with_subaccount()"
+                        .to_string(),
+            }
+        })?;
 
         let mut ws = DydxWs::with_subaccount(
             subaccount_id.split('/').next().unwrap_or(""),
-            subaccount_id.split('/').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0),
+            subaccount_id
+                .split('/')
+                .nth(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
             self.testnet,
         );
         ws.subscribe_stream("v4_subaccounts", subaccount_id).await
@@ -703,28 +832,52 @@ impl DydxWs {
 impl WsExchange for DydxWs {
     /// Subscribe to ticker updates
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut ws = if self.testnet { DydxWs::testnet() } else { DydxWs::new() };
+        let mut ws = if self.testnet {
+            DydxWs::testnet()
+        } else {
+            DydxWs::new()
+        };
         let formatted_symbol = Self::format_symbol(symbol);
         ws.subscribe_stream("v4_markets", &formatted_symbol).await
     }
 
     /// Subscribe to order book updates
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut ws = if self.testnet { DydxWs::testnet() } else { DydxWs::new() };
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut ws = if self.testnet {
+            DydxWs::testnet()
+        } else {
+            DydxWs::new()
+        };
         let formatted_symbol = Self::format_symbol(symbol);
         ws.subscribe_stream("v4_orderbook", &formatted_symbol).await
     }
 
     /// Subscribe to trade updates
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut ws = if self.testnet { DydxWs::testnet() } else { DydxWs::new() };
+        let mut ws = if self.testnet {
+            DydxWs::testnet()
+        } else {
+            DydxWs::new()
+        };
         let formatted_symbol = Self::format_symbol(symbol);
         ws.subscribe_stream("v4_trades", &formatted_symbol).await
     }
 
     /// Subscribe to OHLCV updates
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut ws = if self.testnet { DydxWs::testnet() } else { DydxWs::new() };
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut ws = if self.testnet {
+            DydxWs::testnet()
+        } else {
+            DydxWs::new()
+        };
         let formatted_symbol = Self::format_symbol(symbol);
 
         // Convert timeframe to dYdX format
@@ -736,9 +889,11 @@ impl WsExchange for DydxWs {
             Timeframe::Hour1 => "1HOUR",
             Timeframe::Hour4 => "4HOURS",
             Timeframe::Day1 => "1DAY",
-            _ => return Err(crate::errors::CcxtError::NotSupported {
-                feature: format!("Timeframe {timeframe:?}"),
-            }),
+            _ => {
+                return Err(crate::errors::CcxtError::NotSupported {
+                    feature: format!("Timeframe {timeframe:?}"),
+                })
+            },
         };
 
         let id = format!("{formatted_symbol}/{tf_str}");
@@ -755,6 +910,7 @@ impl WsExchange for DydxWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             ws_client.connect().await?;

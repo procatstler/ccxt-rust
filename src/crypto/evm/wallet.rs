@@ -4,14 +4,13 @@
 
 #![allow(dead_code)]
 
-use crate::errors::CcxtResult;
-use crate::crypto::common::{Signature, Signer, TypedDataHasher};
+use super::eip712::Eip712TypedData;
 use super::keccak::keccak256;
 use super::secp256k1::{
-    sign_hash, signing_key_from_bytes, private_key_to_address,
-    parse_private_key,
+    parse_private_key, private_key_to_address, sign_hash, signing_key_from_bytes,
 };
-use super::eip712::Eip712TypedData;
+use crate::crypto::common::{Signature, Signer, TypedDataHasher};
+use crate::errors::CcxtResult;
 use async_trait::async_trait;
 use k256::ecdsa::SigningKey;
 
@@ -154,7 +153,8 @@ pub fn personal_sign_hash(message: &[u8]) -> [u8; 32] {
 mod tests {
     use super::*;
 
-    const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    const TEST_PRIVATE_KEY: &str =
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     const TEST_ADDRESS: &str = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     #[test]
@@ -236,6 +236,8 @@ mod tests {
 
         // 개인키가 노출되지 않는지 확인
         assert!(debug_str.contains("address"));
-        assert!(!debug_str.contains("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"));
+        assert!(
+            !debug_str.contains("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+        );
     }
 }

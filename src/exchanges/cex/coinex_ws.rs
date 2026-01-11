@@ -22,8 +22,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, TimeInForce, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    TimeInForce, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent,
     WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
@@ -119,14 +119,18 @@ impl CoinexWs {
 
     /// Generate HMAC-SHA256 signature
     fn sign(&self, message: &str) -> CcxtResult<String> {
-        let secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret not set".to_string(),
-        })?;
-
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
-                message: format!("Failed to create HMAC: {e}"),
+        let secret = self
+            .api_secret
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret not set".to_string(),
             })?;
+
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
+                message: format!("Failed to create HMAC: {e}"),
+            }
+        })?;
         mac.update(message.as_bytes());
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
@@ -138,9 +142,12 @@ impl CoinexWs {
         channel: &str,
         tx: mpsc::UnboundedSender<WsMessage>,
     ) -> CcxtResult<()> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key not set".to_string(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key not set".to_string(),
+            })?;
 
         let mut ws_client = WsClient::new(WsConfig {
             url: WS_PUBLIC_URL.to_string(),
@@ -149,6 +156,7 @@ impl CoinexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 15,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -188,21 +196,21 @@ impl CoinexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg, &channel_str) {
                             if tx.send(ws_msg).is_err() {
                                 break;
                             }
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -220,19 +228,23 @@ impl CoinexWs {
             "order.update" => {
                 if let Some(params) = parsed.get("params").and_then(|p| p.as_array()) {
                     if let Some(first) = params.get(1) {
-                        if let Ok(data) = serde_json::from_value::<CoinexOrderUpdateData>(first.clone()) {
+                        if let Ok(data) =
+                            serde_json::from_value::<CoinexOrderUpdateData>(first.clone())
+                        {
                             let order = Self::parse_order(&data);
                             return Some(WsMessage::Order(WsOrderEvent { order }));
                         }
                     }
                 }
-            }
+            },
             "asset.update" => {
                 if let Some(params) = parsed.get("params").and_then(|p| p.as_array()) {
                     if let Some(assets) = params.first().and_then(|a| a.as_object()) {
                         let mut currencies = HashMap::new();
                         for (currency, data) in assets {
-                            if let Ok(balance_data) = serde_json::from_value::<CoinexBalanceUpdateData>(data.clone()) {
+                            if let Ok(balance_data) =
+                                serde_json::from_value::<CoinexBalanceUpdateData>(data.clone())
+                            {
                                 let balance = Self::parse_balance(&balance_data);
                                 currencies.insert(currency.clone(), balance);
                             }
@@ -246,7 +258,7 @@ impl CoinexWs {
                         return Some(WsMessage::Balance(WsBalanceEvent { balances }));
                     }
                 }
-            }
+            },
             _ => {
                 // Check for channel-specific messages
                 if channel == "order" && method.starts_with("order.") {
@@ -254,7 +266,7 @@ impl CoinexWs {
                 } else if channel == "asset" && method.starts_with("asset.") {
                     // Handle other asset-related messages
                 }
-            }
+            },
         }
 
         None
@@ -262,40 +274,59 @@ impl CoinexWs {
 
     /// Parse order from update data
     fn parse_order(data: &CoinexOrderUpdateData) -> Order {
-        let symbol = data.market.as_ref()
+        let symbol = data
+            .market
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
-        let status = data.status.as_ref().map(|s| match s.as_str() {
-            "not_deal" => OrderStatus::Open,
-            "part_deal" => OrderStatus::Open,
-            "done" => OrderStatus::Closed,
-            "cancel" => OrderStatus::Canceled,
-            _ => OrderStatus::Open,
-        }).unwrap_or(OrderStatus::Open);
+        let status = data
+            .status
+            .as_ref()
+            .map(|s| match s.as_str() {
+                "not_deal" => OrderStatus::Open,
+                "part_deal" => OrderStatus::Open,
+                "done" => OrderStatus::Closed,
+                "cancel" => OrderStatus::Canceled,
+                _ => OrderStatus::Open,
+            })
+            .unwrap_or(OrderStatus::Open);
 
-        let side = data.side.as_ref().map(|s| match s.as_str() {
-            "buy" | "BUY" => OrderSide::Buy,
-            "sell" | "SELL" => OrderSide::Sell,
-            _ => OrderSide::Buy,
-        }).unwrap_or(OrderSide::Buy);
+        let side = data
+            .side
+            .as_ref()
+            .map(|s| match s.as_str() {
+                "buy" | "BUY" => OrderSide::Buy,
+                "sell" | "SELL" => OrderSide::Sell,
+                _ => OrderSide::Buy,
+            })
+            .unwrap_or(OrderSide::Buy);
 
-        let order_type = data.order_type.as_ref().map(|t| match t.as_str() {
-            "limit" | "LIMIT" => OrderType::Limit,
-            "market" | "MARKET" => OrderType::Market,
-            _ => OrderType::Limit,
-        }).unwrap_or(OrderType::Limit);
+        let order_type = data
+            .order_type
+            .as_ref()
+            .map(|t| match t.as_str() {
+                "limit" | "LIMIT" => OrderType::Limit,
+                "market" | "MARKET" => OrderType::Market,
+                _ => OrderType::Limit,
+            })
+            .unwrap_or(OrderType::Limit);
 
-        let price = data.price.as_ref()
-            .and_then(|p| p.parse::<Decimal>().ok());
-        let amount = data.amount.as_ref()
+        let price = data.price.as_ref().and_then(|p| p.parse::<Decimal>().ok());
+        let amount = data
+            .amount
+            .as_ref()
             .and_then(|q| q.parse::<Decimal>().ok())
             .unwrap_or_default();
-        let filled = data.deal_amount.as_ref()
+        let filled = data
+            .deal_amount
+            .as_ref()
             .and_then(|f| f.parse::<Decimal>().ok())
             .unwrap_or_default();
         let remaining = amount - filled;
-        let cost = data.deal_money.as_ref()
+        let cost = data
+            .deal_money
+            .as_ref()
             .and_then(|c| c.parse::<Decimal>().ok());
 
         let timestamp = data.create_time.map(|t| t * 1000);
@@ -341,10 +372,11 @@ impl CoinexWs {
 
     /// Parse balance from update data
     fn parse_balance(data: &CoinexBalanceUpdateData) -> Balance {
-        let free = data.available.as_ref()
+        let free = data
+            .available
+            .as_ref()
             .and_then(|f| f.parse::<Decimal>().ok());
-        let used = data.frozen.as_ref()
-            .and_then(|l| l.parse::<Decimal>().ok());
+        let used = data.frozen.as_ref().and_then(|l| l.parse::<Decimal>().ok());
         let total = match (free, used) {
             (Some(f), Some(u)) => Some(f + u),
             (Some(f), None) => Some(f),
@@ -424,32 +456,43 @@ impl CoinexWs {
             info: serde_json::Value::Null,
         };
 
-        WsTickerEvent { symbol: unified_symbol, ticker }
+        WsTickerEvent {
+            symbol: unified_symbol,
+            ticker,
+        }
     }
 
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &CoinexOrderBookData, symbol: &str) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let timestamp = Utc::now().timestamp_millis();
         let unified_symbol = Self::to_unified_symbol(symbol);
@@ -465,6 +508,7 @@ impl CoinexWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -476,10 +520,20 @@ impl CoinexWs {
 
     /// 체결 메시지 파싱
     fn parse_trade(data: &CoinexTradeData, symbol: &str) -> WsTradeEvent {
-        let timestamp = data.date_ms.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .date_ms
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let unified_symbol = Self::to_unified_symbol(symbol);
-        let price = data.price.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
-        let amount = data.amount.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+        let price = data
+            .price
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
+        let amount = data
+            .amount
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
 
         let trades = vec![Trade {
             id: data.id.map(|id| id.to_string()).unwrap_or_default(),
@@ -533,7 +587,11 @@ impl CoinexWs {
     }
 
     /// 메시지 처리
-    fn process_message(msg: &str, subscribed_symbol: Option<&str>, subscribed_timeframe: Option<Timeframe>) -> Option<WsMessage> {
+    fn process_message(
+        msg: &str,
+        subscribed_symbol: Option<&str>,
+        subscribed_timeframe: Option<Timeframe>,
+    ) -> Option<WsMessage> {
         let response: CoinexWsResponse = serde_json::from_str(msg).ok()?;
 
         let method = response.method.as_deref()?;
@@ -543,38 +601,53 @@ impl CoinexWs {
             "state.update" => {
                 if let Some(params) = response.params {
                     if let Some(first) = params.first() {
-                        if let Ok(ticker_data) = serde_json::from_value::<CoinexTickerData>(first.clone()) {
-                            return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data, symbol)));
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<CoinexTickerData>(first.clone())
+                        {
+                            return Some(WsMessage::Ticker(Self::parse_ticker(
+                                &ticker_data,
+                                symbol,
+                            )));
                         }
                     }
                 }
-            }
+            },
             "depth.update" => {
                 if let Some(params) = response.params {
                     if params.len() >= 2 {
-                        if let Ok(book_data) = serde_json::from_value::<CoinexOrderBookData>(params[1].clone()) {
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&book_data, symbol)));
+                        if let Ok(book_data) =
+                            serde_json::from_value::<CoinexOrderBookData>(params[1].clone())
+                        {
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &book_data, symbol,
+                            )));
                         }
                     }
                 }
-            }
+            },
             "deals.update" => {
                 if let Some(params) = response.params {
                     if params.len() >= 2 {
                         if let Some(trades_arr) = params[1].as_array() {
                             if let Some(first) = trades_arr.first() {
-                                if let Ok(trade_data) = serde_json::from_value::<CoinexTradeData>(first.clone()) {
-                                    return Some(WsMessage::Trade(Self::parse_trade(&trade_data, symbol)));
+                                if let Ok(trade_data) =
+                                    serde_json::from_value::<CoinexTradeData>(first.clone())
+                                {
+                                    return Some(WsMessage::Trade(Self::parse_trade(
+                                        &trade_data,
+                                        symbol,
+                                    )));
                                 }
                             }
                         }
                     }
                 }
-            }
+            },
             "kline.update" => {
                 if let Some(params) = response.params {
                     if let Some(first) = params.first() {
-                        if let Ok(kline_arr) = serde_json::from_value::<Vec<String>>(first.clone()) {
+                        if let Ok(kline_arr) = serde_json::from_value::<Vec<String>>(first.clone())
+                        {
                             let timeframe = subscribed_timeframe.unwrap_or(Timeframe::Minute1);
                             if let Some(event) = Self::parse_candle(&kline_arr, symbol, timeframe) {
                                 return Some(WsMessage::Ohlcv(event));
@@ -582,8 +655,8 @@ impl CoinexWs {
                         }
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -595,7 +668,7 @@ impl CoinexWs {
         subscribe_msg: serde_json::Value,
         channel: &str,
         symbol: Option<&str>,
-        timeframe: Option<Timeframe>
+        timeframe: Option<Timeframe>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -607,6 +680,7 @@ impl CoinexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 15,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -619,7 +693,10 @@ impl CoinexWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -630,19 +707,21 @@ impl CoinexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
-                        if let Some(ws_msg) = Self::process_message(&msg, subscribed_symbol.as_deref(), timeframe) {
+                        if let Some(ws_msg) =
+                            Self::process_message(&msg, subscribed_symbol.as_deref(), timeframe)
+                        {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -667,10 +746,15 @@ impl WsExchange for CoinexWs {
             "params": [formatted],
             "id": 1
         });
-        client.subscribe_stream(subscribe_msg, "ticker", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "ticker", Some(&formatted), None)
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let params: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
         let subscribe_msg = serde_json::json!({
@@ -678,10 +762,16 @@ impl WsExchange for CoinexWs {
             "params": params,
             "id": 1
         });
-        client.subscribe_stream(subscribe_msg, "tickers", None, None).await
+        client
+            .subscribe_stream(subscribe_msg, "tickers", None, None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let depth = limit.unwrap_or(20).to_string();
@@ -690,7 +780,9 @@ impl WsExchange for CoinexWs {
             "params": [formatted, depth, "0"],
             "id": 2
         });
-        client.subscribe_stream(subscribe_msg, "orderBook", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "orderBook", Some(&formatted), None)
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -701,10 +793,16 @@ impl WsExchange for CoinexWs {
             "params": [formatted],
             "id": 3
         });
-        client.subscribe_stream(subscribe_msg, "trade", Some(&formatted), None).await
+        client
+            .subscribe_stream(subscribe_msg, "trade", Some(&formatted), None)
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -713,7 +811,9 @@ impl WsExchange for CoinexWs {
             "params": [formatted, interval],
             "id": 4
         });
-        client.subscribe_stream(subscribe_msg, "kline", Some(&formatted), Some(timeframe)).await
+        client
+            .subscribe_stream(subscribe_msg, "kline", Some(&formatted), Some(timeframe))
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -736,7 +836,10 @@ impl WsExchange for CoinexWs {
         }
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -752,7 +855,10 @@ impl WsExchange for CoinexWs {
         Ok(rx)
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -951,7 +1057,10 @@ mod tests {
             };
 
             let order = CoinexWs::parse_order(&data);
-            assert_eq!(order.status, expected_status, "Status mismatch for {status_str}");
+            assert_eq!(
+                order.status, expected_status,
+                "Status mismatch for {status_str}"
+            );
         }
     }
 

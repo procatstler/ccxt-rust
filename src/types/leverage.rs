@@ -47,7 +47,11 @@ impl Leverage {
     }
 
     /// Create symmetric leverage (same for long and short)
-    pub fn symmetric(symbol: impl Into<String>, margin_mode: MarginMode, leverage: Decimal) -> Self {
+    pub fn symmetric(
+        symbol: impl Into<String>,
+        margin_mode: MarginMode,
+        leverage: Decimal,
+    ) -> Self {
         Self::new(symbol, margin_mode, leverage, leverage)
     }
 }
@@ -142,12 +146,7 @@ mod tests {
 
     #[test]
     fn test_leverage_creation() {
-        let leverage = Leverage::new(
-            "BTC/USDT:USDT",
-            MarginMode::Cross,
-            dec!(20),
-            dec!(20),
-        );
+        let leverage = Leverage::new("BTC/USDT:USDT", MarginMode::Cross, dec!(20), dec!(20));
 
         assert_eq!(leverage.symbol, "BTC/USDT:USDT");
         assert_eq!(leverage.long_leverage, dec!(20));

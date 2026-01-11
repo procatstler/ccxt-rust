@@ -18,9 +18,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, OHLCV, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// CoinSpot Exchange
@@ -113,14 +113,18 @@ impl Coinspot {
 
     /// Sign request with HMAC SHA512
     fn sign_request(&self, body: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
-
-        let mut mac = Hmac::<Sha512>::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
-                message: "Invalid secret key".into(),
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
             })?;
+
+        let mut mac = Hmac::<Sha512>::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(body.as_bytes());
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
@@ -140,9 +144,12 @@ impl Coinspot {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         // Add nonce
         let nonce = self.get_nonce();
@@ -157,7 +164,9 @@ impl Coinspot {
         headers.insert("sign".into(), signature);
 
         let body_json: serde_json::Value = serde_json::from_str(&body)?;
-        self.private_client.post(path, Some(body_json), Some(headers)).await
+        self.private_client
+            .post(path, Some(body_json), Some(headers))
+            .await
     }
 
     /// Convert market ID to symbol (btc -> BTC/AUD)
@@ -173,60 +182,76 @@ impl Coinspot {
     /// Get hardcoded markets
     fn get_default_markets() -> Vec<Market> {
         let coins = vec![
-            "ADA", "BTC", "ETH", "XRP", "LTC", "DOGE", "RFOX", "POWR", "NEO", "TRX", "EOS", "XLM", "GAS",
+            "ADA", "BTC", "ETH", "XRP", "LTC", "DOGE", "RFOX", "POWR", "NEO", "TRX", "EOS", "XLM",
+            "GAS",
         ];
 
-        coins.into_iter().map(|base| {
-            let symbol = format!("{base}/AUD");
-            Market {
-                id: base.to_lowercase(),
-                lowercase_id: Some(base.to_lowercase()),
-                symbol: symbol.clone(),
-                base: base.to_string(),
-                quote: "AUD".to_string(),
-                base_id: base.to_lowercase(),
-                quote_id: "aud".to_string(),
-                settle: None,
-                settle_id: None,
-                active: true,
-                market_type: MarketType::Spot,
-                spot: true,
-                margin: false,
-                swap: false,
-                future: false,
-                option: false,
-                index: false,
-                contract: false,
-                linear: None,
-                inverse: None,
-                sub_type: None,
-                taker: Some(Decimal::new(1, 3)), // 0.1%
-                maker: Some(Decimal::new(1, 3)),
-                contract_size: None,
-                expiry: None,
-                expiry_datetime: None,
-                strike: None,
-                option_type: None,
-                precision: MarketPrecision {
-                    amount: Some(8),
-                    price: Some(2),
-                    cost: None,
-                    base: Some(8),
-                    quote: Some(2),
-                },
-                limits: MarketLimits {
-                    leverage: MinMax { min: None, max: None },
-                    amount: MinMax { min: None, max: None },
-                    price: MinMax { min: None, max: None },
-                    cost: MinMax { min: None, max: None },
-                },
-                margin_modes: None,
-                created: None,
-                info: serde_json::json!({}),
-                tier_based: true,
-                percentage: true,
-            }
-        }).collect()
+        coins
+            .into_iter()
+            .map(|base| {
+                let symbol = format!("{base}/AUD");
+                Market {
+                    id: base.to_lowercase(),
+                    lowercase_id: Some(base.to_lowercase()),
+                    symbol: symbol.clone(),
+                    base: base.to_string(),
+                    quote: "AUD".to_string(),
+                    base_id: base.to_lowercase(),
+                    quote_id: "aud".to_string(),
+                    settle: None,
+                    settle_id: None,
+                    active: true,
+                    market_type: MarketType::Spot,
+                    spot: true,
+                    margin: false,
+                    swap: false,
+                    future: false,
+                    option: false,
+                    index: false,
+                    contract: false,
+                    linear: None,
+                    inverse: None,
+                    sub_type: None,
+                    taker: Some(Decimal::new(1, 3)), // 0.1%
+                    maker: Some(Decimal::new(1, 3)),
+                    contract_size: None,
+                    expiry: None,
+                    expiry_datetime: None,
+                    strike: None,
+                    option_type: None,
+                    precision: MarketPrecision {
+                        amount: Some(8),
+                        price: Some(2),
+                        cost: None,
+                        base: Some(8),
+                        quote: Some(2),
+                    },
+                    limits: MarketLimits {
+                        leverage: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        amount: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        price: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        cost: MinMax {
+                            min: None,
+                            max: None,
+                        },
+                    },
+                    margin_modes: None,
+                    created: None,
+                    info: serde_json::json!({}),
+                    tier_based: true,
+                    percentage: true,
+                }
+            })
+            .collect()
     }
 
     /// Parse ticker response
@@ -269,24 +294,39 @@ impl Coinspot {
             })
         });
 
-        let price = data.rate.as_ref()
+        let price = data
+            .rate
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .or_else(|| {
                 // Calculate price from total / amount
-                let total = data.total.as_ref().or(data.audtotal.as_ref())
+                let total = data
+                    .total
+                    .as_ref()
+                    .or(data.audtotal.as_ref())
                     .and_then(|v| Decimal::from_str(v).ok());
                 let amount = data.amount.as_ref().and_then(|v| Decimal::from_str(v).ok());
-                total.zip(amount).and_then(|(t, a)| {
-                    if a > Decimal::ZERO { Some(t / a) } else { None }
-                })
+                total.zip(amount).and_then(
+                    |(t, a)| {
+                        if a > Decimal::ZERO {
+                            Some(t / a)
+                        } else {
+                            None
+                        }
+                    },
+                )
             })
             .unwrap_or_default();
 
-        let amount = data.amount.as_ref()
+        let amount = data
+            .amount
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
-        let cost = data.total.as_ref()
+        let cost = data
+            .total
+            .as_ref()
             .or(data.audtotal.as_ref())
             .and_then(|v| Decimal::from_str(v).ok());
 
@@ -334,7 +374,9 @@ impl Coinspot {
             for balance_obj in balances {
                 for (currency_id, balance_data) in balance_obj {
                     let code = currency_id.to_uppercase();
-                    let total = balance_data.balance.as_ref()
+                    let total = balance_data
+                        .balance
+                        .as_ref()
                         .and_then(|v| Decimal::from_str(v).ok())
                         .unwrap_or_default();
 
@@ -400,7 +442,8 @@ impl Exchange for Coinspot {
     }
 
     fn timeframes(&self) -> &HashMap<crate::types::Timeframe, String> {
-        static EMPTY: std::sync::OnceLock<HashMap<crate::types::Timeframe, String>> = std::sync::OnceLock::new();
+        static EMPTY: std::sync::OnceLock<HashMap<crate::types::Timeframe, String>> =
+            std::sync::OnceLock::new();
         EMPTY.get_or_init(HashMap::new)
     }
 
@@ -441,9 +484,12 @@ impl Exchange for Coinspot {
         let response: CoinspotLatestResponse = self.public_get("/latest").await?;
 
         let market_id = Self::to_market_id(symbol);
-        let ticker_data = response.prices.get(&market_id).ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })?;
+        let ticker_data = response
+            .prices
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
         Ok(self.parse_ticker(ticker_data, symbol))
     }
@@ -478,7 +524,9 @@ impl Exchange for Coinspot {
 
         let response: CoinspotOrderBookResponse = self.private_post("/orders", params).await?;
 
-        let bids: Vec<OrderBookEntry> = response.buyorders.iter()
+        let bids: Vec<OrderBookEntry> = response
+            .buyorders
+            .iter()
             .filter_map(|o| {
                 let price = Decimal::from_str(&o.rate).ok()?;
                 let amount = Decimal::from_str(&o.amount).ok()?;
@@ -486,7 +534,9 @@ impl Exchange for Coinspot {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = response.sellorders.iter()
+        let asks: Vec<OrderBookEntry> = response
+            .sellorders
+            .iter()
             .filter_map(|o| {
                 let price = Decimal::from_str(&o.rate).ok()?;
                 let amount = Decimal::from_str(&o.amount).ok()?;
@@ -501,6 +551,7 @@ impl Exchange for Coinspot {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -517,7 +568,9 @@ impl Exchange for Coinspot {
 
         let response: CoinspotTradesResponse = self.private_post("/orders/history", params).await?;
 
-        let trades: Vec<Trade> = response.orders.iter()
+        let trades: Vec<Trade> = response
+            .orders
+            .iter()
             .map(|t| self.parse_trade(t, symbol))
             .collect();
 
@@ -618,7 +671,11 @@ impl Exchange for Coinspot {
 
         Ok(Order {
             id: id.to_string(),
-            status: if sell_result.status == "ok" { OrderStatus::Canceled } else { OrderStatus::Open },
+            status: if sell_result.status == "ok" {
+                OrderStatus::Canceled
+            } else {
+                OrderStatus::Open
+            },
             info: serde_json::to_value(&sell_result).unwrap_or_default(),
             ..Default::default()
         })
@@ -647,7 +704,9 @@ impl Exchange for Coinspot {
         // Parse buy orders
         for mut order in response.buyorders {
             order.side = Some("buy".to_string());
-            let sym = order.market.clone()
+            let sym = order
+                .market
+                .clone()
                 .unwrap_or_else(|| symbol.unwrap_or("").to_string());
 
             // Filter by symbol if specified
@@ -663,7 +722,9 @@ impl Exchange for Coinspot {
         // Parse sell orders
         for mut order in response.sellorders {
             order.side = Some("sell".to_string());
-            let sym = order.market.clone()
+            let sym = order
+                .market
+                .clone()
                 .unwrap_or_else(|| symbol.unwrap_or("").to_string());
 
             // Filter by symbol if specified

@@ -16,13 +16,13 @@ use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Timeframe, Trade, WsExchange, WsMessage,
-    WsTradeEvent, WsOrderBookEvent,
+    OrderBook, OrderBookEntry, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTradeEvent,
 };
 
 const WS_URL_BASE: &str = "wss://websockets.independentreserve.com";
@@ -83,17 +83,22 @@ impl IndependentReserveWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -111,17 +116,23 @@ impl IndependentReserveWs {
         match event {
             "Trade" => {
                 Self::handle_trade(data, subscriptions).await;
-            }
+            },
             "OrderBookSnapshot" | "OrderBookChange" => {
-                Self::handle_orderbook(data, subscriptions, orderbook_cache, event == "OrderBookSnapshot").await;
-            }
+                Self::handle_orderbook(
+                    data,
+                    subscriptions,
+                    orderbook_cache,
+                    event == "OrderBookSnapshot",
+                )
+                .await;
+            },
             "Heartbeat" => {
                 // Heartbeat - no action needed
-            }
+            },
             "Subscriptions" => {
                 // Subscriptions confirmation - no action needed
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -131,22 +142,28 @@ impl IndependentReserveWs {
         subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
     ) {
         if let Some(trade_data) = data.get("Data") {
-            let market_id = trade_data.get("Pair").and_then(|v| v.as_str()).unwrap_or("");
+            let market_id = trade_data
+                .get("Pair")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let symbol = Self::market_id_to_symbol_static(market_id);
             let key = format!("trades:{symbol}");
 
             // Parse trade
-            let trade_id = trade_data.get("TradeGuid")
+            let trade_id = trade_data
+                .get("TradeGuid")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
 
-            let price = trade_data.get("Price")
+            let price = trade_data
+                .get("Price")
                 .and_then(|v| v.as_f64())
                 .map(|f| Decimal::from_f64(f).unwrap_or_default())
                 .unwrap_or_default();
 
-            let amount = trade_data.get("Volume")
+            let amount = trade_data
+                .get("Volume")
                 .and_then(|v| v.as_f64())
                 .map(|f| Decimal::from_f64(f).unwrap_or_default())
                 .unwrap_or_default();
@@ -203,11 +220,13 @@ impl IndependentReserveWs {
                 // Parse bids
                 if let Some(bids_array) = ob_data.get("Bids").and_then(|v| v.as_array()) {
                     for bid in bids_array {
-                        let price = bid.get("Price")
+                        let price = bid
+                            .get("Price")
                             .and_then(|v| v.as_f64())
                             .map(|f| Decimal::from_f64(f).unwrap_or_default())
                             .unwrap_or_default();
-                        let amount = bid.get("Volume")
+                        let amount = bid
+                            .get("Volume")
                             .and_then(|v| v.as_f64())
                             .map(|f| Decimal::from_f64(f).unwrap_or_default())
                             .unwrap_or_default();
@@ -221,11 +240,13 @@ impl IndependentReserveWs {
                 // Parse asks (Offers)
                 if let Some(asks_array) = ob_data.get("Offers").and_then(|v| v.as_array()) {
                     for ask in asks_array {
-                        let price = ask.get("Price")
+                        let price = ask
+                            .get("Price")
                             .and_then(|v| v.as_f64())
                             .map(|f| Decimal::from_f64(f).unwrap_or_default())
                             .unwrap_or_default();
-                        let amount = ask.get("Volume")
+                        let amount = ask
+                            .get("Volume")
                             .and_then(|v| v.as_f64())
                             .map(|f| Decimal::from_f64(f).unwrap_or_default())
                             .unwrap_or_default();
@@ -242,11 +263,12 @@ impl IndependentReserveWs {
 
                 let orderbook = if is_snapshot {
                     // Full snapshot
-                    
+
                     OrderBook {
                         symbol: symbol.clone(),
                         bids,
                         asks,
+                        checksum: None,
                         timestamp,
                         datetime: timestamp.map(|ts| {
                             chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ts)
@@ -275,6 +297,7 @@ impl IndependentReserveWs {
                             symbol: symbol.clone(),
                             bids,
                             asks,
+                            checksum: None,
                             timestamp,
                             datetime: timestamp.map(|ts| {
                                 chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ts)
@@ -305,7 +328,11 @@ impl IndependentReserveWs {
     }
 
     /// Apply delta updates to orderbook side
-    fn apply_deltas(book_side: &mut Vec<OrderBookEntry>, updates: &Vec<OrderBookEntry>, is_bid: bool) {
+    fn apply_deltas(
+        book_side: &mut Vec<OrderBookEntry>,
+        updates: &Vec<OrderBookEntry>,
+        is_bid: bool,
+    ) {
         for update in updates {
             // Find existing entry at this price
             let pos = book_side.iter().position(|e| e.price == update.price);
@@ -382,7 +409,10 @@ impl WsExchange for IndependentReserveWs {
         })
     }
 
-    async fn watch_tickers(&self, _symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        _symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "IndependentReserve WebSocket does not support tickers".to_string(),
         })
@@ -435,17 +465,22 @@ impl WsExchange for IndependentReserveWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws_arc.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             });
@@ -460,7 +495,8 @@ impl WsExchange for IndependentReserveWs {
         _limit: Option<u32>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
-            feature: "IndependentReserve WebSocket does not support watching multiple orderbooks".to_string(),
+            feature: "IndependentReserve WebSocket does not support watching multiple orderbooks"
+                .to_string(),
         })
     }
 
@@ -502,17 +538,18 @@ impl WsExchange for IndependentReserveWs {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                            Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                            Self::handle_message_static(&data, &subscriptions, &orderbook_cache)
+                                .await;
                         }
-                    }
+                    },
                     Some(Ok(Message::Ping(data))) => {
                         let mut ws_guard = ws_arc.write().await;
                         let _ = ws_guard.send(Message::Pong(data)).await;
-                    }
+                    },
                     Some(Ok(Message::Close(_))) => break,
                     Some(Err(_)) => break,
                     None => break,
-                    _ => {}
+                    _ => {},
                 }
             }
         });
@@ -525,7 +562,8 @@ impl WsExchange for IndependentReserveWs {
         _symbols: &[&str],
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
-            feature: "IndependentReserve WebSocket does not support watching multiple trades".to_string(),
+            feature: "IndependentReserve WebSocket does not support watching multiple trades"
+                .to_string(),
         })
     }
 

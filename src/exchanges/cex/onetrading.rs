@@ -14,10 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 /// One Trading 거래소
@@ -78,7 +77,10 @@ impl Onetrading {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/ccxt/ccxt/assets/43336371/bdbc26fd-02f2-4ca7-9f1e-17333690bb1c".into()),
+            logo: Some(
+                "https://github.com/ccxt/ccxt/assets/43336371/bdbc26fd-02f2-4ca7-9f1e-17333690bb1c"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://onetrading.com/".into()),
             doc: vec!["https://docs.onetrading.com".into()],
@@ -140,9 +142,12 @@ impl Onetrading {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
         let mut headers = HashMap::new();
         headers.insert("Accept".into(), "application/json".into());
@@ -153,7 +158,9 @@ impl Onetrading {
             let body = serde_json::to_value(&params).map_err(|e| CcxtError::ExchangeError {
                 message: format!("Failed to serialize params: {e}"),
             })?;
-            self.private_client.post(path, Some(body), Some(headers)).await
+            self.private_client
+                .post(path, Some(body), Some(headers))
+                .await
         } else {
             let query: String = if !params.is_empty() {
                 params
@@ -174,11 +181,9 @@ impl Onetrading {
             match method {
                 "GET" => self.private_client.get(&url, None, Some(headers)).await,
                 "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
-                _ => {
-                    Err(CcxtError::NotSupported {
-                        feature: format!("HTTP method: {method}"),
-                    })
-                }
+                _ => Err(CcxtError::NotSupported {
+                    feature: format!("HTTP method: {method}"),
+                }),
             }
         }
     }
@@ -211,7 +216,10 @@ impl Onetrading {
             last: data.last_price.as_ref().and_then(|s| s.parse().ok()),
             previous_close: None,
             change: data.price_change.as_ref().and_then(|s| s.parse().ok()),
-            percentage: data.price_change_percentage.as_ref().and_then(|s| s.parse().ok()),
+            percentage: data
+                .price_change_percentage
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             average: None,
             base_volume: data.base_volume.as_ref().and_then(|s| s.parse().ok()),
             quote_volume: data.quote_volume.as_ref().and_then(|s| s.parse().ok()),
@@ -250,21 +258,34 @@ impl Onetrading {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GOOD_TILL_CANCELLED" => Some(TimeInForce::GTC),
-            "GOOD_TILL_TIME" => Some(TimeInForce::GTT),
-            "IMMEDIATE_OR_CANCELLED" => Some(TimeInForce::IOC),
-            "FILL_OR_KILL" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GOOD_TILL_CANCELLED" => Some(TimeInForce::GTC),
+                "GOOD_TILL_TIME" => Some(TimeInForce::GTT),
+                "IMMEDIATE_OR_CANCELLED" => Some(TimeInForce::IOC),
+                "FILL_OR_KILL" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
-        let timestamp = data.time.as_ref()
+        let timestamp = data
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis());
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
-        let amount: Decimal = data.amount.as_ref().and_then(|a| a.parse().ok()).unwrap_or_default();
-        let filled: Decimal = data.filled_amount.as_ref().and_then(|f| f.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .amount
+            .as_ref()
+            .and_then(|a| a.parse().ok())
+            .unwrap_or_default();
+        let filled: Decimal = data
+            .filled_amount
+            .as_ref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
         let remaining = Some(amount - filled);
         let average = data.average_price.as_ref().and_then(|p| p.parse().ok());
 
@@ -274,7 +295,9 @@ impl Onetrading {
             timestamp,
             datetime: data.time.clone(),
             last_trade_timestamp: None,
-            last_update_timestamp: data.time_last_updated.as_ref()
+            last_update_timestamp: data
+                .time_last_updated
+                .as_ref()
                 .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
                 .map(|dt| dt.timestamp_millis()),
             status,
@@ -304,16 +327,45 @@ impl Onetrading {
     /// 거래 응답 파싱
     fn parse_trade(&self, data: &OnetradingTrade, symbol: &str) -> Trade {
         // Use nested trade data if available, otherwise use flattened data from OnetradingTrade
-        let trade_id = data.trade.as_ref().and_then(|t| t.trade_id.clone()).or_else(|| data.trade_id.clone());
-        let order_id = data.trade.as_ref().and_then(|t| t.order_id.clone()).or_else(|| data.order_id.clone());
-        let _instrument_code = data.trade.as_ref().and_then(|t| t.instrument_code.clone()).or_else(|| data.instrument_code.clone());
-        let amount = data.trade.as_ref().and_then(|t| t.amount.clone()).or_else(|| data.amount.clone());
-        let side = data.trade.as_ref().and_then(|t| t.side.clone()).or_else(|| data.side.clone());
-        let price = data.trade.as_ref().and_then(|t| t.price.clone()).or_else(|| data.price.clone());
-        let time = data.trade.as_ref().and_then(|t| t.time.clone()).or_else(|| data.time.clone());
+        let trade_id = data
+            .trade
+            .as_ref()
+            .and_then(|t| t.trade_id.clone())
+            .or_else(|| data.trade_id.clone());
+        let order_id = data
+            .trade
+            .as_ref()
+            .and_then(|t| t.order_id.clone())
+            .or_else(|| data.order_id.clone());
+        let _instrument_code = data
+            .trade
+            .as_ref()
+            .and_then(|t| t.instrument_code.clone())
+            .or_else(|| data.instrument_code.clone());
+        let amount = data
+            .trade
+            .as_ref()
+            .and_then(|t| t.amount.clone())
+            .or_else(|| data.amount.clone());
+        let side = data
+            .trade
+            .as_ref()
+            .and_then(|t| t.side.clone())
+            .or_else(|| data.side.clone());
+        let price = data
+            .trade
+            .as_ref()
+            .and_then(|t| t.price.clone())
+            .or_else(|| data.price.clone());
+        let time = data
+            .trade
+            .as_ref()
+            .and_then(|t| t.time.clone())
+            .or_else(|| data.time.clone());
         let fee_data = data.fee.as_ref();
 
-        let timestamp = time.as_ref()
+        let timestamp = time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis());
 
@@ -323,8 +375,14 @@ impl Onetrading {
             _ => None,
         };
 
-        let price: Decimal = price.as_ref().and_then(|p| p.parse().ok()).unwrap_or_default();
-        let amount: Decimal = amount.as_ref().and_then(|a| a.parse().ok()).unwrap_or_default();
+        let price: Decimal = price
+            .as_ref()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or_default();
+        let amount: Decimal = amount
+            .as_ref()
+            .and_then(|a| a.parse().ok())
+            .unwrap_or_default();
 
         let fee = fee_data.map(|f| crate::types::Fee {
             cost: f.fee_amount.as_ref().and_then(|a| a.parse().ok()),
@@ -447,9 +505,7 @@ impl Exchange for Onetrading {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: Vec<OnetradingMarket> = self
-            .public_get("/v1/instruments", None)
-            .await?;
+        let response: Vec<OnetradingMarket> = self.public_get("/v1/instruments", None).await?;
 
         let mut markets = Vec::new();
 
@@ -458,9 +514,20 @@ impl Exchange for Onetrading {
                 continue;
             }
 
-            let base = instrument.base.as_ref().and_then(|b| b.code.clone()).unwrap_or_default();
-            let quote = instrument.quote.as_ref().and_then(|q| q.code.clone()).unwrap_or_default();
-            let id = instrument.id.clone().unwrap_or_else(|| format!("{base}_{quote}"));
+            let base = instrument
+                .base
+                .as_ref()
+                .and_then(|b| b.code.clone())
+                .unwrap_or_default();
+            let quote = instrument
+                .quote
+                .as_ref()
+                .and_then(|q| q.code.clone())
+                .unwrap_or_default();
+            let id = instrument
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("{base}_{quote}"));
             let symbol = format!("{base}/{quote}");
 
             let amount_precision = instrument.amount_precision.unwrap_or(8);
@@ -505,9 +572,14 @@ impl Exchange for Onetrading {
                 limits: MarketLimits {
                     amount: crate::types::MinMax::default(),
                     price: crate::types::MinMax::default(),
-                    cost: instrument.min_size.as_ref()
+                    cost: instrument
+                        .min_size
+                        .as_ref()
                         .and_then(|s| s.parse::<Decimal>().ok())
-                        .map(|min| crate::types::MinMax { min: Some(min), max: None })
+                        .map(|min| crate::types::MinMax {
+                            min: Some(min),
+                            max: None,
+                        })
                         .unwrap_or_default(),
                     leverage: crate::types::MinMax::default(),
                 },
@@ -528,17 +600,13 @@ impl Exchange for Onetrading {
         let market_id = self.to_market_id(symbol);
         let path = format!("/v1/market-ticker/{market_id}");
 
-        let response: OnetradingTicker = self
-            .public_get(&path, None)
-            .await?;
+        let response: OnetradingTicker = self.public_get(&path, None).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: Vec<OnetradingTicker> = self
-            .public_get("/v1/market-ticker", None)
-            .await?;
+        let response: Vec<OnetradingTicker> = self.public_get("/v1/market-ticker", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
         let mut tickers = HashMap::new();
@@ -568,11 +636,11 @@ impl Exchange for Onetrading {
             params.insert("depth".into(), l.to_string());
         }
 
-        let response: OnetradingOrderBook = self
-            .public_get(&path, Some(params))
-            .await?;
+        let response: OnetradingOrderBook = self.public_get(&path, Some(params)).await?;
 
-        let timestamp = response.time.as_ref()
+        let timestamp = response
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis());
 
@@ -607,6 +675,7 @@ impl Exchange for Onetrading {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -631,9 +700,12 @@ impl Exchange for Onetrading {
         let market_id = self.to_market_id(symbol);
         let path = format!("/v1/candlesticks/{market_id}");
 
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let parts: Vec<&str> = interval.split('/').collect();
         if parts.len() != 2 {
@@ -658,10 +730,11 @@ impl Exchange for Onetrading {
         if let Some(l) = limit {
             // Calculate 'to' based on 'from' and limit
             if let Some(from_str) = params.get("from") {
-                let from_dt = chrono::DateTime::parse_from_rfc3339(from_str)
-                    .map_err(|e| CcxtError::BadRequest {
+                let from_dt = chrono::DateTime::parse_from_rfc3339(from_str).map_err(|e| {
+                    CcxtError::BadRequest {
                         message: format!("Invalid from timestamp: {e}"),
-                    })?;
+                    }
+                })?;
 
                 let duration_secs = match timeframe {
                     Timeframe::Minute1 => 60 * l as i64,
@@ -673,9 +746,11 @@ impl Exchange for Onetrading {
                     Timeframe::Day1 => 86400 * l as i64,
                     Timeframe::Week1 => 604800 * l as i64,
                     Timeframe::Month1 => 2592000 * l as i64,
-                    _ => return Err(CcxtError::NotSupported {
-                        feature: format!("Timeframe: {timeframe:?}"),
-                    }),
+                    _ => {
+                        return Err(CcxtError::NotSupported {
+                            feature: format!("Timeframe: {timeframe:?}"),
+                        })
+                    },
                 };
 
                 let to_dt = from_dt + chrono::Duration::seconds(duration_secs);
@@ -683,9 +758,7 @@ impl Exchange for Onetrading {
             }
         }
 
-        let response: OnetradingCandlestickResponse = self
-            .public_get(&path, Some(params))
-            .await?;
+        let response: OnetradingCandlestickResponse = self.public_get(&path, Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .candlesticks
@@ -730,18 +803,28 @@ impl Exchange for Onetrading {
 
         let mut params = HashMap::new();
         params.insert("instrument_code".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT",
-            OrderType::Market => "MARKET",
-            OrderType::StopLossLimit => "STOP",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT",
+                OrderType::Market => "MARKET",
+                OrderType::StopLossLimit => "STOP",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("amount".into(), amount.to_string());
 
         if order_type == OrderType::Limit || order_type == OrderType::StopLossLimit {
@@ -778,9 +861,8 @@ impl Exchange for Onetrading {
     async fn fetch_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         let path = format!("/v1/account/orders/{id}");
 
-        let response: OnetradingOrderResponse = self
-            .private_request("GET", &path, HashMap::new())
-            .await?;
+        let response: OnetradingOrderResponse =
+            self.private_request("GET", &path, HashMap::new()).await?;
 
         Ok(self.parse_order(&response.order, symbol))
     }
@@ -809,7 +891,9 @@ impl Exchange for Onetrading {
             .iter()
             .map(|order_data| {
                 let order = &order_data.order;
-                let sym = order.instrument_code.as_ref()
+                let sym = order
+                    .instrument_code
+                    .as_ref()
                     .and_then(|ic| markets_by_id.get(ic).cloned())
                     .unwrap_or_else(|| symbol.unwrap_or("").to_string());
                 self.parse_order(order, &sym)
@@ -863,7 +947,9 @@ impl Exchange for Onetrading {
             })
             .map(|order_data| {
                 let order = &order_data.order;
-                let sym = order.instrument_code.as_ref()
+                let sym = order
+                    .instrument_code
+                    .as_ref()
                     .and_then(|ic| markets_by_id.get(ic).cloned())
                     .unwrap_or_else(|| symbol.unwrap_or("").to_string());
                 self.parse_order(order, &sym)
@@ -909,7 +995,9 @@ impl Exchange for Onetrading {
             .unwrap_or_default()
             .iter()
             .map(|trade_data| {
-                let sym = trade_data.trade.as_ref()
+                let sym = trade_data
+                    .trade
+                    .as_ref()
                     .and_then(|t| t.instrument_code.clone())
                     .or_else(|| trade_data.instrument_code.clone())
                     .and_then(|ic| markets_by_id.get(&ic).cloned())

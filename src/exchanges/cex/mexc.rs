@@ -15,8 +15,8 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, DepositAddress, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee,
-    FundingRate, Leverage, Market, MarketLimits, MarketPrecision, MarketType, MarginMode,
-    MarginModeInfo, MarginModification, MarginModificationType, OpenInterest, Order, OrderBook,
+    FundingRate, Leverage, MarginMode, MarginModeInfo, MarginModification, MarginModificationType,
+    Market, MarketLimits, MarketPrecision, MarketType, OpenInterest, Order, OrderBook,
     OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionMode, PositionModeInfo,
     SignedRequest, Ticker, Timeframe, Trade, Transaction, TransactionStatus, TransactionType,
     TransferEntry, OHLCV,
@@ -134,7 +134,8 @@ impl Mexc {
 
         let mut url = format!("{}{}", Self::BASE_URL, path);
         if let Some(p) = params {
-            let query: String = p.iter()
+            let query: String = p
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -153,29 +154,45 @@ impl Mexc {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or(CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.api_secret().ok_or(CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .api_secret()
+            .ok_or(CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
         params.insert("timestamp".to_string(), timestamp.to_string());
         params.insert("recvWindow".to_string(), "5000".to_string());
 
         // Create signature
-        let query: String = params.iter()
+        let query: String = params
+            .iter()
             .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("&");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|e| CcxtError::ExchangeError { message: e.to_string() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|e| {
+            CcxtError::ExchangeError {
+                message: e.to_string(),
+            }
+        })?;
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
-        let url = format!("{}{}?{}&signature={}", Self::BASE_URL, path, query, signature);
+        let url = format!(
+            "{}{}?{}&signature={}",
+            Self::BASE_URL,
+            path,
+            query,
+            signature
+        );
 
         let mut headers = HashMap::new();
         headers.insert("X-MEXC-APIKEY".to_string(), api_key.to_string());
@@ -234,7 +251,11 @@ impl Mexc {
             time_in_force: None,
             side,
             price: Some(price),
-            average: if filled > Decimal::ZERO { Some(cost / filled) } else { None },
+            average: if filled > Decimal::ZERO {
+                Some(cost / filled)
+            } else {
+                None
+            },
             amount,
             filled,
             remaining: Some(amount - filled),
@@ -330,13 +351,25 @@ impl Exchange for Mexc {
                     quote: Some(symbol_data.quote_precision),
                 },
                 limits: MarketLimits {
-                    amount: crate::types::MinMax { min: None, max: None },
-                    price: crate::types::MinMax { min: None, max: None },
-                    cost: crate::types::MinMax {
-                        min: symbol_data.quote_amount_precision.as_ref().and_then(|v| v.parse().ok()),
+                    amount: crate::types::MinMax {
+                        min: None,
                         max: None,
                     },
-                    leverage: crate::types::MinMax { min: None, max: None },
+                    price: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    cost: crate::types::MinMax {
+                        min: symbol_data
+                            .quote_amount_precision
+                            .as_ref()
+                            .and_then(|v| v.parse().ok()),
+                        max: None,
+                    },
+                    leverage: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
                 },
                 margin_modes: None,
                 created: None,
@@ -365,7 +398,9 @@ impl Exchange for Mexc {
 
         let response: MexcTicker = self.public_get("/api/v3/ticker/24hr", Some(params)).await?;
 
-        let timestamp = response.close_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .close_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ok(Ticker {
             symbol: symbol.to_string(),
@@ -381,13 +416,22 @@ impl Exchange for Mexc {
             bid_volume: response.bid_qty.as_ref().and_then(|v| v.parse().ok()),
             ask: response.ask_price.as_ref().and_then(|v| v.parse().ok()),
             ask_volume: response.ask_qty.as_ref().and_then(|v| v.parse().ok()),
-            vwap: response.weighted_avg_price.as_ref().and_then(|v| v.parse().ok()),
+            vwap: response
+                .weighted_avg_price
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             open: response.open_price.as_ref().and_then(|v| v.parse().ok()),
             close: response.last_price.as_ref().and_then(|v| v.parse().ok()),
             last: response.last_price.as_ref().and_then(|v| v.parse().ok()),
-            previous_close: response.prev_close_price.as_ref().and_then(|v| v.parse().ok()),
+            previous_close: response
+                .prev_close_price
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             change: response.price_change.as_ref().and_then(|v| v.parse().ok()),
-            percentage: response.price_change_percent.as_ref().and_then(|v| v.parse().ok()),
+            percentage: response
+                .price_change_percent
+                .as_ref()
+                .and_then(|v| v.parse().ok()),
             average: None,
             base_volume: response.volume.as_ref().and_then(|v| v.parse().ok()),
             quote_volume: response.quote_volume.as_ref().and_then(|v| v.parse().ok()),
@@ -413,7 +457,9 @@ impl Exchange for Mexc {
                     }
                 }
 
-                let timestamp = ticker_data.close_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+                let timestamp = ticker_data
+                    .close_time
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
 
                 let ticker = Ticker {
                     symbol: symbol.clone(),
@@ -429,16 +475,31 @@ impl Exchange for Mexc {
                     bid_volume: ticker_data.bid_qty.as_ref().and_then(|v| v.parse().ok()),
                     ask: ticker_data.ask_price.as_ref().and_then(|v| v.parse().ok()),
                     ask_volume: ticker_data.ask_qty.as_ref().and_then(|v| v.parse().ok()),
-                    vwap: ticker_data.weighted_avg_price.as_ref().and_then(|v| v.parse().ok()),
+                    vwap: ticker_data
+                        .weighted_avg_price
+                        .as_ref()
+                        .and_then(|v| v.parse().ok()),
                     open: ticker_data.open_price.as_ref().and_then(|v| v.parse().ok()),
                     close: ticker_data.last_price.as_ref().and_then(|v| v.parse().ok()),
                     last: ticker_data.last_price.as_ref().and_then(|v| v.parse().ok()),
-                    previous_close: ticker_data.prev_close_price.as_ref().and_then(|v| v.parse().ok()),
-                    change: ticker_data.price_change.as_ref().and_then(|v| v.parse().ok()),
-                    percentage: ticker_data.price_change_percent.as_ref().and_then(|v| v.parse().ok()),
+                    previous_close: ticker_data
+                        .prev_close_price
+                        .as_ref()
+                        .and_then(|v| v.parse().ok()),
+                    change: ticker_data
+                        .price_change
+                        .as_ref()
+                        .and_then(|v| v.parse().ok()),
+                    percentage: ticker_data
+                        .price_change_percent
+                        .as_ref()
+                        .and_then(|v| v.parse().ok()),
                     average: None,
                     base_volume: ticker_data.volume.as_ref().and_then(|v| v.parse().ok()),
-                    quote_volume: ticker_data.quote_volume.as_ref().and_then(|v| v.parse().ok()),
+                    quote_volume: ticker_data
+                        .quote_volume
+                        .as_ref()
+                        .and_then(|v| v.parse().ok()),
                     index_price: None,
                     mark_price: None,
                     info: serde_json::to_value(&ticker_data).unwrap_or_default(),
@@ -459,29 +520,39 @@ impl Exchange for Mexc {
 
         let response: MexcOrderBook = self.public_get("/api/v3/depth", Some(params)).await?;
 
-        let timestamp = response.last_update_id.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .last_update_id
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = response.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = response
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = response.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = response
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
@@ -494,10 +565,16 @@ impl Exchange for Mexc {
             nonce: response.last_update_id,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
@@ -527,7 +604,11 @@ impl Exchange for Mexc {
                 ),
                 symbol: symbol.to_string(),
                 trade_type: None,
-                side: Some(if trade_data.is_buyer_maker { "sell".to_string() } else { "buy".to_string() }),
+                side: Some(if trade_data.is_buyer_maker {
+                    "sell".to_string()
+                } else {
+                    "buy".to_string()
+                }),
                 taker_or_maker: None,
                 price,
                 amount,
@@ -549,8 +630,11 @@ impl Exchange for Mexc {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.get_timeframe_string(timeframe)
-            .ok_or_else(|| CcxtError::BadRequest { message: "Invalid timeframe".into() })?;
+        let interval =
+            self.get_timeframe_string(timeframe)
+                .ok_or_else(|| CcxtError::BadRequest {
+                    message: "Invalid timeframe".into(),
+                })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
@@ -561,18 +645,34 @@ impl Exchange for Mexc {
             params.insert("startTime".to_string(), since_ts.to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self.public_get("/api/v3/klines", Some(params)).await?;
+        let response: Vec<Vec<serde_json::Value>> =
+            self.public_get("/api/v3/klines", Some(params)).await?;
 
         let mut ohlcv_list = Vec::new();
         for kline in response {
             if kline.len() >= 6 {
                 ohlcv_list.push(OHLCV {
                     timestamp: kline[0].as_i64().unwrap_or_default(),
-                    open: kline[1].as_str().and_then(|s| s.parse().ok()).unwrap_or_default(),
-                    high: kline[2].as_str().and_then(|s| s.parse().ok()).unwrap_or_default(),
-                    low: kline[3].as_str().and_then(|s| s.parse().ok()).unwrap_or_default(),
-                    close: kline[4].as_str().and_then(|s| s.parse().ok()).unwrap_or_default(),
-                    volume: kline[5].as_str().and_then(|s| s.parse().ok()).unwrap_or_default(),
+                    open: kline[1]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
+                    high: kline[2]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
+                    low: kline[3]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
+                    close: kline[4]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
+                    volume: kline[5]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
                 });
             }
         }
@@ -581,9 +681,13 @@ impl Exchange for Mexc {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: MexcAccountInfo = self.private_request("GET", "/api/v3/account", HashMap::new()).await?;
+        let response: MexcAccountInfo = self
+            .private_request("GET", "/api/v3/account", HashMap::new())
+            .await?;
 
-        let timestamp = response.update_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = response
+            .update_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let mut currencies: HashMap<String, Balance> = HashMap::new();
 
         for balance in response.balances {
@@ -591,12 +695,15 @@ impl Exchange for Mexc {
             let locked: Decimal = balance.locked.parse().unwrap_or_default();
 
             if free > Decimal::ZERO || locked > Decimal::ZERO {
-                currencies.insert(balance.asset.clone(), Balance {
-                    free: Some(free),
-                    used: Some(locked),
-                    total: Some(free + locked),
-                    debt: None,
-                });
+                currencies.insert(
+                    balance.asset.clone(),
+                    Balance {
+                        free: Some(free),
+                        used: Some(locked),
+                        total: Some(free + locked),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -624,24 +731,33 @@ impl Exchange for Mexc {
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
-        params.insert("side".to_string(), match side {
-            OrderSide::Buy => "BUY".to_string(),
-            OrderSide::Sell => "SELL".to_string(),
-        });
-        params.insert("type".to_string(), match order_type {
-            OrderType::Limit => "LIMIT".to_string(),
-            OrderType::Market => "MARKET".to_string(),
-            _ => "LIMIT".to_string(),
-        });
+        params.insert(
+            "side".to_string(),
+            match side {
+                OrderSide::Buy => "BUY".to_string(),
+                OrderSide::Sell => "SELL".to_string(),
+            },
+        );
+        params.insert(
+            "type".to_string(),
+            match order_type {
+                OrderType::Limit => "LIMIT".to_string(),
+                OrderType::Market => "MARKET".to_string(),
+                _ => "LIMIT".to_string(),
+            },
+        );
         params.insert("quantity".to_string(), amount.to_string());
 
         if let Some(p) = price {
             params.insert("price".to_string(), p.to_string());
         }
 
-        let response: MexcOrderResponse = self.private_request("POST", "/api/v3/order", params).await?;
+        let response: MexcOrderResponse = self
+            .private_request("POST", "/api/v3/order", params)
+            .await?;
 
-        self.fetch_order(&response.order_id.to_string(), symbol).await
+        self.fetch_order(&response.order_id.to_string(), symbol)
+            .await
     }
 
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
@@ -651,7 +767,9 @@ impl Exchange for Mexc {
         params.insert("symbol".to_string(), market_id);
         params.insert("orderId".to_string(), id.to_string());
 
-        let _response: MexcOrderResponse = self.private_request("DELETE", "/api/v3/order", params).await?;
+        let _response: MexcOrderResponse = self
+            .private_request("DELETE", "/api/v3/order", params)
+            .await?;
 
         self.fetch_order(id, symbol).await
     }
@@ -668,13 +786,20 @@ impl Exchange for Mexc {
         self.parse_order(&response, symbol)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(sym) = symbol {
             params.insert("symbol".to_string(), self.to_market_id(sym));
         }
 
-        let response: Vec<MexcOrder> = self.private_request("GET", "/api/v3/openOrders", params).await?;
+        let response: Vec<MexcOrder> = self
+            .private_request("GET", "/api/v3/openOrders", params)
+            .await?;
 
         let mut orders = Vec::new();
         for order_data in response {
@@ -686,7 +811,12 @@ impl Exchange for Mexc {
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let symbol_str = symbol.ok_or_else(|| CcxtError::BadRequest {
             message: "Symbol is required".into(),
         })?;
@@ -695,7 +825,9 @@ impl Exchange for Mexc {
         params.insert("symbol".to_string(), self.to_market_id(symbol_str));
         params.insert("limit".to_string(), limit.unwrap_or(500).to_string());
 
-        let response: Vec<MexcOrder> = self.private_request("GET", "/api/v3/allOrders", params).await?;
+        let response: Vec<MexcOrder> = self
+            .private_request("GET", "/api/v3/allOrders", params)
+            .await?;
 
         let mut orders = Vec::new();
         for order_data in response {
@@ -725,7 +857,9 @@ impl Exchange for Mexc {
             params.insert("startTime".to_string(), since_ts.to_string());
         }
 
-        let response: Vec<MexcMyTrade> = self.private_request("GET", "/api/v3/myTrades", params).await?;
+        let response: Vec<MexcMyTrade> = self
+            .private_request("GET", "/api/v3/myTrades", params)
+            .await?;
 
         let mut trades = Vec::new();
         for trade_data in response {
@@ -744,7 +878,11 @@ impl Exchange for Mexc {
                 ),
                 symbol: symbol_str.to_string(),
                 trade_type: None,
-                side: Some(if trade_data.is_buyer { "buy".to_string() } else { "sell".to_string() }),
+                side: Some(if trade_data.is_buyer {
+                    "buy".to_string()
+                } else {
+                    "sell".to_string()
+                }),
                 taker_or_maker: Some(if trade_data.is_maker {
                     crate::types::TakerOrMaker::Maker
                 } else {
@@ -781,38 +919,43 @@ impl Exchange for Mexc {
         }
         params.insert("limit".to_string(), limit.unwrap_or(1000).to_string());
 
-        let response: Vec<MexcDeposit> = self.private_request("GET", "/api/v3/capital/deposit/hisrec", params).await?;
+        let response: Vec<MexcDeposit> = self
+            .private_request("GET", "/api/v3/capital/deposit/hisrec", params)
+            .await?;
 
-        let deposits: Vec<Transaction> = response.iter().map(|d| {
-            let status = match d.status {
-                0 => TransactionStatus::Pending,
-                6 => TransactionStatus::Ok,
-                _ => TransactionStatus::Pending,
-            };
+        let deposits: Vec<Transaction> = response
+            .iter()
+            .map(|d| {
+                let status = match d.status {
+                    0 => TransactionStatus::Pending,
+                    6 => TransactionStatus::Ok,
+                    _ => TransactionStatus::Pending,
+                };
 
-            Transaction {
-                id: d.id.clone().unwrap_or_default(),
-                txid: d.tx_id.clone(),
-                timestamp: d.insert_time,
-                datetime: d.insert_time.map(|ts|
-                    chrono::DateTime::from_timestamp_millis(ts)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                ),
-                network: d.network.clone(),
-                address: d.address.clone(),
-                tag: d.address_tag.clone(),
-                tx_type: TransactionType::Deposit,
-                amount: d.amount.parse().unwrap_or_default(),
-                currency: d.coin.clone(),
-                status,
-                updated: None,
-                internal: None,
-                confirmations: d.confirm_times,
-                fee: None,
-                info: serde_json::to_value(d).unwrap_or_default(),
-            }
-        }).collect();
+                Transaction {
+                    id: d.id.clone().unwrap_or_default(),
+                    txid: d.tx_id.clone(),
+                    timestamp: d.insert_time,
+                    datetime: d.insert_time.map(|ts| {
+                        chrono::DateTime::from_timestamp_millis(ts)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    }),
+                    network: d.network.clone(),
+                    address: d.address.clone(),
+                    tag: d.address_tag.clone(),
+                    tx_type: TransactionType::Deposit,
+                    amount: d.amount.parse().unwrap_or_default(),
+                    currency: d.coin.clone(),
+                    status,
+                    updated: None,
+                    internal: None,
+                    confirmations: d.confirm_times,
+                    fee: None,
+                    info: serde_json::to_value(d).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         Ok(deposits)
     }
@@ -832,42 +975,51 @@ impl Exchange for Mexc {
         }
         params.insert("limit".to_string(), limit.unwrap_or(1000).to_string());
 
-        let response: Vec<MexcWithdrawal> = self.private_request("GET", "/api/v3/capital/withdraw/history", params).await?;
+        let response: Vec<MexcWithdrawal> = self
+            .private_request("GET", "/api/v3/capital/withdraw/history", params)
+            .await?;
 
-        let withdrawals: Vec<Transaction> = response.iter().map(|w| {
-            let status = match w.status.as_str() {
-                "completed" => TransactionStatus::Ok,
-                "cancel" | "rejected" => TransactionStatus::Canceled,
-                _ => TransactionStatus::Pending,
-            };
+        let withdrawals: Vec<Transaction> = response
+            .iter()
+            .map(|w| {
+                let status = match w.status.as_str() {
+                    "completed" => TransactionStatus::Ok,
+                    "cancel" | "rejected" => TransactionStatus::Canceled,
+                    _ => TransactionStatus::Pending,
+                };
 
-            Transaction {
-                id: w.id.clone(),
-                txid: w.tx_id.clone(),
-                timestamp: w.apply_time,
-                datetime: w.apply_time.map(|ts|
-                    chrono::DateTime::from_timestamp_millis(ts)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                ),
-                network: w.network.clone(),
-                address: Some(w.address.clone()),
-                tag: None,
-                tx_type: TransactionType::Withdrawal,
-                amount: w.amount.parse().unwrap_or_default(),
-                currency: w.coin.clone(),
-                status,
-                updated: None,
-                internal: None,
-                confirmations: w.confirm_no,
-                fee: w.transaction_fee.as_ref().and_then(|f| f.parse().ok()).map(|cost| Fee {
-                    cost: Some(cost),
-                    currency: Some(w.coin.clone()),
-                    rate: None,
-                }),
-                info: serde_json::to_value(w).unwrap_or_default(),
-            }
-        }).collect();
+                Transaction {
+                    id: w.id.clone(),
+                    txid: w.tx_id.clone(),
+                    timestamp: w.apply_time,
+                    datetime: w.apply_time.map(|ts| {
+                        chrono::DateTime::from_timestamp_millis(ts)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    }),
+                    network: w.network.clone(),
+                    address: Some(w.address.clone()),
+                    tag: None,
+                    tx_type: TransactionType::Withdrawal,
+                    amount: w.amount.parse().unwrap_or_default(),
+                    currency: w.coin.clone(),
+                    status,
+                    updated: None,
+                    internal: None,
+                    confirmations: w.confirm_no,
+                    fee: w
+                        .transaction_fee
+                        .as_ref()
+                        .and_then(|f| f.parse().ok())
+                        .map(|cost| Fee {
+                            cost: Some(cost),
+                            currency: Some(w.coin.clone()),
+                            rate: None,
+                        }),
+                    info: serde_json::to_value(w).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         Ok(withdrawals)
     }
@@ -1038,30 +1190,25 @@ impl Exchange for Mexc {
             let amount: Decimal = item.amount.parse().unwrap_or_default();
             let timestamp: i64 = item.timestamp.unwrap_or(0);
 
-            transfers.push(TransferEntry::new()
-                .with_currency(&item.asset)
-                .with_amount(amount)
-                .with_id(item.tran_id.to_string())
-                .with_timestamp(timestamp)
-                .with_status(&item.status));
+            transfers.push(
+                TransferEntry::new()
+                    .with_currency(&item.asset)
+                    .with_amount(amount)
+                    .with_id(item.tran_id.to_string())
+                    .with_timestamp(timestamp)
+                    .with_status(&item.status),
+            );
         }
 
         Ok(transfers)
     }
 
-    async fn fetch_positions(
-        &self,
-        _symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
+    async fn fetch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         // MEXC Futures positions - returns empty for spot-only implementation
         Ok(Vec::new())
     }
 
-    async fn set_leverage(
-        &self,
-        leverage: Decimal,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn set_leverage(&self, leverage: Decimal, symbol: &str) -> CcxtResult<Leverage> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -1080,10 +1227,7 @@ impl Exchange for Mexc {
         })
     }
 
-    async fn fetch_leverage(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn fetch_leverage(&self, symbol: &str) -> CcxtResult<Leverage> {
         Ok(Leverage {
             info: serde_json::Value::Null,
             symbol: symbol.to_string(),
@@ -1110,7 +1254,11 @@ impl Exchange for Mexc {
         params.insert("marginMode".into(), mode_str.to_string());
 
         let _response: serde_json::Value = self
-            .private_request("POST", "/api/v1/private/position/change-margin-type", params)
+            .private_request(
+                "POST",
+                "/api/v1/private/position/change-margin-type",
+                params,
+            )
             .await?;
 
         Ok(MarginModeInfo::new(symbol, margin_mode))
@@ -1125,18 +1273,11 @@ impl Exchange for Mexc {
         Ok(PositionModeInfo::new(PositionMode::OneWay))
     }
 
-    async fn fetch_position_mode(
-        &self,
-        _symbol: Option<&str>,
-    ) -> CcxtResult<PositionModeInfo> {
+    async fn fetch_position_mode(&self, _symbol: Option<&str>) -> CcxtResult<PositionModeInfo> {
         Ok(PositionModeInfo::new(PositionMode::OneWay))
     }
 
-    async fn add_margin(
-        &self,
-        symbol: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginModification> {
+    async fn add_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<MarginModification> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -1156,11 +1297,7 @@ impl Exchange for Mexc {
         })
     }
 
-    async fn reduce_margin(
-        &self,
-        symbol: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginModification> {
+    async fn reduce_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<MarginModification> {
         let market_id = self.to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);

@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -106,10 +106,7 @@ impl Bitbank {
     }
 
     /// 공개 API 호출
-    async fn public_get<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> CcxtResult<T> {
+    async fn public_get<T: serde::de::DeserializeOwned>(&self, path: &str) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
         self.client.get(path, None, None).await
     }
@@ -123,19 +120,26 @@ impl Bitbank {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
         let private_client = HttpClient::new(Self::PRIVATE_URL, &self.config)?;
 
         let (signature_payload, body) = if method == "GET" {
             let query = if let Some(ref p) = params {
-                let qs: String = p.iter()
+                let qs: String = p
+                    .iter()
                     .map(|(k, v)| format!("{k}={v}"))
                     .collect::<Vec<_>>()
                     .join("&");
@@ -150,11 +154,17 @@ impl Bitbank {
             } else {
                 String::new()
             };
-            (format!("{nonce}{body}"), Some(serde_json::to_value(&params).unwrap_or_default()))
+            (
+                format!("{nonce}{body}"),
+                Some(serde_json::to_value(&params).unwrap_or_default()),
+            )
         };
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(signature_payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -181,9 +191,7 @@ impl Bitbank {
                 message: "No data in response".into(),
             })
         } else {
-            let code = response.data.as_ref()
-                .and(None::<i32>)
-                .unwrap_or(0);
+            let code = response.data.as_ref().and(None::<i32>).unwrap_or(0);
             Err(CcxtError::ExchangeError {
                 message: format!("Bitbank error: {code}"),
             })
@@ -392,7 +400,9 @@ impl Exchange for Bitbank {
         let response: BitbankResponse<BitbankOrderBook> = self.public_get(&path).await?;
         let data = self.parse_response(response)?;
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let parse_entries = |entries: &Vec<Vec<String>>| -> Vec<OrderBookEntry> {
             let iter = entries.iter().filter_map(|e| {
@@ -420,19 +430,27 @@ impl Exchange for Bitbank {
                     .unwrap_or_default(),
             ),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&data.bids),
             asks: parse_entries(&data.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let path = format!("/{market_id}/transactions");
         let response: BitbankResponse<BitbankTransactions> = self.public_get(&path).await?;
         let data = self.parse_response(response)?;
 
         let limit = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = data.transactions.iter()
+        let trades: Vec<Trade> = data
+            .transactions
+            .iter()
             .take(limit)
             .map(|t| {
                 let timestamp = t.executed_at;
@@ -470,7 +488,11 @@ impl Exchange for Bitbank {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let tf = self.timeframes.get(&timeframe).cloned().unwrap_or("1hour".into());
+        let tf = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or("1hour".into());
         let now = Utc::now();
         let date_str = now.format("%Y%m%d").to_string();
         let path = format!("/{market_id}/candlestick/{tf}/{date_str}");
@@ -479,7 +501,8 @@ impl Exchange for Bitbank {
         let data = self.parse_response(response)?;
 
         let limit = limit.unwrap_or(500) as usize;
-        let ohlcv: Vec<OHLCV> = data.candlestick
+        let ohlcv: Vec<OHLCV> = data
+            .candlestick
             .first()
             .map(|cs| &cs.ohlcv)
             .unwrap_or(&Vec::new())
@@ -505,9 +528,8 @@ impl Exchange for Bitbank {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: BitbankResponse<BitbankAssets> = self
-            .private_request("GET", "/v1/user/assets", None)
-            .await?;
+        let response: BitbankResponse<BitbankAssets> =
+            self.private_request("GET", "/v1/user/assets", None).await?;
         let data = self.parse_response(response)?;
 
         let mut balances = Balances::default();
@@ -516,8 +538,16 @@ impl Exchange for Bitbank {
         balances.datetime = Some(Utc::now().to_rfc3339());
 
         for asset in &data.assets {
-            let free: Decimal = asset.free_amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-            let used: Decimal = asset.locked_amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+            let free: Decimal = asset
+                .free_amount
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
+            let used: Decimal = asset
+                .locked_amount
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default();
             let total = free + used;
 
             if let Some(currency) = &asset.asset {
@@ -549,15 +579,21 @@ impl Exchange for Bitbank {
         let mut params = HashMap::new();
         params.insert("pair".into(), market_id);
         params.insert("amount".into(), amount.to_string());
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "buy".into(),
-            OrderSide::Sell => "sell".into(),
-        });
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "limit".into(),
-            OrderType::Market => "market".into(),
-            _ => "limit".into(),
-        });
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy".into(),
+                OrderSide::Sell => "sell".into(),
+            },
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "limit".into(),
+                OrderType::Market => "market".into(),
+                _ => "limit".into(),
+            },
+        );
 
         if let Some(p) = price {
             params.insert("price".into(), p.to_string());
@@ -638,7 +674,9 @@ impl Exchange for Bitbank {
 
 impl Bitbank {
     fn parse_order(&self, data: &BitbankOrder, symbol: &str) -> Order {
-        let timestamp = data.ordered_at.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .ordered_at
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let status = match data.status.as_deref() {
             Some("UNFILLED") | Some("PARTIALLY_FILLED") => OrderStatus::Open,
@@ -677,8 +715,16 @@ impl Bitbank {
             side,
             price: data.price.as_ref().and_then(|s| s.parse().ok()),
             average: data.average_price.as_ref().and_then(|s| s.parse().ok()),
-            amount: data.start_amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
-            filled: data.executed_amount.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default(),
+            amount: data
+                .start_amount
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            filled: data
+                .executed_amount
+                .as_ref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
             remaining: data.remaining_amount.as_ref().and_then(|s| s.parse().ok()),
             cost: None,
             trades: Vec::new(),

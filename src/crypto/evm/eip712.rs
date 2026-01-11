@@ -6,9 +6,9 @@
 //!
 //! - [EIP-712: Typed structured data hashing and signing](https://eips.ethereum.org/EIPS/eip-712)
 
-use crate::errors::{CcxtError, CcxtResult};
+use super::keccak::{keccak256, pad_address, pad_bool, pad_u256};
 use crate::crypto::common::TypedDataHasher;
-use super::keccak::{keccak256, pad_u256, pad_address, pad_bool};
+use crate::errors::{CcxtError, CcxtResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -172,18 +172,27 @@ impl Eip712TypedData {
     }
 
     /// 구조체 해시 계산
-    fn hash_struct_internal(&self, type_name: &str, data: &serde_json::Value) -> CcxtResult<[u8; 32]> {
+    fn hash_struct_internal(
+        &self,
+        type_name: &str,
+        data: &serde_json::Value,
+    ) -> CcxtResult<[u8; 32]> {
         let type_hash = self.type_hash(type_name)?;
         let mut encoded = type_hash.to_vec();
 
-        let fields = self.types.get(type_name).ok_or_else(|| CcxtError::InvalidSignature {
-            message: format!("Type not found: {type_name}"),
-        })?;
+        let fields = self
+            .types
+            .get(type_name)
+            .ok_or_else(|| CcxtError::InvalidSignature {
+                message: format!("Type not found: {type_name}"),
+            })?;
 
         for field in fields {
-            let value = data.get(&field.name).ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Field not found: {}", field.name),
-            })?;
+            let value = data
+                .get(&field.name)
+                .ok_or_else(|| CcxtError::InvalidSignature {
+                    message: format!("Field not found: {}", field.name),
+                })?;
 
             let encoded_value = self.encode_value(&field.field_type, value)?;
             encoded.extend_from_slice(&encoded_value);
@@ -242,9 +251,11 @@ impl Eip712TypedData {
 
         // 배열 타입
         if let Some(base_type) = field_type.strip_suffix("[]") {
-            let arr = value.as_array().ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Expected array, got {value:?}"),
-            })?;
+            let arr = value
+                .as_array()
+                .ok_or_else(|| CcxtError::InvalidSignature {
+                    message: format!("Expected array, got {value:?}"),
+                })?;
 
             let mut encoded_elements = Vec::new();
             for element in arr {
@@ -291,7 +302,10 @@ impl TypedDataHasher for Eip712TypedData {
 /// 타입 인코딩 문자열 생성
 ///
 /// 의존성 타입을 알파벳 순으로 정렬하여 포함
-pub fn encode_type(type_name: &str, types: &HashMap<String, Vec<TypedDataField>>) -> CcxtResult<String> {
+pub fn encode_type(
+    type_name: &str,
+    types: &HashMap<String, Vec<TypedDataField>>,
+) -> CcxtResult<String> {
     let mut result = String::new();
     let mut deps = Vec::new();
 
@@ -311,10 +325,15 @@ pub fn encode_type(type_name: &str, types: &HashMap<String, Vec<TypedDataField>>
     Ok(result)
 }
 
-fn format_type(type_name: &str, types: &HashMap<String, Vec<TypedDataField>>) -> CcxtResult<String> {
-    let fields = types.get(type_name).ok_or_else(|| CcxtError::InvalidSignature {
-        message: format!("Type not found: {type_name}"),
-    })?;
+fn format_type(
+    type_name: &str,
+    types: &HashMap<String, Vec<TypedDataField>>,
+) -> CcxtResult<String> {
+    let fields = types
+        .get(type_name)
+        .ok_or_else(|| CcxtError::InvalidSignature {
+            message: format!("Type not found: {type_name}"),
+        })?;
 
     let field_strings: Vec<String> = fields
         .iter()
@@ -351,7 +370,10 @@ fn collect_dependencies(
 }
 
 /// 타입 해시 계산
-pub fn hash_type(type_name: &str, types: &HashMap<String, Vec<TypedDataField>>) -> CcxtResult<[u8; 32]> {
+pub fn hash_type(
+    type_name: &str,
+    types: &HashMap<String, Vec<TypedDataField>>,
+) -> CcxtResult<[u8; 32]> {
     let encoded = encode_type(type_name, types)?;
     Ok(keccak256(encoded.as_bytes()))
 }
@@ -411,7 +433,7 @@ fn encode_integer(value: &serde_json::Value) -> CcxtResult<[u8; 32]> {
                     message: format!("Number too large: {n}"),
                 })
             }
-        }
+        },
         serde_json::Value::String(s) => {
             // Hex 문자열이거나 10진수 문자열
             if s.starts_with("0x") {
@@ -422,7 +444,7 @@ fn encode_integer(value: &serde_json::Value) -> CcxtResult<[u8; 32]> {
                 })?;
                 Ok(pad_u256(n))
             }
-        }
+        },
         _ => Err(CcxtError::InvalidSignature {
             message: format!("Expected number, got {value:?}"),
         }),
@@ -487,9 +509,7 @@ mod tests {
         let mut types = HashMap::new();
         types.insert(
             "Test".to_string(),
-            vec![
-                TypedDataField::new("value", "uint256"),
-            ],
+            vec![TypedDataField::new("value", "uint256")],
         );
 
         let message = serde_json::json!({

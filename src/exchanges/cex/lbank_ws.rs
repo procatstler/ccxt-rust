@@ -23,9 +23,9 @@ use tokio_tungstenite::{
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
-    WsOrderEvent, WsOrderBookEvent, WsOhlcvEvent, WsTickerEvent, WsTradeEvent, OHLCV,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_URL: &str = "wss://www.lbkex.net/ws/V2/";
@@ -108,9 +108,12 @@ impl LbankWs {
 
     /// Sign a message using MD5 (LBank uses MD5 for WebSocket signing)
     fn sign(&self, params: &str) -> CcxtResult<String> {
-        let secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for signing".into(),
-        })?;
+        let secret = self
+            .api_secret
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required for signing".into(),
+            })?;
 
         // LBank uses MD5 signature with secret appended
         let sign_str = format!("{params}&secret_key={secret}");
@@ -119,10 +122,17 @@ impl LbankWs {
     }
 
     /// Subscribe to private streams
-    async fn subscribe_private_stream(&self, ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>, channel: &str) -> CcxtResult<()> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".into(),
-        })?;
+    async fn subscribe_private_stream(
+        &self,
+        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        channel: &str,
+    ) -> CcxtResult<()> {
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
         let params = format!("api_key={api_key}&timestamp={timestamp}");
@@ -138,7 +148,10 @@ impl LbankWs {
 
         ws.send(Message::Text(auth_msg.to_string()))
             .await
-            .map_err(|e| CcxtError::NetworkError { url: WS_URL.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: WS_URL.to_string(),
+                message: e.to_string(),
+            })?;
 
         Ok(())
     }
@@ -152,19 +165,21 @@ impl LbankWs {
         match msg_type {
             "orderUpdate" | "order" => {
                 if let Some(data) = parsed.get("data") {
-                    if let Ok(order_data) = serde_json::from_value::<LbankOrderUpdateData>(data.clone()) {
+                    if let Ok(order_data) =
+                        serde_json::from_value::<LbankOrderUpdateData>(data.clone())
+                    {
                         return self.parse_order(&order_data);
                     }
                 }
-            }
+            },
             "balanceUpdate" | "balance" => {
                 if let Some(data) = parsed.get("data") {
                     if let Some(balances_arr) = data.as_array() {
                         return self.parse_balance(balances_arr, &parsed);
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -192,8 +207,14 @@ impl LbankWs {
         };
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.orig_qty.as_ref().and_then(|q| Decimal::from_str(q).ok());
-        let filled = data.executed_qty.as_ref().and_then(|f| Decimal::from_str(f).ok());
+        let amount = data
+            .orig_qty
+            .as_ref()
+            .and_then(|q| Decimal::from_str(q).ok());
+        let filled = data
+            .executed_qty
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok());
         let remaining = match (amount, filled) {
             (Some(a), Some(f)) => Some(a - f),
             _ => None,
@@ -224,7 +245,10 @@ impl LbankWs {
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
-            cost: match (price, filled) { (Some(p), Some(f)) => Some(p * f), _ => None },
+            cost: match (price, filled) {
+                (Some(p), Some(f)) => Some(p * f),
+                _ => None,
+            },
             reduce_only: None,
             post_only: None,
             trades: vec![],
@@ -241,26 +265,36 @@ impl LbankWs {
         let mut currencies: HashMap<String, Balance> = HashMap::new();
 
         for bal in balances_arr {
-            if let Ok(balance_data) = serde_json::from_value::<LbankBalanceUpdateData>(bal.clone()) {
+            if let Ok(balance_data) = serde_json::from_value::<LbankBalanceUpdateData>(bal.clone())
+            {
                 if let Some(asset) = &balance_data.asset {
-                    let free = balance_data.free.as_ref()
+                    let free = balance_data
+                        .free
+                        .as_ref()
                         .and_then(|f| Decimal::from_str(f).ok())
                         .unwrap_or_default();
-                    let locked = balance_data.locked.as_ref()
+                    let locked = balance_data
+                        .locked
+                        .as_ref()
                         .and_then(|l| Decimal::from_str(l).ok())
                         .unwrap_or_default();
 
-                    currencies.insert(asset.to_uppercase(), Balance {
-                        free: Some(free),
-                        used: Some(locked),
-                        total: Some(free + locked),
-                        debt: None,
-                    });
+                    currencies.insert(
+                        asset.to_uppercase(),
+                        Balance {
+                            free: Some(free),
+                            used: Some(locked),
+                            total: Some(free + locked),
+                            debt: None,
+                        },
+                    );
                 }
             }
         }
 
-        let timestamp = parsed.get("timestamp").and_then(|v| v.as_i64())
+        let timestamp = parsed
+            .get("timestamp")
+            .and_then(|v| v.as_i64())
             .or_else(|| Some(Utc::now().timestamp_millis()));
 
         let balances = Balances {
@@ -307,7 +341,12 @@ impl LbankWs {
     }
 
     /// Send a subscription message
-    async fn subscribe(&self, subscribe_type: &str, pair: &str, extra: Option<Value>) -> CcxtResult<()> {
+    async fn subscribe(
+        &self,
+        subscribe_type: &str,
+        pair: &str,
+        extra: Option<Value>,
+    ) -> CcxtResult<()> {
         if let Some(ws) = &self.ws_stream {
             let mut msg = json!({
                 "action": "subscribe",
@@ -315,11 +354,9 @@ impl LbankWs {
                 "pair": pair,
             });
 
-            if let Some(extra_val) = extra {
-                if let Value::Object(map) = extra_val {
-                    for (key, value) in map {
-                        msg[key] = value;
-                    }
+            if let Some(Value::Object(map)) = extra {
+                for (key, value) in map {
+                    msg[key] = value;
                 }
             }
 
@@ -360,7 +397,7 @@ impl LbankWs {
                                 )
                                 .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Binary(bin))) => {
                             // LBank might send binary (gzipped) messages
                             if let Ok(text) = String::from_utf8(bin.to_vec()) {
@@ -374,15 +411,15 @@ impl LbankWs {
                                     .await;
                                 }
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -419,27 +456,30 @@ impl LbankWs {
                 if let Some(tick_data) = data.get("tick") {
                     Self::handle_ticker(pair, tick_data, subscriptions).await;
                 }
-            }
+            },
             "trade" => {
                 if let Some(trade_data) = data.get("trade") {
                     Self::handle_trade(pair, trade_data, data, subscriptions).await;
                 } else if let Some(trades) = data.get("trades") {
                     Self::handle_trades_array(pair, trades, subscriptions).await;
                 }
-            }
+            },
             "depth" => {
                 Self::handle_orderbook(pair, data, subscriptions, orderbook_cache).await;
-            }
+            },
             "kbar" => {
                 if let Some(kbar_data) = data.get("kbar") {
-                    let timeframe = kbar_data.get("slot").and_then(|v| v.as_str()).unwrap_or("1min");
+                    let timeframe = kbar_data
+                        .get("slot")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1min");
                     Self::handle_ohlcv(pair, timeframe, kbar_data, subscriptions).await;
                 } else if let Some(records) = data.get("records") {
                     let timeframe = data.get("kbar").and_then(|v| v.as_str()).unwrap_or("1min");
                     Self::handle_ohlcv_records(pair, timeframe, records, subscriptions).await;
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -454,8 +494,14 @@ impl LbankWs {
 
         let ticker = Ticker {
             symbol: symbol.clone(),
-            high: tick_data.get("high").and_then(|v| v.as_str()).and_then(|s| s.parse::<Decimal>().ok()),
-            low: tick_data.get("low").and_then(|v| v.as_str()).and_then(|s| s.parse::<Decimal>().ok()),
+            high: tick_data
+                .get("high")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<Decimal>().ok()),
+            low: tick_data
+                .get("low")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<Decimal>().ok()),
             bid: None,
             bid_volume: None,
             ask: None,
@@ -463,12 +509,18 @@ impl LbankWs {
             vwap: None,
             open: None,
             close: None,
-            last: tick_data.get("latest").and_then(|v| v.as_str()).and_then(|s| s.parse::<Decimal>().ok()),
+            last: tick_data
+                .get("latest")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<Decimal>().ok()),
             previous_close: None,
             change: None,
             percentage: None,
             average: None,
-            base_volume: tick_data.get("vol").and_then(|v| v.as_str()).and_then(|s| s.parse::<Decimal>().ok()),
+            base_volume: tick_data
+                .get("vol")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<Decimal>().ok()),
             quote_volume: None,
             index_price: None,
             mark_price: None,
@@ -505,14 +557,23 @@ impl LbankWs {
                 .ok()
         });
 
-        let direction = trade_data.get("direction").and_then(|v| v.as_str()).unwrap_or("");
-        let side = if direction.starts_with("buy") { Some("buy".to_string()) } else { Some("sell".to_string()) };
+        let direction = trade_data
+            .get("direction")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let side = if direction.starts_with("buy") {
+            Some("buy".to_string())
+        } else {
+            Some("sell".to_string())
+        };
 
-        let price = trade_data.get("price")
+        let price = trade_data
+            .get("price")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or_default();
-        let amount = trade_data.get("volume")
+        let amount = trade_data
+            .get("volume")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or_default();
@@ -522,8 +583,7 @@ impl LbankWs {
             order: None,
             timestamp,
             datetime: timestamp.and_then(|ts| {
-                chrono::DateTime::from_timestamp_millis(ts)
-                    .map(|dt| dt.to_rfc3339())
+                chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
             }),
             symbol: symbol.clone(),
             trade_type: None,
@@ -563,14 +623,20 @@ impl LbankWs {
                 if let Some(arr) = trade_data.as_array() {
                     // [timestamp, price, volume, direction]
                     let direction = arr.get(3).and_then(|v| v.as_str()).unwrap_or("");
-                    let side = if direction.starts_with("buy") { Some("buy".to_string()) } else { Some("sell".to_string()) };
+                    let side = if direction.starts_with("buy") {
+                        Some("buy".to_string())
+                    } else {
+                        Some("sell".to_string())
+                    };
 
                     let timestamp = arr.first().and_then(|v| v.as_i64());
-                    let price = arr.get(1)
+                    let price = arr
+                        .get(1)
                         .and_then(|v| v.as_str())
                         .and_then(|s| s.parse::<Decimal>().ok())
                         .unwrap_or_default();
-                    let amount = arr.get(2)
+                    let amount = arr
+                        .get(2)
                         .and_then(|v| v.as_str())
                         .and_then(|s| s.parse::<Decimal>().ok())
                         .unwrap_or_default();
@@ -580,8 +646,7 @@ impl LbankWs {
                         order: None,
                         timestamp,
                         datetime: timestamp.and_then(|ts| {
-                            chrono::DateTime::from_timestamp_millis(ts)
-                                .map(|dt| dt.to_rfc3339())
+                            chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
                         }),
                         symbol: symbol.clone(),
                         trade_type: None,
@@ -639,10 +704,10 @@ impl LbankWs {
             symbol: symbol.clone(),
             bids,
             asks,
+            checksum: None,
             timestamp,
             datetime: timestamp.and_then(|ts| {
-                chrono::DateTime::from_timestamp_millis(ts)
-                    .map(|dt| dt.to_rfc3339())
+                chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
             }),
             nonce: None,
         };
@@ -675,12 +740,20 @@ impl LbankWs {
                         let price = entry_arr[0]
                             .as_str()
                             .and_then(|s| s.parse::<Decimal>().ok())
-                            .or_else(|| entry_arr[0].as_f64().map(|f| Decimal::from_f64_retain(f).unwrap_or_default()))
+                            .or_else(|| {
+                                entry_arr[0]
+                                    .as_f64()
+                                    .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
+                            })
                             .unwrap_or_default();
                         let amount = entry_arr[1]
                             .as_str()
                             .and_then(|s| s.parse::<Decimal>().ok())
-                            .or_else(|| entry_arr[1].as_f64().map(|f| Decimal::from_f64_retain(f).unwrap_or_default()))
+                            .or_else(|| {
+                                entry_arr[1]
+                                    .as_f64()
+                                    .map(|f| Decimal::from_f64_retain(f).unwrap_or_default())
+                            })
                             .unwrap_or_default();
                         entries.push(OrderBookEntry { price, amount });
                     }
@@ -708,11 +781,31 @@ impl LbankWs {
 
         let ohlcv = OHLCV {
             timestamp,
-            open: kbar_data.get("o").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_default(),
-            high: kbar_data.get("h").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_default(),
-            low: kbar_data.get("l").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_default(),
-            close: kbar_data.get("c").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_default(),
-            volume: kbar_data.get("v").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or_default(),
+            open: kbar_data
+                .get("o")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            high: kbar_data
+                .get("h")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            low: kbar_data
+                .get("l")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            close: kbar_data
+                .get("c")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            volume: kbar_data
+                .get("v")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
         };
 
         let event = WsOhlcvEvent {
@@ -761,20 +854,55 @@ impl LbankWs {
                     // [timestamp, open, high, low, close, volume, turnover, count]
                     let ohlcv = OHLCV {
                         timestamp: arr.first().and_then(|v| v.as_i64()).unwrap_or(0) * 1000,
-                        open: arr.get(1).and_then(|v| v.as_str()).and_then(|s| s.parse().ok())
-                            .or_else(|| arr.get(1).and_then(|v| v.as_f64()).and_then(Decimal::from_f64))
+                        open: arr
+                            .get(1)
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse().ok())
+                            .or_else(|| {
+                                arr.get(1)
+                                    .and_then(|v| v.as_f64())
+                                    .and_then(Decimal::from_f64)
+                            })
                             .unwrap_or_default(),
-                        high: arr.get(2).and_then(|v| v.as_str()).and_then(|s| s.parse().ok())
-                            .or_else(|| arr.get(2).and_then(|v| v.as_f64()).and_then(Decimal::from_f64))
+                        high: arr
+                            .get(2)
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse().ok())
+                            .or_else(|| {
+                                arr.get(2)
+                                    .and_then(|v| v.as_f64())
+                                    .and_then(Decimal::from_f64)
+                            })
                             .unwrap_or_default(),
-                        low: arr.get(3).and_then(|v| v.as_str()).and_then(|s| s.parse().ok())
-                            .or_else(|| arr.get(3).and_then(|v| v.as_f64()).and_then(Decimal::from_f64))
+                        low: arr
+                            .get(3)
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse().ok())
+                            .or_else(|| {
+                                arr.get(3)
+                                    .and_then(|v| v.as_f64())
+                                    .and_then(Decimal::from_f64)
+                            })
                             .unwrap_or_default(),
-                        close: arr.get(4).and_then(|v| v.as_str()).and_then(|s| s.parse().ok())
-                            .or_else(|| arr.get(4).and_then(|v| v.as_f64()).and_then(Decimal::from_f64))
+                        close: arr
+                            .get(4)
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse().ok())
+                            .or_else(|| {
+                                arr.get(4)
+                                    .and_then(|v| v.as_f64())
+                                    .and_then(Decimal::from_f64)
+                            })
                             .unwrap_or_default(),
-                        volume: arr.get(5).and_then(|v| v.as_str()).and_then(|s| s.parse().ok())
-                            .or_else(|| arr.get(5).and_then(|v| v.as_f64()).and_then(Decimal::from_f64))
+                        volume: arr
+                            .get(5)
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse().ok())
+                            .or_else(|| {
+                                arr.get(5)
+                                    .and_then(|v| v.as_f64())
+                                    .and_then(Decimal::from_f64)
+                            })
                             .unwrap_or_default(),
                     };
 
@@ -858,7 +986,10 @@ impl WsExchange for LbankWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -890,7 +1021,8 @@ impl WsExchange for LbankWs {
 
         let pair = self.format_symbol(symbol);
         let depth = limit.unwrap_or(100);
-        self.subscribe("depth", &pair, Some(json!({"depth": depth}))).await?;
+        self.subscribe("depth", &pair, Some(json!({"depth": depth})))
+            .await?;
 
         Ok(rx)
     }
@@ -911,7 +1043,8 @@ impl WsExchange for LbankWs {
 
             let pair = self.format_symbol(symbol);
             let depth = limit.unwrap_or(100);
-            self.subscribe("depth", &pair, Some(json!({"depth": depth}))).await?;
+            self.subscribe("depth", &pair, Some(json!({"depth": depth})))
+                .await?;
         }
 
         Ok(rx)
@@ -967,7 +1100,8 @@ impl WsExchange for LbankWs {
         }
 
         let pair = self.format_symbol(symbol);
-        self.subscribe("kbar", &pair, Some(json!({"kbar": tf}))).await?;
+        self.subscribe("kbar", &pair, Some(json!({"kbar": tf})))
+            .await?;
 
         Ok(rx)
     }
@@ -988,7 +1122,8 @@ impl WsExchange for LbankWs {
             }
 
             let pair = self.format_symbol(symbol);
-            self.subscribe("kbar", &pair, Some(json!({"kbar": tf}))).await?;
+            self.subscribe("kbar", &pair, Some(json!({"kbar": tf})))
+                .await?;
         }
 
         Ok(rx)
@@ -996,7 +1131,10 @@ impl WsExchange for LbankWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -1007,10 +1145,14 @@ impl WsExchange for LbankWs {
 
         let (mut ws, _) = connect_async(WS_URL)
             .await
-            .map_err(|e| CcxtError::NetworkError { url: WS_URL.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: WS_URL.to_string(),
+                message: e.to_string(),
+            })?;
 
         // Subscribe to order updates
-        self.subscribe_private_stream(&mut ws, "orderUpdate").await?;
+        self.subscribe_private_stream(&mut ws, "orderUpdate")
+            .await?;
 
         let _ = tx.send(WsMessage::Connected);
 
@@ -1034,30 +1176,53 @@ impl WsExchange for LbankWs {
                             let msg_type = parsed.get("type").and_then(|v| v.as_str());
                             if msg_type == Some("orderUpdate") || msg_type == Some("order") {
                                 if let Some(data) = parsed.get("data") {
-                                    if let Ok(order_data) = serde_json::from_value::<LbankOrderUpdateData>(data.clone()) {
+                                    if let Ok(order_data) =
+                                        serde_json::from_value::<LbankOrderUpdateData>(data.clone())
+                                    {
                                         if let Some(symbol_raw) = &order_data.symbol {
                                             let symbol = parse_symbol(symbol_raw);
-                                            let order_id = order_data.order_no.clone().unwrap_or_default();
+                                            let order_id =
+                                                order_data.order_no.clone().unwrap_or_default();
 
                                             let status = match order_data.status.as_deref() {
                                                 Some("0") | Some("open") => OrderStatus::Open,
                                                 Some("1") | Some("partial") => OrderStatus::Open,
                                                 Some("2") | Some("filled") => OrderStatus::Closed,
-                                                Some("-1") | Some("canceled") => OrderStatus::Canceled,
+                                                Some("-1") | Some("canceled") => {
+                                                    OrderStatus::Canceled
+                                                },
                                                 _ => OrderStatus::Open,
                                             };
 
-                                            let (side, order_type) = match order_data.order_type.as_deref() {
-                                                Some("buy") | Some("buy_market") => (OrderSide::Buy, OrderType::Market),
-                                                Some("sell") | Some("sell_market") => (OrderSide::Sell, OrderType::Market),
-                                                Some("buy_maker") => (OrderSide::Buy, OrderType::Limit),
-                                                Some("sell_maker") => (OrderSide::Sell, OrderType::Limit),
-                                                _ => (OrderSide::Buy, OrderType::Limit),
-                                            };
+                                            let (side, order_type) =
+                                                match order_data.order_type.as_deref() {
+                                                    Some("buy") | Some("buy_market") => {
+                                                        (OrderSide::Buy, OrderType::Market)
+                                                    },
+                                                    Some("sell") | Some("sell_market") => {
+                                                        (OrderSide::Sell, OrderType::Market)
+                                                    },
+                                                    Some("buy_maker") => {
+                                                        (OrderSide::Buy, OrderType::Limit)
+                                                    },
+                                                    Some("sell_maker") => {
+                                                        (OrderSide::Sell, OrderType::Limit)
+                                                    },
+                                                    _ => (OrderSide::Buy, OrderType::Limit),
+                                                };
 
-                                            let price = order_data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-                                            let amount = order_data.orig_qty.as_ref().and_then(|q| Decimal::from_str(q).ok());
-                                            let filled = order_data.executed_qty.as_ref().and_then(|f| Decimal::from_str(f).ok());
+                                            let price = order_data
+                                                .price
+                                                .as_ref()
+                                                .and_then(|p| Decimal::from_str(p).ok());
+                                            let amount = order_data
+                                                .orig_qty
+                                                .as_ref()
+                                                .and_then(|q| Decimal::from_str(q).ok());
+                                            let filled = order_data
+                                                .executed_qty
+                                                .as_ref()
+                                                .and_then(|f| Decimal::from_str(f).ok());
 
                                             let order = Order {
                                                 id: order_id,
@@ -1065,33 +1230,54 @@ impl WsExchange for LbankWs {
                                                 timestamp: order_data.create_time,
                                                 datetime: order_data.create_time.map(|t| {
                                                     chrono::DateTime::from_timestamp_millis(t)
-                                                        .map(|dt| dt.to_rfc3339()).unwrap_or_default()
+                                                        .map(|dt| dt.to_rfc3339())
+                                                        .unwrap_or_default()
                                                 }),
                                                 last_trade_timestamp: None,
                                                 last_update_timestamp: order_data.update_time,
-                                                status, symbol, order_type, time_in_force: None, side, price,
+                                                status,
+                                                symbol,
+                                                order_type,
+                                                time_in_force: None,
+                                                side,
+                                                price,
                                                 average: None,
                                                 amount: amount.unwrap_or_default(),
                                                 filled: filled.unwrap_or_default(),
-                                                remaining: match (amount, filled) { (Some(a), Some(f)) => Some(a - f), _ => None },
-                                                stop_price: None, trigger_price: None, take_profit_price: None, stop_loss_price: None,
-                                                cost: match (price, filled) { (Some(p), Some(f)) => Some(p * f), _ => None },
-                                                reduce_only: None, post_only: None, trades: vec![], fee: None, fees: vec![],
-                                                info: serde_json::to_value(&order_data).unwrap_or(Value::Null),
+                                                remaining: match (amount, filled) {
+                                                    (Some(a), Some(f)) => Some(a - f),
+                                                    _ => None,
+                                                },
+                                                stop_price: None,
+                                                trigger_price: None,
+                                                take_profit_price: None,
+                                                stop_loss_price: None,
+                                                cost: match (price, filled) {
+                                                    (Some(p), Some(f)) => Some(p * f),
+                                                    _ => None,
+                                                },
+                                                reduce_only: None,
+                                                post_only: None,
+                                                trades: vec![],
+                                                fee: None,
+                                                fees: vec![],
+                                                info: serde_json::to_value(&order_data)
+                                                    .unwrap_or(Value::Null),
                                             };
 
-                                            let _ = tx.send(WsMessage::Order(WsOrderEvent { order }));
+                                            let _ =
+                                                tx.send(WsMessage::Order(WsOrderEvent { order }));
                                         }
                                     }
                                 }
                             }
                         }
-                    }
+                    },
                     Ok(Message::Ping(data)) => {
                         let _ = ws.send(Message::Pong(data)).await;
-                    }
+                    },
                     Err(_) => break,
-                    _ => {}
+                    _ => {},
                 }
             }
             drop(api_key);
@@ -1101,7 +1287,10 @@ impl WsExchange for LbankWs {
         Ok(rx)
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // LBank sends trade info within order updates
         self.watch_orders(_symbol).await
     }
@@ -1117,10 +1306,14 @@ impl WsExchange for LbankWs {
 
         let (mut ws, _) = connect_async(WS_URL)
             .await
-            .map_err(|e| CcxtError::NetworkError { url: WS_URL.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: WS_URL.to_string(),
+                message: e.to_string(),
+            })?;
 
         // Subscribe to balance updates
-        self.subscribe_private_stream(&mut ws, "balanceUpdate").await?;
+        self.subscribe_private_stream(&mut ws, "balanceUpdate")
+            .await?;
 
         let _ = tx.send(WsMessage::Connected);
 
@@ -1133,29 +1326,43 @@ impl WsExchange for LbankWs {
                             if msg_type == Some("balanceUpdate") || msg_type == Some("balance") {
                                 if let Some(data) = parsed.get("data") {
                                     if let Some(balances_arr) = data.as_array() {
-                                        let mut currencies: HashMap<String, Balance> = HashMap::new();
+                                        let mut currencies: HashMap<String, Balance> =
+                                            HashMap::new();
 
                                         for bal in balances_arr {
-                                            if let Ok(balance_data) = serde_json::from_value::<LbankBalanceUpdateData>(bal.clone()) {
+                                            if let Ok(balance_data) =
+                                                serde_json::from_value::<LbankBalanceUpdateData>(
+                                                    bal.clone(),
+                                                )
+                                            {
                                                 if let Some(asset) = &balance_data.asset {
-                                                    let free = balance_data.free.as_ref()
+                                                    let free = balance_data
+                                                        .free
+                                                        .as_ref()
                                                         .and_then(|f| Decimal::from_str(f).ok())
                                                         .unwrap_or_default();
-                                                    let locked = balance_data.locked.as_ref()
+                                                    let locked = balance_data
+                                                        .locked
+                                                        .as_ref()
                                                         .and_then(|l| Decimal::from_str(l).ok())
                                                         .unwrap_or_default();
 
-                                                    currencies.insert(asset.to_uppercase(), Balance {
-                                                        free: Some(free),
-                                                        used: Some(locked),
-                                                        total: Some(free + locked),
-                                                        debt: None,
-                                                    });
+                                                    currencies.insert(
+                                                        asset.to_uppercase(),
+                                                        Balance {
+                                                            free: Some(free),
+                                                            used: Some(locked),
+                                                            total: Some(free + locked),
+                                                            debt: None,
+                                                        },
+                                                    );
                                                 }
                                             }
                                         }
 
-                                        let timestamp = parsed.get("timestamp").and_then(|v| v.as_i64())
+                                        let timestamp = parsed
+                                            .get("timestamp")
+                                            .and_then(|v| v.as_i64())
                                             .or_else(|| Some(Utc::now().timestamp_millis()));
 
                                         let balances = Balances {
@@ -1165,17 +1372,18 @@ impl WsExchange for LbankWs {
                                             info: parsed.clone(),
                                         };
 
-                                        let _ = tx.send(WsMessage::Balance(WsBalanceEvent { balances }));
+                                        let _ = tx
+                                            .send(WsMessage::Balance(WsBalanceEvent { balances }));
                                     }
                                 }
                             }
                         }
-                    }
+                    },
                     Ok(Message::Ping(data)) => {
                         let _ = ws.send(Message::Pong(data)).await;
-                    }
+                    },
                     Err(_) => break,
-                    _ => {}
+                    _ => {},
                 }
             }
         });
@@ -1192,7 +1400,10 @@ impl WsExchange for LbankWs {
 
         let (mut ws, _) = connect_async(WS_URL)
             .await
-            .map_err(|e| CcxtError::NetworkError { url: WS_URL.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: WS_URL.to_string(),
+                message: e.to_string(),
+            })?;
 
         let api_key = self.api_key.as_ref().unwrap();
         let timestamp = Utc::now().timestamp_millis();
@@ -1208,7 +1419,10 @@ impl WsExchange for LbankWs {
 
         ws.send(Message::Text(auth_msg.to_string()))
             .await
-            .map_err(|e| CcxtError::NetworkError { url: WS_URL.to_string(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: WS_URL.to_string(),
+                message: e.to_string(),
+            })?;
 
         self.ws_stream = Some(Arc::new(RwLock::new(ws)));
         Ok(())
@@ -1293,10 +1507,16 @@ mod tests {
             assert_eq!(event.order.client_order_id, Some("client456".to_string()));
             assert_eq!(event.order.symbol, "BTC/USDT");
             assert_eq!(event.order.side, OrderSide::Buy);
-            assert_eq!(event.order.price, Some(Decimal::from_str("50000.00").unwrap()));
+            assert_eq!(
+                event.order.price,
+                Some(Decimal::from_str("50000.00").unwrap())
+            );
             assert_eq!(event.order.amount, Decimal::from_str("1.5").unwrap());
             assert_eq!(event.order.filled, Decimal::from_str("0.5").unwrap());
-            assert_eq!(event.order.remaining, Some(Decimal::from_str("1.0").unwrap()));
+            assert_eq!(
+                event.order.remaining,
+                Some(Decimal::from_str("1.0").unwrap())
+            );
             assert_eq!(event.order.status, OrderStatus::Open);
         } else {
             panic!("Expected Order event");
@@ -1307,13 +1527,11 @@ mod tests {
     fn test_parse_balance() {
         let ws = LbankWs::new();
 
-        let balances_arr = vec![
-            serde_json::json!({
-                "asset": "BTC",
-                "free": "1.5",
-                "locked": "0.5"
-            })
-        ];
+        let balances_arr = vec![serde_json::json!({
+            "asset": "BTC",
+            "free": "1.5",
+            "locked": "0.5"
+        })];
         let parsed = serde_json::json!({});
 
         let result = ws.parse_balance(&balances_arr, &parsed);

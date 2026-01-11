@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::prelude::FromStr;
@@ -20,9 +20,8 @@ use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    TakerOrMaker, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsBalanceEvent, WsMyTradeEvent, WsOrderBookEvent, WsOrderEvent,
-    WsTickerEvent, WsTradeEvent,
+    TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent,
+    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://api.huobi.pro/ws";
@@ -92,10 +91,11 @@ impl HtxWs {
         // HTX uses a specific format for WebSocket auth
         let payload = format!("GET\napi.huobi.pro\n/ws/v2\n{params_str}");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("Failed to create HMAC: {e}"),
-            })?;
+            }
+        })?;
         mac.update(payload.as_bytes());
 
         Ok(BASE64.encode(mac.finalize().into_bytes()))
@@ -172,35 +172,50 @@ impl HtxWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsTickerEvent { symbol: unified_symbol, ticker }
+        WsTickerEvent {
+            symbol: unified_symbol,
+            ticker,
+        }
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &HtxOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
+    fn parse_order_book(
+        data: &HtxOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
         let timestamp = data.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0],
-                    amount: b[1],
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0],
+                        amount: b[1],
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0],
-                    amount: a[1],
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0],
+                        amount: a[1],
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let order_book = OrderBook {
             symbol: unified_symbol.clone(),
@@ -213,6 +228,7 @@ impl HtxWs {
             nonce: data.version,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -248,12 +264,16 @@ impl HtxWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         }];
 
-        WsTradeEvent { symbol: unified_symbol, trades }
+        WsTradeEvent {
+            symbol: unified_symbol,
+            trades,
+        }
     }
 
     /// 주문 업데이트 파싱
     fn parse_order_update(data: &HtxOrderUpdateData) -> WsOrderEvent {
-        let timestamp = data.order_create_time
+        let timestamp = data
+            .order_create_time
             .or(data.last_act_time)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -270,7 +290,9 @@ impl HtxWs {
             Some("market") | Some("buy-market") | Some("sell-market") => OrderType::Market,
             Some("stop-limit") => OrderType::StopLossLimit,
             Some("ioc") | Some("buy-ioc") | Some("sell-ioc") => OrderType::Limit,
-            Some("limit-maker") | Some("buy-limit-maker") | Some("sell-limit-maker") => OrderType::Limit,
+            Some("limit-maker") | Some("buy-limit-maker") | Some("sell-limit-maker") => {
+                OrderType::Limit
+            },
             _ => OrderType::Limit,
         };
 
@@ -282,21 +304,29 @@ impl HtxWs {
             _ => OrderStatus::Open,
         };
 
-        let price = data.order_price.as_ref()
+        let price = data
+            .order_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
 
-        let amount = data.order_size.as_ref()
+        let amount = data
+            .order_size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
 
-        let filled = data.trade_volume.as_ref()
+        let filled = data
+            .trade_volume
+            .as_ref()
             .or(data.filled_amount.as_ref())
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
         let remaining = amount - filled;
 
-        let cost = data.trade_turnover.as_ref()
+        let cost = data
+            .trade_turnover
+            .as_ref()
             .or(data.filled_cash_amount.as_ref())
             .and_then(|c| Decimal::from_str(c).ok());
 
@@ -306,7 +336,9 @@ impl HtxWs {
             None
         };
 
-        let fee_cost = data.filled_fees.as_ref()
+        let fee_cost = data
+            .filled_fees
+            .as_ref()
             .and_then(|f| Decimal::from_str(f).ok());
 
         let fee = fee_cost.map(|c| Fee {
@@ -319,8 +351,7 @@ impl HtxWs {
             id: data.order_id.clone().unwrap_or_default(),
             client_order_id: data.client_order_id.clone(),
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             last_trade_timestamp: data.last_act_time,
             last_update_timestamp: data.last_act_time,
             status,
@@ -333,7 +364,10 @@ impl HtxWs {
             amount,
             filled,
             remaining: Some(remaining),
-            stop_price: data.stop_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            stop_price: data
+                .stop_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             cost,
             trades: Vec::new(),
             fee,
@@ -351,7 +385,9 @@ impl HtxWs {
 
     /// 내 체결 파싱
     fn parse_my_trade(data: &HtxTradeDetailData) -> (String, Trade) {
-        let timestamp = data.trade_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .trade_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let symbol = Self::to_unified_symbol(&data.symbol);
 
         let side = match data.trade_type.as_deref() {
@@ -366,19 +402,27 @@ impl HtxWs {
             _ => None,
         };
 
-        let price = data.trade_price.as_ref()
+        let price = data
+            .trade_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok())
             .unwrap_or_default();
 
-        let amount = data.trade_volume.as_ref()
+        let amount = data
+            .trade_volume
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok())
             .unwrap_or_default();
 
-        let cost = data.trade_turnover.as_ref()
+        let cost = data
+            .trade_turnover
+            .as_ref()
             .and_then(|c| Decimal::from_str(c).ok())
             .or_else(|| Some(price * amount));
 
-        let fee_cost = data.trade_fee.as_ref()
+        let fee_cost = data
+            .trade_fee
+            .as_ref()
             .and_then(|f| Decimal::from_str(f).ok());
 
         let fee = fee_cost.map(|c| Fee {
@@ -391,8 +435,7 @@ impl HtxWs {
             id: data.trade_id.clone().unwrap_or_default(),
             order: data.order_id.clone(),
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             symbol: symbol.clone(),
             trade_type: None,
             side,
@@ -410,28 +453,36 @@ impl HtxWs {
 
     /// 잔고 업데이트 파싱
     fn parse_balance_update(data: &HtxAccountUpdateData) -> WsBalanceEvent {
-        let timestamp = data.change_time
+        let timestamp = data
+            .change_time
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let mut currencies = HashMap::new();
 
         let currency = data.currency.to_uppercase();
-        let available: Decimal = data.available.as_ref()
+        let available: Decimal = data
+            .available
+            .as_ref()
             .and_then(|a| Decimal::from_str(a).ok())
             .unwrap_or_default();
-        let balance: Decimal = data.balance.as_ref()
+        let balance: Decimal = data
+            .balance
+            .as_ref()
             .and_then(|b| Decimal::from_str(b).ok())
             .unwrap_or_default();
 
         // In HTX, balance = total, available = free, frozen = used
         let used = balance - available;
 
-        currencies.insert(currency, Balance {
-            free: Some(available),
-            used: Some(used),
-            total: Some(balance),
-            debt: None,
-        });
+        currencies.insert(
+            currency,
+            Balance {
+                free: Some(available),
+                used: Some(used),
+                total: Some(balance),
+                debt: None,
+            },
+        );
 
         let balances = Balances {
             timestamp: Some(timestamp),
@@ -474,20 +525,27 @@ impl HtxWs {
                         let parts: Vec<&str> = ch.split('.').collect();
                         let symbol = parts.get(1).unwrap_or(&"");
                         if let Ok(ticker_data) = serde_json::from_value::<HtxTickerData>(tick) {
-                            return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data, symbol)));
+                            return Some(WsMessage::Ticker(Self::parse_ticker(
+                                &ticker_data,
+                                symbol,
+                            )));
                         }
                     } else if ch.contains(".depth") {
                         let parts: Vec<&str> = ch.split('.').collect();
                         let symbol = parts.get(1).unwrap_or(&"");
                         if let Ok(ob_data) = serde_json::from_value::<HtxOrderBookData>(tick) {
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, symbol, true)));
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data, symbol, true,
+                            )));
                         }
                     } else if ch.contains(".trade") {
                         let parts: Vec<&str> = ch.split('.').collect();
                         let symbol = parts.get(1).unwrap_or(&"");
                         if let Ok(trade_wrapper) = serde_json::from_value::<HtxTradeWrapper>(tick) {
                             if let Some(trade_data) = trade_wrapper.data.first() {
-                                return Some(WsMessage::Trade(Self::parse_trade(trade_data, symbol)));
+                                return Some(WsMessage::Trade(Self::parse_trade(
+                                    trade_data, symbol,
+                                )));
                             }
                         }
                     }
@@ -512,19 +570,20 @@ impl HtxWs {
                 if response.code == Some(200) {
                     return Some(WsMessage::Authenticated);
                 } else {
-                    let err_msg = response.message.unwrap_or_else(|| "Authentication failed".to_string());
+                    let err_msg = response
+                        .message
+                        .unwrap_or_else(|| "Authentication failed".to_string());
                     return Some(WsMessage::Error(err_msg));
                 }
             }
 
             // Subscribe confirmation
-            if response.action.as_deref() == Some("sub")
-                && response.code == Some(200) {
-                    return Some(WsMessage::Subscribed {
-                        channel: response.ch.unwrap_or_default(),
-                        symbol: None,
-                    });
-                }
+            if response.action.as_deref() == Some("sub") && response.code == Some(200) {
+                return Some(WsMessage::Subscribed {
+                    channel: response.ch.unwrap_or_default(),
+                    symbol: None,
+                });
+            }
 
             // Push data
             if response.action.as_deref() == Some("push") {
@@ -532,13 +591,19 @@ impl HtxWs {
                     if let Some(data) = response.data {
                         // Order updates
                         if ch.contains("orders#") {
-                            if let Ok(order_data) = serde_json::from_value::<HtxOrderUpdateData>(data) {
-                                return Some(WsMessage::Order(Self::parse_order_update(&order_data)));
+                            if let Ok(order_data) =
+                                serde_json::from_value::<HtxOrderUpdateData>(data)
+                            {
+                                return Some(WsMessage::Order(Self::parse_order_update(
+                                    &order_data,
+                                )));
                             }
                         }
                         // Trade updates (own trades)
                         else if ch.contains("trade.clearing#") {
-                            if let Ok(trade_data) = serde_json::from_value::<HtxTradeDetailData>(data) {
+                            if let Ok(trade_data) =
+                                serde_json::from_value::<HtxTradeDetailData>(data)
+                            {
                                 let (symbol, trade) = Self::parse_my_trade(&trade_data);
                                 return Some(WsMessage::MyTrade(WsMyTradeEvent {
                                     symbol,
@@ -548,8 +613,12 @@ impl HtxWs {
                         }
                         // Account/balance updates
                         else if ch.contains("accounts.update#") {
-                            if let Ok(account_data) = serde_json::from_value::<HtxAccountUpdateData>(data) {
-                                return Some(WsMessage::Balance(Self::parse_balance_update(&account_data)));
+                            if let Ok(account_data) =
+                                serde_json::from_value::<HtxAccountUpdateData>(data)
+                            {
+                                return Some(WsMessage::Balance(Self::parse_balance_update(
+                                    &account_data,
+                                )));
                             }
                         }
                     }
@@ -566,12 +635,18 @@ impl HtxWs {
         topic: &str,
         channel: &str,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channel".into(),
-        })?;
-        let api_secret = self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channel".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .clone()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channel".into(),
+            })?;
+        let api_secret = self
+            .api_secret
+            .clone()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required for private channel".into(),
+            })?;
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -583,6 +658,7 @@ impl HtxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -598,10 +674,11 @@ impl HtxWs {
         );
         let payload = format!("GET\napi.huobi.pro\n/ws/v2\n{params_str}");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("Failed to create HMAC: {e}"),
-            })?;
+            }
+        })?;
         mac.update(payload.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
@@ -634,7 +711,10 @@ impl HtxWs {
         // Store subscription
         {
             let key = topic.to_string();
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Event processing task
@@ -644,19 +724,19 @@ impl HtxWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -680,6 +760,7 @@ impl HtxWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -696,7 +777,10 @@ impl HtxWs {
         // 구독 저장
         {
             let key = topic.to_string();
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -706,21 +790,21 @@ impl HtxWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         // Handle ping from HTX - ping/pong is handled by WsClient
                         // Just process regular messages
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -744,7 +828,10 @@ impl WsExchange for HtxWs {
         client.subscribe_stream(&topic, "ticker").await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // HTX doesn't support batch ticker subscription, subscribe to first symbol
         if let Some(symbol) = symbols.first() {
             self.watch_ticker(symbol).await
@@ -755,7 +842,11 @@ impl WsExchange for HtxWs {
         }
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let htx_symbol = Self::format_symbol(symbol);
         let depth = match limit.unwrap_or(20) {
@@ -774,7 +865,11 @@ impl WsExchange for HtxWs {
         client.subscribe_stream(&topic, "trades").await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let htx_symbol = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -805,12 +900,18 @@ impl WsExchange for HtxWs {
     // === Private WebSocket Methods ===
 
     async fn ws_authenticate(&mut self) -> CcxtResult<()> {
-        let api_key = self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .clone()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .api_secret
+            .clone()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
 
         // Create WebSocket connection if not exists
         if self.ws_client.is_none() {
@@ -821,6 +922,7 @@ impl WsExchange for HtxWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 20,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             let _ = ws_client.connect().await?;
@@ -837,10 +939,11 @@ impl WsExchange for HtxWs {
         );
         let payload = format!("GET\napi.huobi.pro\n/ws/v2\n{params_str}");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("Failed to create HMAC: {e}"),
-            })?;
+            }
+        })?;
         mac.update(payload.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
@@ -865,14 +968,21 @@ impl WsExchange for HtxWs {
         Ok(())
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
 
         // HTX format: orders#btcusdt or orders#* for all
@@ -885,14 +995,21 @@ impl WsExchange for HtxWs {
         client.subscribe_private_stream(&topic, "orders").await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
 
         // HTX format: trade.clearing#btcusdt or trade.clearing#* for all
@@ -907,12 +1024,16 @@ impl WsExchange for HtxWs {
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
 
         // HTX format: accounts.update#<mode>
@@ -1132,10 +1253,7 @@ mod tests {
 
     #[test]
     fn test_with_credentials() {
-        let client = HtxWs::with_credentials(
-            "test_key".to_string(),
-            "test_secret".to_string(),
-        );
+        let client = HtxWs::with_credentials("test_key".to_string(), "test_secret".to_string());
         assert_eq!(client.get_api_key(), Some("test_key"));
     }
 
@@ -1222,7 +1340,10 @@ mod tests {
                 ..Default::default()
             };
             let event = HtxWs::parse_order_update(&data);
-            assert_eq!(event.order.status, expected, "Failed for status: {status_str}");
+            assert_eq!(
+                event.order.status, expected,
+                "Failed for status: {status_str}"
+            );
         }
     }
 

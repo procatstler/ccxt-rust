@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Trade, TakerOrMaker,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, TakerOrMaker, Ticker, Trade, WsExchange, WsMessage,
+    WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://ws-api.exmo.com:443/v1/public";
@@ -125,7 +125,10 @@ impl ExmoWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &ExmoWsTicker, market_id: &str) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(market_id);
-        let timestamp = data.updated.map(|t| t * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .updated
+            .map(|t| t * 1000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
@@ -160,36 +163,50 @@ impl ExmoWs {
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &ExmoWsOrderBook, market_id: &str, timestamp: i64) -> WsOrderBookEvent {
+    fn parse_order_book(
+        data: &ExmoWsOrderBook,
+        market_id: &str,
+        timestamp: i64,
+    ) -> WsOrderBookEvent {
         let symbol = Self::to_unified_symbol(market_id);
 
-        let bids: Vec<OrderBookEntry> = data.bid.as_ref()
+        let bids: Vec<OrderBookEntry> = data
+            .bid
+            .as_ref()
             .map(|entries| {
-                entries.iter().filter_map(|e| {
-                    if e.len() >= 2 {
-                        Some(OrderBookEntry {
-                            price: e[0].parse().ok()?,
-                            amount: e[1].parse().ok()?,
-                        })
-                    } else {
-                        None
-                    }
-                }).collect()
+                entries
+                    .iter()
+                    .filter_map(|e| {
+                        if e.len() >= 2 {
+                            Some(OrderBookEntry {
+                                price: e[0].parse().ok()?,
+                                amount: e[1].parse().ok()?,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
             })
             .unwrap_or_default();
 
-        let asks: Vec<OrderBookEntry> = data.ask.as_ref()
+        let asks: Vec<OrderBookEntry> = data
+            .ask
+            .as_ref()
             .map(|entries| {
-                entries.iter().filter_map(|e| {
-                    if e.len() >= 2 {
-                        Some(OrderBookEntry {
-                            price: e[0].parse().ok()?,
-                            amount: e[1].parse().ok()?,
-                        })
-                    } else {
-                        None
-                    }
-                }).collect()
+                entries
+                    .iter()
+                    .filter_map(|e| {
+                        if e.len() >= 2 {
+                            Some(OrderBookEntry {
+                                price: e[0].parse().ok()?,
+                                amount: e[1].parse().ok()?,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
             })
             .unwrap_or_default();
 
@@ -204,6 +221,7 @@ impl ExmoWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -216,7 +234,10 @@ impl ExmoWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &ExmoWsTrade, market_id: &str) -> Option<Trade> {
         let symbol = Self::to_unified_symbol(market_id);
-        let timestamp = data.date.map(|t| t * 1000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .date
+            .map(|t| t * 1000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.price.as_ref()?.parse().ok()?;
         let amount: Decimal = data.quantity.as_ref()?.parse().ok()?;
 
@@ -257,10 +278,9 @@ impl ExmoWs {
             if let Some(bids) = &data.bid {
                 for entry in bids {
                     if entry.len() >= 2 {
-                        if let (Ok(price), Ok(amount)) = (
-                            entry[0].parse::<Decimal>(),
-                            entry[1].parse::<Decimal>(),
-                        ) {
+                        if let (Ok(price), Ok(amount)) =
+                            (entry[0].parse::<Decimal>(), entry[1].parse::<Decimal>())
+                        {
                             // Remove existing entry at this price
                             book.bids.retain(|e| e.price != price);
 
@@ -272,17 +292,20 @@ impl ExmoWs {
                     }
                 }
                 // Sort bids in descending order
-                book.bids.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap_or(std::cmp::Ordering::Equal));
+                book.bids.sort_by(|a, b| {
+                    b.price
+                        .partial_cmp(&a.price)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
 
             // Apply ask updates
             if let Some(asks) = &data.ask {
                 for entry in asks {
                     if entry.len() >= 2 {
-                        if let (Ok(price), Ok(amount)) = (
-                            entry[0].parse::<Decimal>(),
-                            entry[1].parse::<Decimal>(),
-                        ) {
+                        if let (Ok(price), Ok(amount)) =
+                            (entry[0].parse::<Decimal>(), entry[1].parse::<Decimal>())
+                        {
                             // Remove existing entry at this price
                             book.asks.retain(|e| e.price != price);
 
@@ -294,7 +317,11 @@ impl ExmoWs {
                     }
                 }
                 // Sort asks in ascending order
-                book.asks.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap_or(std::cmp::Ordering::Equal));
+                book.asks.sort_by(|a, b| {
+                    a.price
+                        .partial_cmp(&b.price)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
 
             book.timestamp = Some(timestamp);
@@ -348,9 +375,12 @@ impl ExmoWs {
         match channel {
             "spot/ticker" => {
                 if let Ok(ticker_data) = serde_json::from_value::<ExmoWsTicker>(data.clone()) {
-                    return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data, market_id)));
+                    return Some(WsMessage::Ticker(Self::parse_ticker(
+                        &ticker_data,
+                        market_id,
+                    )));
                 }
-            }
+            },
             "spot/order_book_updates" => {
                 if let Ok(ob_data) = serde_json::from_value::<ExmoWsOrderBook>(data.clone()) {
                     if event == "snapshot" {
@@ -362,15 +392,23 @@ impl ExmoWs {
                         return Some(WsMessage::OrderBook(ob_event));
                     } else {
                         // Apply incremental update
-                        if let Some(ob_event) = Self::apply_order_book_update(order_books, &ob_data, market_id, timestamp).await {
+                        if let Some(ob_event) = Self::apply_order_book_update(
+                            order_books,
+                            &ob_data,
+                            market_id,
+                            timestamp,
+                        )
+                        .await
+                        {
                             return Some(WsMessage::OrderBook(ob_event));
                         }
                     }
                 }
-            }
+            },
             "spot/trades" => {
                 if let Ok(trades_data) = serde_json::from_value::<Vec<ExmoWsTrade>>(data.clone()) {
-                    let trades: Vec<Trade> = trades_data.iter()
+                    let trades: Vec<Trade> = trades_data
+                        .iter()
                         .filter_map(|t| Self::parse_trade(t, market_id))
                         .collect();
                     if !trades.is_empty() {
@@ -378,8 +416,8 @@ impl ExmoWs {
                         return Some(WsMessage::Trade(WsTradeEvent { symbol, trades }));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -400,6 +438,7 @@ impl ExmoWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -430,19 +469,19 @@ impl ExmoWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg, &order_books).await {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -466,15 +505,23 @@ impl WsExchange for ExmoWs {
         client.subscribe_stream(topics).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
-        let topics: Vec<String> = symbols.iter()
+        let topics: Vec<String> = symbols
+            .iter()
             .map(|s| format!("spot/ticker:{}", Self::to_market_id(s)))
             .collect();
         client.subscribe_stream(topics).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new(self.config.clone());
         let market_id = Self::to_market_id(symbol);
         let topics = vec![format!("spot/order_book_updates:{}", market_id)];
@@ -555,9 +602,18 @@ mod tests {
 
         let event = ExmoWs::parse_ticker(&ticker_data, "BTC_USDT");
         assert_eq!(event.symbol, "BTC/USDT");
-        assert_eq!(event.ticker.bid, Some(Decimal::from_str("30285.84").unwrap()));
-        assert_eq!(event.ticker.ask, Some(Decimal::from_str("30299.97").unwrap()));
-        assert_eq!(event.ticker.last, Some(Decimal::from_str("30295.01").unwrap()));
+        assert_eq!(
+            event.ticker.bid,
+            Some(Decimal::from_str("30285.84").unwrap())
+        );
+        assert_eq!(
+            event.ticker.ask,
+            Some(Decimal::from_str("30299.97").unwrap())
+        );
+        assert_eq!(
+            event.ticker.last,
+            Some(Decimal::from_str("30295.01").unwrap())
+        );
     }
 
     #[test]

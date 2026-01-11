@@ -19,9 +19,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent,
-    WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent, WsOrderEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://pubwss.bithumb.com/pub/ws";
@@ -78,7 +78,9 @@ impl BithumbWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &BithumbTickerData, symbol: &str) -> WsTickerEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
-        let timestamp = data.date.as_ref()
+        let timestamp = data
+            .date
+            .as_ref()
             .and_then(|d| d.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -113,17 +115,24 @@ impl BithumbWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsTickerEvent { symbol: unified_symbol, ticker }
+        WsTickerEvent {
+            symbol: unified_symbol,
+            ticker,
+        }
     }
 
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &BithumbOrderBookData, symbol: &str) -> WsOrderBookEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
-        let timestamp = data.datetime.as_ref()
+        let timestamp = data
+            .datetime
+            .as_ref()
             .and_then(|d| d.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.list.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .list
+            .iter()
             .filter(|item| item.order_type.as_deref() == Some("bid"))
             .filter_map(|item| {
                 Some(OrderBookEntry {
@@ -133,7 +142,9 @@ impl BithumbWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.list.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .list
+            .iter()
             .filter(|item| item.order_type.as_deref() == Some("ask"))
             .filter_map(|item| {
                 Some(OrderBookEntry {
@@ -154,31 +165,38 @@ impl BithumbWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
             symbol: unified_symbol,
             order_book,
-            is_snapshot: true,  // Bithumb sends snapshots
+            is_snapshot: true, // Bithumb sends snapshots
         }
     }
 
     /// 체결 메시지 파싱
     fn parse_trade(data: &BithumbTradeData, symbol: &str) -> WsTradeEvent {
         let unified_symbol = Self::to_unified_symbol(symbol);
-        let timestamp = data.cont_date_time.as_ref()
+        let timestamp = data
+            .cont_date_time
+            .as_ref()
             .and_then(|d| d.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price: Decimal = data.cont_price.as_ref()
+        let price: Decimal = data
+            .cont_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.cont_qty.as_ref()
+        let amount: Decimal = data
+            .cont_qty
+            .as_ref()
             .and_then(|q| q.parse().ok())
             .unwrap_or_default();
 
         let side = match data.buy_sell_gb.as_deref() {
-            Some("1") => "sell",  // 매도
-            Some("2") => "buy",   // 매수
+            Some("1") => "sell", // 매도
+            Some("2") => "buy",  // 매수
             _ => "buy",
         };
 
@@ -203,7 +221,10 @@ impl BithumbWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         }];
 
-        WsTradeEvent { symbol: unified_symbol, trades }
+        WsTradeEvent {
+            symbol: unified_symbol,
+            trades,
+        }
     }
 
     /// 메시지 처리
@@ -223,23 +244,34 @@ impl BithumbWs {
             if let (Some(msg_type), Some(content)) = (&response.msg_type, &response.content) {
                 match msg_type.as_str() {
                     "ticker" => {
-                        if let Ok(ticker_data) = serde_json::from_value::<BithumbTickerData>(content.clone()) {
-                            return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data, symbol)));
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<BithumbTickerData>(content.clone())
+                        {
+                            return Some(WsMessage::Ticker(Self::parse_ticker(
+                                &ticker_data,
+                                symbol,
+                            )));
                         }
-                    }
+                    },
                     "orderbookdepth" => {
-                        if let Ok(ob_data) = serde_json::from_value::<BithumbOrderBookData>(content.clone()) {
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, symbol)));
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<BithumbOrderBookData>(content.clone())
+                        {
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data, symbol,
+                            )));
                         }
-                    }
+                    },
                     "transaction" => {
-                        if let Ok(trade_data) = serde_json::from_value::<BithumbTradeWrapper>(content.clone()) {
+                        if let Ok(trade_data) =
+                            serde_json::from_value::<BithumbTradeWrapper>(content.clone())
+                        {
                             if let Some(trade) = trade_data.list.first() {
                                 return Some(WsMessage::Trade(Self::parse_trade(trade, symbol)));
                             }
                         }
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -264,6 +296,7 @@ impl BithumbWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -281,7 +314,10 @@ impl BithumbWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbols.join(","));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -292,19 +328,21 @@ impl BithumbWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
-                        if let Some(ws_msg) = Self::process_message(&msg, subscribed_symbol.as_deref()) {
+                        if let Some(ws_msg) =
+                            Self::process_message(&msg, subscribed_symbol.as_deref())
+                        {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -315,10 +353,11 @@ impl BithumbWs {
     /// HMAC-SHA512 서명 생성 (Private 인증용)
     fn create_signature(api_secret: &str, message: &str) -> CcxtResult<String> {
         type HmacSha512 = Hmac<Sha512>;
-        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha512::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".to_string(),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
@@ -329,12 +368,18 @@ impl BithumbWs {
         channel: &str,
         symbol: Option<&str>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".to_string(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channels".to_string(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".to_string(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for private channels".to_string(),
+                })?;
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -346,6 +391,7 @@ impl BithumbWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -378,17 +424,17 @@ impl BithumbWs {
                         "type": "ordersub"
                     })
                 }
-            }
+            },
             "assetsub" => {
                 serde_json::json!({
                     "type": "assetsub"
                 })
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Unknown private channel: {channel}"),
                 });
-            }
+            },
         };
 
         ws_client.send(&subscribe_msg.to_string())?;
@@ -397,7 +443,10 @@ impl BithumbWs {
         // Save subscription
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or("all"));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Event processing task
@@ -408,19 +457,19 @@ impl BithumbWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_private_message(&msg, &channel_clone) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -437,26 +486,30 @@ impl BithumbWs {
                         return Some(WsMessage::Order(Self::parse_order(&order_data)));
                     }
                 }
-            }
+            },
             "assetsub" => {
                 if let Ok(asset_data) = serde_json::from_str::<BithumbAssetUpdateData>(msg) {
                     if asset_data.msg_type.as_deref() == Some("assetsub") {
                         return Some(WsMessage::Balance(Self::parse_balance(&asset_data)));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
         None
     }
 
     /// 주문 데이터 파싱
     fn parse_order(data: &BithumbOrderUpdateData) -> WsOrderEvent {
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -497,13 +550,21 @@ impl BithumbWs {
             side,
             price: data.price.as_ref().and_then(|p| p.parse().ok()),
             average: data.avg_price.as_ref().and_then(|p| p.parse().ok()),
-            amount: data.units.as_ref().and_then(|u| u.parse().ok()).unwrap_or_default(),
-            filled: data.units_remaining.as_ref()
+            amount: data
+                .units
+                .as_ref()
+                .and_then(|u| u.parse().ok())
+                .unwrap_or_default(),
+            filled: data
+                .units_remaining
+                .as_ref()
                 .and_then(|u| u.parse::<Decimal>().ok())
                 .map(|remaining| {
-                    data.units.as_ref()
+                    data.units
+                        .as_ref()
                         .and_then(|u| u.parse::<Decimal>().ok())
-                        .unwrap_or_default() - remaining
+                        .unwrap_or_default()
+                        - remaining
                 })
                 .unwrap_or_default(),
             remaining: data.units_remaining.as_ref().and_then(|u| u.parse().ok()),
@@ -526,7 +587,9 @@ impl BithumbWs {
     /// 잔고 데이터 파싱
     fn parse_balance(data: &BithumbAssetUpdateData) -> WsBalanceEvent {
         let currency = data.currency.clone().unwrap_or_default();
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -565,25 +628,42 @@ impl WsExchange for BithumbWs {
         client.subscribe_stream("ticker", symbols, "ticker").await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted: Vec<String> = symbols.iter().map(|s| Self::format_symbol(s)).collect();
-        client.subscribe_stream("ticker", formatted, "tickers").await
+        client
+            .subscribe_stream("ticker", formatted, "tickers")
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let symbols = vec![Self::format_symbol(symbol)];
-        client.subscribe_stream("orderbookdepth", symbols, "orderBook").await
+        client
+            .subscribe_stream("orderbookdepth", symbols, "orderBook")
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let symbols = vec![Self::format_symbol(symbol)];
-        client.subscribe_stream("transaction", symbols, "trades").await
+        client
+            .subscribe_stream("transaction", symbols, "trades")
+            .await
     }
 
-    async fn watch_ohlcv(&self, _symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        _symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Bithumb does not support OHLCV streaming via WebSocket
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watch_ohlcv".to_string(),
@@ -612,39 +692,57 @@ impl WsExchange for BithumbWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
         client.subscribe_private_stream("ordersub", symbol).await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Bithumb's ordersub channel includes trade execution info
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
         client.subscribe_private_stream("ordersub", symbol).await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::with_credentials(
-            self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?,
-            self.api_secret.clone().ok_or_else(|| CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?,
+            self.api_key
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API key required".into(),
+                })?,
+            self.api_secret
+                .clone()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?,
         );
         client.subscribe_private_stream("assetsub", None).await
     }

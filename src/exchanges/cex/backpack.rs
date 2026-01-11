@@ -15,9 +15,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderType,
+    SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// Backpack exchange - Solana-based spot and perpetuals
@@ -82,7 +82,10 @@ impl Backpack {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/cc04c278-679f-4554-9f72-930dd632b80f".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/cc04c278-679f-4554-9f72-930dd632b80f"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://backpack.exchange/".into()),
             doc: vec!["https://docs.backpack.exchange/".into()],
@@ -195,11 +198,15 @@ impl Backpack {
         let quantity_filter = &market.filters.quantity;
 
         // Calculate precision as number of decimal places
-        let price_precision = price_filter.tick_size.as_ref()
+        let price_precision = price_filter
+            .tick_size
+            .as_ref()
             .and_then(|s| Self::count_decimal_places(s))
             .unwrap_or(2);
 
-        let amount_precision = quantity_filter.step_size.as_ref()
+        let amount_precision = quantity_filter
+            .step_size
+            .as_ref()
             .and_then(|s| Self::count_decimal_places(s))
             .unwrap_or(2);
 
@@ -241,19 +248,33 @@ impl Backpack {
             },
             limits: MarketLimits {
                 amount: MinMax {
-                    min: quantity_filter.min_quantity.as_ref()
+                    min: quantity_filter
+                        .min_quantity
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok()),
-                    max: quantity_filter.max_quantity.as_ref()
+                    max: quantity_filter
+                        .max_quantity
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok()),
                 },
                 price: MinMax {
-                    min: price_filter.min_price.as_ref()
+                    min: price_filter
+                        .min_price
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok()),
-                    max: price_filter.max_price.as_ref()
+                    max: price_filter
+                        .max_price
+                        .as_ref()
                         .and_then(|s| Decimal::from_str(s).ok()),
                 },
-                cost: MinMax { min: None, max: None },
-                leverage: MinMax { min: None, max: None },
+                cost: MinMax {
+                    min: None,
+                    max: None,
+                },
+                leverage: MinMax {
+                    min: None,
+                    max: None,
+                },
             },
             margin_modes: None,
             created: None,
@@ -272,24 +293,66 @@ impl Backpack {
             symbol: symbol.clone(),
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
-            high: data.high_price_24h.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            low: data.low_price_24h.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            bid: data.best_bid.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            bid_volume: data.bid_quantity.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            ask: data.best_ask.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            ask_volume: data.ask_quantity.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            high: data
+                .high_price_24h
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            low: data
+                .low_price_24h
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            bid: data
+                .best_bid
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            bid_volume: data
+                .bid_quantity
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            ask: data
+                .best_ask
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            ask_volume: data
+                .ask_quantity
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             vwap: None,
-            open: data.open_price_24h.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            close: data.last_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            last: data.last_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            open: data
+                .open_price_24h
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            close: data
+                .last_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            last: data
+                .last_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             previous_close: None,
-            change: data.price_change_24h.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            percentage: data.price_change_percent_24h.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            change: data
+                .price_change_24h
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            percentage: data
+                .price_change_percent_24h
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             average: None,
-            base_volume: data.volume_24h.as_ref().and_then(|s| Decimal::from_str(s).ok()),
-            quote_volume: data.quote_volume_24h.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            base_volume: data
+                .volume_24h
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
+            quote_volume: data
+                .quote_volume_24h
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             index_price: None,
-            mark_price: data.mark_price.as_ref().and_then(|s| Decimal::from_str(s).ok()),
+            mark_price: data
+                .mark_price
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok()),
             info: serde_json::to_value(data).unwrap_or_default(),
         }
     }
@@ -298,7 +361,9 @@ impl Backpack {
     fn parse_order_book(&self, data: &BackpackOrderBook, symbol: &str) -> OrderBook {
         let timestamp = Utc::now().timestamp_millis();
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     Some(OrderBookEntry {
@@ -311,7 +376,9 @@ impl Backpack {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     Some(OrderBookEntry {
@@ -331,16 +398,21 @@ impl Backpack {
             nonce: data.last_update_id.as_ref().and_then(|s| s.parse().ok()),
             bids,
             asks,
+            checksum: None,
         }
     }
 
     /// Parse trade from API response
     fn parse_trade(&self, data: &BackpackTrade, symbol: &str) -> Trade {
         let timestamp = data.time.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price = data.price.as_ref()
+        let price = data
+            .price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
-        let amount = data.quantity.as_ref()
+        let amount = data
+            .quantity
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
 
@@ -348,8 +420,7 @@ impl Backpack {
             id: data.id.as_ref().map(|i| i.to_string()).unwrap_or_default(),
             order: None,
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             symbol: symbol.to_string(),
             trade_type: None,
             side: if data.is_buyer_maker.unwrap_or(false) {
@@ -371,11 +442,31 @@ impl Backpack {
     fn parse_ohlcv(&self, data: &BackpackKline) -> OHLCV {
         OHLCV {
             timestamp: data.start_time.unwrap_or(0),
-            open: data.open.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
-            high: data.high.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
-            low: data.low.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
-            close: data.close.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
-            volume: data.volume.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default(),
+            open: data
+                .open
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
+            high: data
+                .high
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
+            low: data
+                .low
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
+            close: data
+                .close
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
+            volume: data
+                .volume
+                .as_ref()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default(),
         }
     }
 }
@@ -421,17 +512,18 @@ impl Exchange for Backpack {
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
         let response: Vec<BackpackMarket> = self.public_get("markets", None).await?;
 
-        let markets: Vec<Market> = response.iter()
-            .map(|m| self.parse_market(m))
-            .collect();
+        let markets: Vec<Market> = response.iter().map(|m| self.parse_market(m)).collect();
 
         // Update internal caches
         let mut markets_cache = self.markets.write().map_err(|_| CcxtError::ExchangeError {
             message: "Failed to acquire write lock".to_string(),
         })?;
-        let mut markets_by_id_cache = self.markets_by_id.write().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to acquire write lock".to_string(),
-        })?;
+        let mut markets_by_id_cache =
+            self.markets_by_id
+                .write()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to acquire write lock".to_string(),
+                })?;
 
         for market in &markets {
             markets_cache.insert(market.symbol.clone(), market.clone());
@@ -480,7 +572,12 @@ impl Exchange for Backpack {
         Ok(self.parse_order_book(&response, symbol))
     }
 
-    async fn fetch_trades(&self, symbol: &str, since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = Self::format_symbol(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -490,7 +587,8 @@ impl Exchange for Backpack {
 
         let response: Vec<BackpackTrade> = self.public_get("trades", Some(params)).await?;
 
-        let mut trades: Vec<Trade> = response.iter()
+        let mut trades: Vec<Trade> = response
+            .iter()
             .map(|t| self.parse_trade(t, symbol))
             .collect();
 
@@ -509,7 +607,9 @@ impl Exchange for Backpack {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = Self::format_symbol(symbol);
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .cloned()
             .unwrap_or_else(|| "1h".to_string());
 
@@ -525,9 +625,7 @@ impl Exchange for Backpack {
 
         let response: Vec<BackpackKline> = self.public_get("klines", Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.iter()
-            .map(|k| self.parse_ohlcv(k))
-            .collect();
+        let ohlcv: Vec<OHLCV> = response.iter().map(|k| self.parse_ohlcv(k)).collect();
 
         Ok(ohlcv)
     }
@@ -746,7 +844,10 @@ mod tests {
     #[test]
     fn test_to_unified_symbol() {
         assert_eq!(Backpack::to_unified_symbol("BTC_USDC"), "BTC/USDC");
-        assert_eq!(Backpack::to_unified_symbol("ETH_USDC_PERP"), "ETH/USDC:USDC");
+        assert_eq!(
+            Backpack::to_unified_symbol("ETH_USDC_PERP"),
+            "ETH/USDC:USDC"
+        );
         assert_eq!(Backpack::to_unified_symbol("SOL_USDC"), "SOL/USDC");
     }
 

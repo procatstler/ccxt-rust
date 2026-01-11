@@ -238,7 +238,12 @@ impl Precise {
         if copy.decimals <= 0 {
             // No decimal point needed, may need trailing zeros
             if copy.decimals < 0 {
-                return format!("{}{}{}", sign, abs_string, "0".repeat((-copy.decimals) as usize));
+                return format!(
+                    "{}{}{}",
+                    sign,
+                    abs_string,
+                    "0".repeat((-copy.decimals) as usize)
+                );
             }
             return format!("{sign}{abs_string}");
         }
@@ -266,17 +271,29 @@ impl Precise {
     /// Multiply two string numbers
     pub fn string_mul(string1: Option<&str>, string2: Option<&str>) -> Option<String> {
         let (s1, s2) = (string1?, string2?);
-        Some(Precise::from_string(s1).mul(&Precise::from_string(s2)).to_str_repr())
+        Some(
+            Precise::from_string(s1)
+                .mul(&Precise::from_string(s2))
+                .to_str_repr(),
+        )
     }
 
     /// Divide two string numbers with optional precision
-    pub fn string_div(string1: Option<&str>, string2: Option<&str>, precision: Option<i32>) -> Option<String> {
+    pub fn string_div(
+        string1: Option<&str>,
+        string2: Option<&str>,
+        precision: Option<i32>,
+    ) -> Option<String> {
         let (s1, s2) = (string1?, string2?);
         let p2 = Precise::from_string(s2);
         if p2.integer.is_zero() {
             return None;
         }
-        Some(Precise::from_string(s1).div(&p2, precision.unwrap_or(18)).to_str_repr())
+        Some(
+            Precise::from_string(s1)
+                .div(&p2, precision.unwrap_or(18))
+                .to_str_repr(),
+        )
     }
 
     /// Add two string numbers
@@ -285,16 +302,22 @@ impl Precise {
             (None, None) => None,
             (Some(s), None) => Some(s.to_string()),
             (None, Some(s)) => Some(s.to_string()),
-            (Some(s1), Some(s2)) => {
-                Some(Precise::from_string(s1).add(&Precise::from_string(s2)).to_str_repr())
-            }
+            (Some(s1), Some(s2)) => Some(
+                Precise::from_string(s1)
+                    .add(&Precise::from_string(s2))
+                    .to_str_repr(),
+            ),
         }
     }
 
     /// Subtract two string numbers
     pub fn string_sub(string1: Option<&str>, string2: Option<&str>) -> Option<String> {
         let (s1, s2) = (string1?, string2?);
-        Some(Precise::from_string(s1).sub(&Precise::from_string(s2)).to_str_repr())
+        Some(
+            Precise::from_string(s1)
+                .sub(&Precise::from_string(s2))
+                .to_str_repr(),
+        )
     }
 
     /// Absolute value of string number
@@ -312,13 +335,21 @@ impl Precise {
     /// Modulo of two string numbers
     pub fn string_mod(string1: Option<&str>, string2: Option<&str>) -> Option<String> {
         let (s1, s2) = (string1?, string2?);
-        Some(Precise::from_string(s1).modulo(&Precise::from_string(s2)).to_str_repr())
+        Some(
+            Precise::from_string(s1)
+                .modulo(&Precise::from_string(s2))
+                .to_str_repr(),
+        )
     }
 
     /// Bitwise OR of two string numbers
     pub fn string_or(string1: Option<&str>, string2: Option<&str>) -> Option<String> {
         let (s1, s2) = (string1?, string2?);
-        Some(Precise::from_string(s1).or(&Precise::from_string(s2)).to_str_repr())
+        Some(
+            Precise::from_string(s1)
+                .or(&Precise::from_string(s2))
+                .to_str_repr(),
+        )
     }
 
     /// Check equality of two string numbers
@@ -335,13 +366,21 @@ impl Precise {
     /// Minimum of two string numbers
     pub fn string_min(string1: Option<&str>, string2: Option<&str>) -> Option<String> {
         let (s1, s2) = (string1?, string2?);
-        Some(Precise::from_string(s1).precise_min(&Precise::from_string(s2)).to_str_repr())
+        Some(
+            Precise::from_string(s1)
+                .precise_min(&Precise::from_string(s2))
+                .to_str_repr(),
+        )
     }
 
     /// Maximum of two string numbers
     pub fn string_max(string1: Option<&str>, string2: Option<&str>) -> Option<String> {
         let (s1, s2) = (string1?, string2?);
-        Some(Precise::from_string(s1).precise_max(&Precise::from_string(s2)).to_str_repr())
+        Some(
+            Precise::from_string(s1)
+                .precise_max(&Precise::from_string(s2))
+                .to_str_repr(),
+        )
     }
 
     /// Greater than comparison of two string numbers

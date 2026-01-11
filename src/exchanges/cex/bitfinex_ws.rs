@@ -18,9 +18,9 @@ use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
-    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent,
+    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent,
     WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsPositionEvent,
-    WsTickerEvent, WsTradeEvent,
+    WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha384 = Hmac<Sha384>;
@@ -136,7 +136,8 @@ impl BitfinexWs {
 
     /// Parse decimal from JSON value (handles both string and number)
     fn parse_decimal(value: &serde_json::Value) -> Option<Decimal> {
-        value.as_str()
+        value
+            .as_str()
             .and_then(|s| s.parse().ok())
             .or_else(|| value.as_f64().and_then(|f| Decimal::try_from(f).ok()))
     }
@@ -192,7 +193,11 @@ impl BitfinexWs {
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &[serde_json::Value], symbol: &str, is_snapshot: bool) -> Option<WsOrderBookEvent> {
+    fn parse_order_book(
+        data: &[serde_json::Value],
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> Option<WsOrderBookEvent> {
         let timestamp = Utc::now().timestamp_millis();
         let mut bids = Vec::new();
         let mut asks = Vec::new();
@@ -250,6 +255,7 @@ impl BitfinexWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         Some(WsOrderBookEvent {
@@ -306,7 +312,11 @@ impl BitfinexWs {
         let amount = Self::parse_decimal(&data[2])?;
         let price = Self::parse_decimal(&data[3])?;
 
-        let side = if amount > Decimal::ZERO { "buy" } else { "sell" };
+        let side = if amount > Decimal::ZERO {
+            "buy"
+        } else {
+            "sell"
+        };
         let amount_abs = amount.abs();
 
         Some(Trade {
@@ -332,7 +342,11 @@ impl BitfinexWs {
     }
 
     /// Candle 메시지 파싱
-    fn parse_candle(data: &[serde_json::Value], symbol: &str, timeframe: Timeframe) -> Option<WsOhlcvEvent> {
+    fn parse_candle(
+        data: &[serde_json::Value],
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> Option<WsOhlcvEvent> {
         // Candle format: [MTS, OPEN, CLOSE, HIGH, LOW, VOLUME]
         if data.len() < 6 {
             return None;
@@ -363,26 +377,34 @@ impl BitfinexWs {
 
     /// Generate authentication signature for WebSocket
     fn generate_auth_signature(api_secret: &str, _nonce: i64, payload: &str) -> CcxtResult<String> {
-        let mut mac = HmacSha384::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha384::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".into(),
-            })?;
+            }
+        })?;
         mac.update(payload.as_bytes());
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
 
     /// Subscribe to private stream with authentication
     async fn subscribe_private_stream(&mut self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key and secret required for private streams".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key and secret required for private streams".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
@@ -394,6 +416,7 @@ impl BitfinexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -427,22 +450,26 @@ impl BitfinexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         *authenticated.write().await = false;
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
-                        if let Some(ws_msg) = Self::process_private_message(&msg, &authenticated).await {
+                        if let Some(ws_msg) =
+                            Self::process_private_message(&msg, &authenticated).await
+                        {
                             let _ = tx.send(ws_msg);
-                        } else if let Some(ws_msg) = Self::process_message(&msg, Arc::clone(&channel_map)) {
+                        } else if let Some(ws_msg) =
+                            Self::process_message(&msg, Arc::clone(&channel_map))
+                        {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -451,7 +478,10 @@ impl BitfinexWs {
     }
 
     /// Process private WebSocket messages
-    async fn process_private_message(msg: &str, authenticated: &Arc<RwLock<bool>>) -> Option<WsMessage> {
+    async fn process_private_message(
+        msg: &str,
+        authenticated: &Arc<RwLock<bool>>,
+    ) -> Option<WsMessage> {
         let json: serde_json::Value = serde_json::from_str(msg).ok()?;
 
         // Handle authentication response
@@ -463,10 +493,13 @@ impl BitfinexWs {
                         *authenticated.write().await = true;
                         return Some(WsMessage::Authenticated);
                     } else {
-                        let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("Authentication failed");
+                        let msg = json
+                            .get("msg")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Authentication failed");
                         return Some(WsMessage::Error(format!("Auth failed: {msg}")));
                     }
-                }
+                },
                 _ => return None,
             }
         }
@@ -490,51 +523,51 @@ impl BitfinexWs {
                         if let Some(wallets) = arr[2].as_array() {
                             return Self::parse_wallet_snapshot(wallets);
                         }
-                    }
+                    },
                     "wu" => {
                         // Wallet update: [0, "wu", [WALLET_TYPE, CURRENCY, BALANCE, ...]]
                         if let Some(wallet) = arr[2].as_array() {
                             return Self::parse_wallet_update(wallet);
                         }
-                    }
+                    },
                     // Order updates
                     "os" => {
                         // Order snapshot: [0, "os", [[ORDER_DATA], ...]]
                         if let Some(orders) = arr[2].as_array() {
                             return Self::parse_order_snapshot(orders);
                         }
-                    }
+                    },
                     "on" | "ou" | "oc" => {
                         // Order new/update/cancel: [0, "on/ou/oc", [ORDER_DATA]]
                         if let Some(order_data) = arr[2].as_array() {
                             return Self::parse_order_update(order_data, msg_type);
                         }
-                    }
+                    },
                     // Position updates
                     "ps" => {
                         // Position snapshot: [0, "ps", [[POSITION_DATA], ...]]
                         if let Some(positions) = arr[2].as_array() {
                             return Self::parse_position_snapshot(positions);
                         }
-                    }
+                    },
                     "pn" | "pu" | "pc" => {
                         // Position new/update/close: [0, "pn/pu/pc", [POSITION_DATA]]
                         if let Some(position_data) = arr[2].as_array() {
                             return Self::parse_position_update(position_data);
                         }
-                    }
+                    },
                     // Trade execution
                     "te" | "tu" => {
                         // Trade executed: [0, "te/tu", [TRADE_DATA]]
                         if let Some(trade_data) = arr[2].as_array() {
                             return Self::parse_my_trade(trade_data);
                         }
-                    }
+                    },
                     "hb" => {
                         // Heartbeat, ignore
                         return None;
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -639,7 +672,10 @@ impl BitfinexWs {
     /// Parse order update
     /// Order format: [ID, GID, CID, SYMBOL, MTS_CREATE, MTS_UPDATE, AMOUNT, AMOUNT_ORIG, TYPE, TYPE_PREV,
     ///                MTS_TIF, _, FLAGS, STATUS, _, _, PRICE, PRICE_AVG, PRICE_TRAILING, PRICE_AUX_LIMIT, ...]
-    fn parse_order_update(order_data: &[serde_json::Value], update_type: &str) -> Option<WsMessage> {
+    fn parse_order_update(
+        order_data: &[serde_json::Value],
+        update_type: &str,
+    ) -> Option<WsMessage> {
         if order_data.len() < 18 {
             return None;
         }
@@ -705,7 +741,11 @@ impl BitfinexWs {
             time_in_force: None,
             side,
             price: Some(price),
-            average: if price_avg != Decimal::ZERO { Some(price_avg) } else { None },
+            average: if price_avg != Decimal::ZERO {
+                Some(price_avg)
+            } else {
+                None
+            },
             amount: amount_orig.abs(),
             filled,
             remaining: Some(amount.abs()),
@@ -857,7 +897,11 @@ impl BitfinexWs {
             symbol: symbol.clone(),
             trade_type: None,
             side: Some(side.to_string()),
-            taker_or_maker: Some(if is_maker { TakerOrMaker::Maker } else { TakerOrMaker::Taker }),
+            taker_or_maker: Some(if is_maker {
+                TakerOrMaker::Maker
+            } else {
+                TakerOrMaker::Taker
+            }),
             price: exec_price,
             amount: exec_amount.abs(),
             cost: Some(exec_price * exec_amount.abs()),
@@ -877,7 +921,10 @@ impl BitfinexWs {
     }
 
     /// 메시지 처리
-    fn process_message(msg: &str, channel_map: Arc<RwLock<HashMap<i64, (String, String)>>>) -> Option<WsMessage> {
+    fn process_message(
+        msg: &str,
+        channel_map: Arc<RwLock<HashMap<i64, (String, String)>>>,
+    ) -> Option<WsMessage> {
         let json: serde_json::Value = serde_json::from_str(msg).ok()?;
 
         // Handle event messages
@@ -908,23 +955,33 @@ impl BitfinexWs {
 
                     tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
-                            channel_map.write().await.insert(chan_id, (channel.to_string(), symbol_value.clone()));
+                            channel_map
+                                .write()
+                                .await
+                                .insert(chan_id, (channel.to_string(), symbol_value.clone()));
                         })
                     });
 
                     return Some(WsMessage::Subscribed {
                         channel: channel.to_string(),
-                        symbol: if symbol_value.is_empty() { None } else { Some(symbol_value) },
+                        symbol: if symbol_value.is_empty() {
+                            None
+                        } else {
+                            Some(symbol_value)
+                        },
                     });
-                }
+                },
                 "info" | "conf" => {
                     // Informational messages, ignore
                     return None;
-                }
+                },
                 "error" => {
-                    let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                    let msg = json
+                        .get("msg")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown error");
                     return Some(WsMessage::Error(msg.to_string()));
-                }
+                },
                 _ => return None,
             }
         }
@@ -941,9 +998,8 @@ impl BitfinexWs {
 
                 // Get channel info
                 let (channel, symbol) = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        channel_map.read().await.get(&chan_id).cloned()
-                    })
+                    tokio::runtime::Handle::current()
+                        .block_on(async { channel_map.read().await.get(&chan_id).cloned() })
                 })?;
 
                 // Parse based on channel type
@@ -952,42 +1008,48 @@ impl BitfinexWs {
                         if let Some(data) = arr[1].as_array() {
                             return Self::parse_ticker(data, &symbol).map(WsMessage::Ticker);
                         }
-                    }
+                    },
                     "book" => {
                         // Check if snapshot or update
-                        let is_snapshot = arr[1].is_array() && arr[1].as_array()?.first()?.is_array();
+                        let is_snapshot =
+                            arr[1].is_array() && arr[1].as_array()?.first()?.is_array();
 
                         if is_snapshot {
                             if let Some(data) = arr[1].as_array() {
-                                return Self::parse_order_book(data, &symbol, true).map(WsMessage::OrderBook);
+                                return Self::parse_order_book(data, &symbol, true)
+                                    .map(WsMessage::OrderBook);
                             }
                         } else if let Some(data) = arr[1].as_array() {
-                            return Self::parse_order_book(data, &symbol, false).map(WsMessage::OrderBook);
+                            return Self::parse_order_book(data, &symbol, false)
+                                .map(WsMessage::OrderBook);
                         }
-                    }
+                    },
                     "trades" => {
                         if let Some(data_wrapper) = arr[1].as_array() {
                             // Check for snapshot or update
                             if data_wrapper.len() >= 2 {
                                 // Update: ["te" or "tu", [trade_data]]
                                 if let Some(trade_data) = data_wrapper[1].as_array() {
-                                    return Self::parse_trade(trade_data, &symbol).map(WsMessage::Trade);
+                                    return Self::parse_trade(trade_data, &symbol)
+                                        .map(WsMessage::Trade);
                                 }
                             } else if !data_wrapper.is_empty() {
                                 // Snapshot: [[trade1], [trade2], ...]
-                                return Self::parse_trade(data_wrapper, &symbol).map(WsMessage::Trade);
+                                return Self::parse_trade(data_wrapper, &symbol)
+                                    .map(WsMessage::Trade);
                             }
                         }
-                    }
+                    },
                     "candles" => {
                         if let Some(data) = arr[1].as_array() {
                             // Determine timeframe from channel info (stored in symbol field)
                             // For candles, we need to extract timeframe from the key
                             let timeframe = Timeframe::Minute1; // Default, should be stored in channel_map
-                            return Self::parse_candle(data, &symbol, timeframe).map(WsMessage::Ohlcv);
+                            return Self::parse_candle(data, &symbol, timeframe)
+                                .map(WsMessage::Ohlcv);
                         }
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -1016,6 +1078,7 @@ impl BitfinexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -1024,7 +1087,10 @@ impl BitfinexWs {
         // 구독 저장
         {
             let key = format!("{channel}:{symbol}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Send subscription message
@@ -1035,7 +1101,10 @@ impl BitfinexWs {
         });
 
         if let Some(p) = params {
-            sub_msg.as_object_mut().unwrap().extend(p.as_object().unwrap().clone());
+            sub_msg
+                .as_object_mut()
+                .unwrap()
+                .extend(p.as_object().unwrap().clone());
         } else {
             // Add symbol for ticker, book, trades
             if channel != "candles" {
@@ -1055,19 +1124,20 @@ impl BitfinexWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
-                        if let Some(ws_msg) = Self::process_message(&msg, Arc::clone(&channel_map)) {
+                        if let Some(ws_msg) = Self::process_message(&msg, Arc::clone(&channel_map))
+                        {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -1103,7 +1173,11 @@ impl WsExchange for BitfinexWs {
         client.subscribe_stream("ticker", symbol, None).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
 
@@ -1125,7 +1199,11 @@ impl WsExchange for BitfinexWs {
         client.subscribe_stream("trades", symbol, None).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let tf = Self::format_timeframe(timeframe);
@@ -1135,7 +1213,9 @@ impl WsExchange for BitfinexWs {
             "key": key,
         });
 
-        client.subscribe_stream("candles", symbol, Some(params)).await
+        client
+            .subscribe_stream("candles", symbol, Some(params))
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -1164,52 +1244,68 @@ impl WsExchange for BitfinexWs {
     // === Private Streams ===
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = Self::with_config(
-            self.config.clone().ok_or_else(|| CcxtError::AuthenticationError {
+        let mut client = Self::with_config(self.config.clone().ok_or_else(|| {
+            CcxtError::AuthenticationError {
                 message: "API key and secret required for private streams".into(),
-            })?,
-        );
+            }
+        })?);
         client.subscribe_private_stream().await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = Self::with_config(
-            self.config.clone().ok_or_else(|| CcxtError::AuthenticationError {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = Self::with_config(self.config.clone().ok_or_else(|| {
+            CcxtError::AuthenticationError {
                 message: "API key and secret required for private streams".into(),
-            })?,
-        );
+            }
+        })?);
         client.subscribe_private_stream().await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = Self::with_config(
-            self.config.clone().ok_or_else(|| CcxtError::AuthenticationError {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = Self::with_config(self.config.clone().ok_or_else(|| {
+            CcxtError::AuthenticationError {
                 message: "API key and secret required for private streams".into(),
-            })?,
-        );
+            }
+        })?);
         client.subscribe_private_stream().await
     }
 
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = Self::with_config(
-            self.config.clone().ok_or_else(|| CcxtError::AuthenticationError {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = Self::with_config(self.config.clone().ok_or_else(|| {
+            CcxtError::AuthenticationError {
                 message: "API key and secret required for private streams".into(),
-            })?,
-        );
+            }
+        })?);
         client.subscribe_private_stream().await
     }
 
     async fn ws_authenticate(&mut self) -> CcxtResult<()> {
-        let config = self.config.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key and secret required for authentication".into(),
-        })?;
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key and secret required for authentication".into(),
+            })?;
 
-        let api_key = config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // If already authenticated, return early
         if *self.authenticated.read().await {
@@ -1225,6 +1321,7 @@ impl WsExchange for BitfinexWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
             self.private_ws_client = Some(ws_client);
         }
@@ -1282,7 +1379,9 @@ mod tests {
 
     #[test]
     fn test_with_config() {
-        let config = ExchangeConfig::new().with_api_key("key").with_api_secret("secret");
+        let config = ExchangeConfig::new()
+            .with_api_key("key")
+            .with_api_secret("secret");
         let ws = BitfinexWs::with_config(config);
         assert!(ws.config.is_some());
         assert!(ws.private_ws_client.is_none());
@@ -1290,7 +1389,9 @@ mod tests {
 
     #[test]
     fn test_clone() {
-        let config = ExchangeConfig::new().with_api_key("key").with_api_secret("secret");
+        let config = ExchangeConfig::new()
+            .with_api_key("key")
+            .with_api_secret("secret");
         let original = BitfinexWs::with_config(config);
         let cloned = original.clone();
         assert!(cloned.config.is_some());
@@ -1320,24 +1421,24 @@ mod tests {
     #[test]
     fn test_parse_order_update() {
         let order = vec![
-            serde_json::json!(12345),       // ID
-            serde_json::json!(null),        // GID
-            serde_json::json!(111),         // CID
-            serde_json::json!("tBTCUSD"),   // SYMBOL
+            serde_json::json!(12345),             // ID
+            serde_json::json!(null),              // GID
+            serde_json::json!(111),               // CID
+            serde_json::json!("tBTCUSD"),         // SYMBOL
             serde_json::json!(1600000000000_i64), // MTS_CREATE
             serde_json::json!(1600000001000_i64), // MTS_UPDATE
-            serde_json::json!(0.5),         // AMOUNT
-            serde_json::json!(1.0),         // AMOUNT_ORIG
-            serde_json::json!("LIMIT"),     // TYPE
-            serde_json::json!("LIMIT"),     // TYPE_PREV
-            serde_json::json!(null),        // MTS_TIF
-            serde_json::json!(null),        // _
-            serde_json::json!(0),           // FLAGS
-            serde_json::json!("ACTIVE"),    // STATUS
-            serde_json::json!(null),        // _
-            serde_json::json!(null),        // _
-            serde_json::json!(50000.0),     // PRICE
-            serde_json::json!(50100.0),     // PRICE_AVG
+            serde_json::json!(0.5),               // AMOUNT
+            serde_json::json!(1.0),               // AMOUNT_ORIG
+            serde_json::json!("LIMIT"),           // TYPE
+            serde_json::json!("LIMIT"),           // TYPE_PREV
+            serde_json::json!(null),              // MTS_TIF
+            serde_json::json!(null),              // _
+            serde_json::json!(0),                 // FLAGS
+            serde_json::json!("ACTIVE"),          // STATUS
+            serde_json::json!(null),              // _
+            serde_json::json!(null),              // _
+            serde_json::json!(50000.0),           // PRICE
+            serde_json::json!(50100.0),           // PRICE_AVG
         ];
         let result = BitfinexWs::parse_order_update(&order, "on");
         assert!(result.is_some());
@@ -1352,17 +1453,17 @@ mod tests {
     #[test]
     fn test_parse_position_update() {
         let position = vec![
-            serde_json::json!("tBTCUSD"),   // SYMBOL
-            serde_json::json!("ACTIVE"),    // STATUS
-            serde_json::json!(0.5),         // AMOUNT
-            serde_json::json!(48000.0),     // BASE_PRICE
-            serde_json::json!(0),           // FUNDING
-            serde_json::json!(0),           // FUNDING_TYPE
-            serde_json::json!(500.0),       // PL
-            serde_json::json!(2.08),        // PL_PERC
-            serde_json::json!(45000.0),     // PRICE_LIQ
-            serde_json::json!(3.0),         // LEVERAGE
-            serde_json::json!(0),           // FLAG
+            serde_json::json!("tBTCUSD"),         // SYMBOL
+            serde_json::json!("ACTIVE"),          // STATUS
+            serde_json::json!(0.5),               // AMOUNT
+            serde_json::json!(48000.0),           // BASE_PRICE
+            serde_json::json!(0),                 // FUNDING
+            serde_json::json!(0),                 // FUNDING_TYPE
+            serde_json::json!(500.0),             // PL
+            serde_json::json!(2.08),              // PL_PERC
+            serde_json::json!(45000.0),           // PRICE_LIQ
+            serde_json::json!(3.0),               // LEVERAGE
+            serde_json::json!(0),                 // FLAG
             serde_json::json!(1600000000000_i64), // MTS_CREATE
             serde_json::json!(1600000001000_i64), // MTS_UPDATE
         ];
@@ -1380,17 +1481,17 @@ mod tests {
     #[test]
     fn test_parse_my_trade() {
         let trade = vec![
-            serde_json::json!(789),         // ID
-            serde_json::json!("tBTCUSD"),   // SYMBOL
+            serde_json::json!(789),               // ID
+            serde_json::json!("tBTCUSD"),         // SYMBOL
             serde_json::json!(1600000000000_i64), // MTS_CREATE
-            serde_json::json!(12345),       // ORDER_ID
-            serde_json::json!(0.1),         // EXEC_AMOUNT
-            serde_json::json!(50000.0),     // EXEC_PRICE
-            serde_json::json!("LIMIT"),     // ORDER_TYPE
-            serde_json::json!(50000.0),     // ORDER_PRICE
-            serde_json::json!(1),           // MAKER (1 = true)
-            serde_json::json!(-0.0001),     // FEE
-            serde_json::json!("BTC"),       // FEE_CURRENCY
+            serde_json::json!(12345),             // ORDER_ID
+            serde_json::json!(0.1),               // EXEC_AMOUNT
+            serde_json::json!(50000.0),           // EXEC_PRICE
+            serde_json::json!("LIMIT"),           // ORDER_TYPE
+            serde_json::json!(50000.0),           // ORDER_PRICE
+            serde_json::json!(1),                 // MAKER (1 = true)
+            serde_json::json!(-0.0001),           // FEE
+            serde_json::json!("BTC"),             // FEE_CURRENCY
         ];
         let result = BitfinexWs::parse_my_trade(&trade);
         assert!(result.is_some());
@@ -1406,11 +1507,8 @@ mod tests {
 
     #[test]
     fn test_generate_auth_signature() {
-        let signature = BitfinexWs::generate_auth_signature(
-            "secret123",
-            1600000000000,
-            "AUTH1600000000000",
-        );
+        let signature =
+            BitfinexWs::generate_auth_signature("secret123", 1600000000000, "AUTH1600000000000");
         assert!(signature.is_ok());
         let sig = signature.unwrap();
         assert!(!sig.is_empty());

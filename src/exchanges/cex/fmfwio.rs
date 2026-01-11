@@ -9,9 +9,8 @@ use std::collections::HashMap;
 use crate::client::ExchangeConfig;
 use crate::errors::CcxtResult;
 use crate::types::{
-    Balances, Currency, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    Order, OrderBook, OrderSide, OrderType, SignedRequest, Ticker, Timeframe, Trade,
-    Transaction, OHLCV,
+    Balances, Currency, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, Order,
+    OrderBook, OrderSide, OrderType, SignedRequest, Ticker, Timeframe, Trade, Transaction, OHLCV,
 };
 
 use super::hitbtc::Hitbtc;
@@ -133,7 +132,9 @@ impl Exchange for Fmfwio {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
-        self.inner.fetch_ohlcv(symbol, timeframe, since, limit).await
+        self.inner
+            .fetch_ohlcv(symbol, timeframe, since, limit)
+            .await
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
@@ -148,7 +149,9 @@ impl Exchange for Fmfwio {
         amount: Decimal,
         price: Option<Decimal>,
     ) -> CcxtResult<Order> {
-        self.inner.create_order(symbol, order_type, side, amount, price).await
+        self.inner
+            .create_order(symbol, order_type, side, amount, price)
+            .await
     }
 
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {

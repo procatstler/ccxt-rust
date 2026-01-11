@@ -17,11 +17,10 @@
 
 use crate::errors::{CcxtError, CcxtResult};
 use k256::ecdsa::{
-    signature::Signer as K256Signer,
-    SigningKey, VerifyingKey, Signature as K256Signature,
-    signature::Verifier,
+    signature::Signer as K256Signer, signature::Verifier, Signature as K256Signature, SigningKey,
+    VerifyingKey,
 };
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /// Cosmos ECDSA 서명 (r, s)
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,7 +70,8 @@ impl CosmosSignature {
     /// Base64 디코딩
     pub fn from_base64(encoded: &str) -> CcxtResult<Self> {
         use base64::Engine;
-        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
             .map_err(|e| CcxtError::InvalidSignature {
                 message: format!("Invalid base64: {e}"),
             })?;
@@ -86,10 +86,9 @@ impl CosmosSignature {
     /// Hex 디코딩
     pub fn from_hex(hex_str: &str) -> CcxtResult<Self> {
         let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-        let bytes = hex::decode(hex_str)
-            .map_err(|e| CcxtError::InvalidSignature {
-                message: format!("Invalid hex: {e}"),
-            })?;
+        let bytes = hex::decode(hex_str).map_err(|e| CcxtError::InvalidSignature {
+            message: format!("Invalid hex: {e}"),
+        })?;
         Self::from_bytes(&bytes)
     }
 }
@@ -121,8 +120,8 @@ pub fn sign_bytes(private_key: &[u8; 32], data: &[u8]) -> CcxtResult<CosmosSigna
 ///
 /// CosmosSignature (r, s)
 pub fn sign_hash(private_key: &[u8; 32], hash: &[u8]) -> CcxtResult<CosmosSignature> {
-    let signing_key = SigningKey::from_bytes(private_key.into())
-        .map_err(|e| CcxtError::InvalidSignature {
+    let signing_key =
+        SigningKey::from_bytes(private_key.into()).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Invalid private key: {e}"),
         })?;
 
@@ -195,10 +194,9 @@ pub fn sign_amino(
     });
 
     // 정렬된 JSON (Amino 요구사항)
-    let json_bytes = serde_json::to_vec(&sign_doc)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("JSON serialization failed: {e}"),
-        })?;
+    let json_bytes = serde_json::to_vec(&sign_doc).map_err(|e| CcxtError::InvalidSignature {
+        message: format!("JSON serialization failed: {e}"),
+    })?;
 
     sign_bytes(private_key, &json_bytes)
 }
@@ -219,8 +217,8 @@ pub fn verify_signature(
     data: &[u8],
     signature: &CosmosSignature,
 ) -> CcxtResult<bool> {
-    let verifying_key = VerifyingKey::from_sec1_bytes(public_key)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let verifying_key =
+        VerifyingKey::from_sec1_bytes(public_key).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Invalid public key: {e}"),
         })?;
 
@@ -229,8 +227,8 @@ pub fn verify_signature(
 
     // 서명 복원
     let sig_bytes = signature.to_bytes();
-    let k256_sig = K256Signature::from_slice(&sig_bytes)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let k256_sig =
+        K256Signature::from_slice(&sig_bytes).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Invalid signature format: {e}"),
         })?;
 
@@ -243,14 +241,14 @@ pub fn verify_hash_signature(
     hash: &[u8],
     signature: &CosmosSignature,
 ) -> CcxtResult<bool> {
-    let verifying_key = VerifyingKey::from_sec1_bytes(public_key)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let verifying_key =
+        VerifyingKey::from_sec1_bytes(public_key).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Invalid public key: {e}"),
         })?;
 
     let sig_bytes = signature.to_bytes();
-    let k256_sig = K256Signature::from_slice(&sig_bytes)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let k256_sig =
+        K256Signature::from_slice(&sig_bytes).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Invalid signature format: {e}"),
         })?;
 
@@ -260,7 +258,7 @@ pub fn verify_hash_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::cosmos::keys::{derive_private_key, coin_type};
+    use crate::crypto::cosmos::keys::{coin_type, derive_private_key};
 
     const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
@@ -309,12 +307,8 @@ mod tests {
         use base64::Engine;
         let data = base64::engine::general_purpose::STANDARD.encode(b"test data");
 
-        let signature = sign_amino(
-            &keypair.private_key,
-            "dydx-testnet-4",
-            "dydx1abc...",
-            &data,
-        ).unwrap();
+        let signature =
+            sign_amino(&keypair.private_key, "dydx-testnet-4", "dydx1abc...", &data).unwrap();
 
         // 서명이 64바이트인지 확인
         assert_eq!(signature.to_bytes().len(), 64);

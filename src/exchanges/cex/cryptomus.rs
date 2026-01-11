@@ -5,20 +5,20 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use once_cell::sync::Lazy;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
-use once_cell::sync::Lazy;
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade,
 };
 
 // Empty timeframes since this exchange doesn't support OHLCV
@@ -80,7 +80,10 @@ impl Cryptomus {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/8e0b1c48-7c01-4177-9224-f1b01d89d7e7".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/8e0b1c48-7c01-4177-9224-f1b01d89d7e7"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://cryptomus.com".into()),
             doc: vec!["https://doc.cryptomus.com/personal".into()],
@@ -130,12 +133,18 @@ impl Cryptomus {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let uid = self.config.uid().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "UID required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let uid = self
+            .config
+            .uid()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "UID required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let mut headers = HashMap::new();
         headers.insert("userId".into(), uid.to_string());
@@ -179,7 +188,9 @@ impl Cryptomus {
         match method {
             "GET" => self.private_client.get(&url, None, Some(headers)).await,
             "POST" => {
-                self.private_client.post(&url, body_json, Some(headers)).await
+                self.private_client
+                    .post(&url, body_json, Some(headers))
+                    .await
             },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
@@ -513,9 +524,8 @@ impl Exchange for Cryptomus {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: CryptomusTickersResponse = self
-            .public_get("/v1/exchange/market/tickers", None)
-            .await?;
+        let response: CryptomusTickersResponse =
+            self.public_get("/v1/exchange/market/tickers", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut tickers = HashMap::new();
@@ -544,9 +554,7 @@ impl Exchange for Cryptomus {
         let mut params = HashMap::new();
         params.insert("level".into(), "0".into());
 
-        let response: CryptomusOrderBookResponse = self
-            .public_get(&path, Some(params))
-            .await?;
+        let response: CryptomusOrderBookResponse = self.public_get(&path, Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .data
@@ -568,18 +576,22 @@ impl Exchange for Cryptomus {
             })
             .collect();
 
-        let timestamp = response.data.timestamp.parse::<i64>().ok().map(|t| t * 1000);
+        let timestamp = response
+            .data
+            .timestamp
+            .parse::<i64>()
+            .ok()
+            .map(|t| t * 1000);
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
             timestamp,
-            datetime: timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -592,9 +604,7 @@ impl Exchange for Cryptomus {
         let market_id = self.to_market_id(symbol);
         let path = format!("/v1/exchange/market/trades/{market_id}");
 
-        let response: CryptomusTradesResponse = self
-            .public_get(&path, None)
-            .await?;
+        let response: CryptomusTradesResponse = self.public_get(&path, None).await?;
 
         let trades: Vec<Trade> = response
             .data
@@ -639,10 +649,14 @@ impl Exchange for Cryptomus {
 
         let mut params = HashMap::new();
         params.insert("market".into(), market_id);
-        params.insert("direction".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.into());
+        params.insert(
+            "direction".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .into(),
+        );
         params.insert("tag".into(), "ccxt".into());
 
         let path = match order_type {
@@ -671,14 +685,15 @@ impl Exchange for Cryptomus {
                 }
                 "/v2/user-api/exchange/orders/market"
             },
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         };
 
-        let response: CryptomusCreateOrderResponse = self
-            .private_request("POST", path, params)
-            .await?;
+        let response: CryptomusCreateOrderResponse =
+            self.private_request("POST", path, params).await?;
 
         // Clone order_id before moving response
         let order_id = response.order_id.clone();
@@ -719,9 +734,8 @@ impl Exchange for Cryptomus {
         let path = format!("/v2/user-api/exchange/orders/{id}");
         let params = HashMap::new();
 
-        let response: CryptomusCancelOrderResponse = self
-            .private_request("DELETE", &path, params)
-            .await?;
+        let response: CryptomusCancelOrderResponse =
+            self.private_request("DELETE", &path, params).await?;
 
         // Return minimal order structure indicating cancellation
         Ok(Order {
@@ -803,7 +817,9 @@ impl Exchange for Cryptomus {
             .result
             .iter()
             .map(|o| {
-                let sym = o.symbol.as_ref()
+                let sym = o
+                    .symbol
+                    .as_ref()
                     .and_then(|s| markets_by_id.get(s))
                     .cloned()
                     .unwrap_or_else(|| o.symbol.clone().unwrap_or_default());

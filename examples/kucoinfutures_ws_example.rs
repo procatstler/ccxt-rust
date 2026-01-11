@@ -36,9 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 3 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -77,9 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 3 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -113,9 +113,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 5 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });
@@ -125,7 +125,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 4: Watch OHLCV candles
     println!("\nExample 4: Watching BTC/USDT:USDT 1-minute candles...");
     let client = KucoinfuturesWs::new(ExchangeConfig::default());
-    let mut ohlcv_rx = client.watch_ohlcv("BTC/USDT:USDT", Timeframe::Minute1).await?;
+    let mut ohlcv_rx = client
+        .watch_ohlcv("BTC/USDT:USDT", Timeframe::Minute1)
+        .await?;
 
     let ohlcv_task = tokio::spawn(async move {
         let mut count = 0;
@@ -147,9 +149,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if count >= 2 {
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => eprintln!("Error: {err}"),
-                _ => {}
+                _ => {},
             }
         }
     });

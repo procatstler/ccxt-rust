@@ -16,15 +16,15 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
-    WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOrderBookEvent,
-    WsOrderEvent, WsOhlcvEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
+    TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
+    WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    OHLCV,
 };
+use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::str::FromStr;
-use base64::{Engine as _, engine::general_purpose};
 
 const BASE_URL: &str = "https://api-futures.kucoin.com";
 
@@ -100,7 +100,11 @@ impl KucoinFuturesWs {
         for quote in &["USDT", "USD", "USDC", "BTC", "ETH"] {
             if let Some(base_currency) = base.strip_suffix(quote) {
                 // Handle XBT -> BTC conversion
-                let base_currency = if base_currency == "XBT" { "BTC" } else { base_currency };
+                let base_currency = if base_currency == "XBT" {
+                    "BTC"
+                } else {
+                    base_currency
+                };
                 return format!("{base_currency}/{quote}:{quote}");
             }
         }
@@ -133,12 +137,16 @@ impl KucoinFuturesWs {
             .post(&url)
             .send()
             .await
-            .map_err(|e| CcxtError::NetworkError { url: url.clone(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: url.clone(),
+                message: e.to_string(),
+            })?;
 
-        let token_response: KucoinFuturesTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| CcxtError::ParseError { data_type: "KucoinFuturesTokenResponse".to_string(), message: e.to_string() })?;
+        let token_response: KucoinFuturesTokenResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
+                data_type: "KucoinFuturesTokenResponse".to_string(),
+                message: e.to_string(),
+            })?;
 
         token_response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Failed to get WebSocket token".into(),
@@ -148,8 +156,8 @@ impl KucoinFuturesWs {
     /// HMAC-SHA256 서명 생성
     fn sign(secret: &str, message: &str) -> String {
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(message.as_bytes());
         let result = mac.finalize();
         general_purpose::STANDARD.encode(result.into_bytes())
@@ -162,15 +170,24 @@ impl KucoinFuturesWs {
 
     /// Private 토큰 가져오기 (인증된 WebSocket 연결에 필요)
     async fn get_private_token(&self) -> CcxtResult<KucoinFuturesWsToken> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".into(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channels".into(),
-        })?;
-        let passphrase = self.passphrase.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required for private channels".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".into(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for private channels".into(),
+                })?;
+        let passphrase =
+            self.passphrase
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Passphrase required for private channels".into(),
+                })?;
 
         let url = format!("{BASE_URL}/api/v1/bullet-private");
         let timestamp = Utc::now().timestamp_millis().to_string();
@@ -188,12 +205,16 @@ impl KucoinFuturesWs {
             .header("KC-API-KEY-VERSION", "2")
             .send()
             .await
-            .map_err(|e| CcxtError::NetworkError { url: url.clone(), message: e.to_string() })?;
+            .map_err(|e| CcxtError::NetworkError {
+                url: url.clone(),
+                message: e.to_string(),
+            })?;
 
-        let token_response: KucoinFuturesTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| CcxtError::ParseError { data_type: "KucoinFuturesTokenResponse".to_string(), message: e.to_string() })?;
+        let token_response: KucoinFuturesTokenResponse =
+            response.json().await.map_err(|e| CcxtError::ParseError {
+                data_type: "KucoinFuturesTokenResponse".to_string(),
+                message: e.to_string(),
+            })?;
 
         token_response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: "Failed to get private WebSocket token".into(),
@@ -203,7 +224,9 @@ impl KucoinFuturesWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &KucoinFuturesTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.ts.map(|t| t / 1_000_000)
+        let timestamp = data
+            .ts
+            .map(|t| t / 1_000_000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
@@ -239,7 +262,11 @@ impl KucoinFuturesWs {
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &KucoinFuturesOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
+    fn parse_order_book(
+        data: &KucoinFuturesOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
         let mut bids: Vec<OrderBookEntry> = Vec::new();
         let mut asks: Vec<OrderBookEntry> = Vec::new();
 
@@ -249,7 +276,10 @@ impl KucoinFuturesWs {
             let parts: Vec<&str> = change.split(',').collect();
             if parts.len() >= 3 {
                 if let (Ok(price), Ok(size)) = (parts[0].parse(), parts[1].parse()) {
-                    let entry = OrderBookEntry { price, amount: size };
+                    let entry = OrderBookEntry {
+                        price,
+                        amount: size,
+                    };
                     if parts[2] == "buy" {
                         bids.push(entry);
                     } else {
@@ -280,7 +310,9 @@ impl KucoinFuturesWs {
             }
         }
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.to_string(),
@@ -293,6 +325,7 @@ impl KucoinFuturesWs {
             nonce: data.sequence,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -306,10 +339,14 @@ impl KucoinFuturesWs {
     fn parse_trade(data: &KucoinFuturesTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.symbol);
         // KuCoin Futures time is in nanoseconds
-        let timestamp = data.ts.map(|t| t / 1_000_000)
+        let timestamp = data
+            .ts
+            .map(|t| t / 1_000_000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.price.parse().unwrap_or_default();
-        let amount: Decimal = data.size.as_ref()
+        let amount: Decimal = data
+            .size
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
 
@@ -385,46 +422,62 @@ impl KucoinFuturesWs {
                 if let (Some(topic), Some(data)) = (&response.topic, &response.data) {
                     // Ticker V2
                     if topic.starts_with("/contractMarket/tickerV2:") {
-                        if let Ok(ticker_data) = serde_json::from_value::<KucoinFuturesTickerData>(data.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<KucoinFuturesTickerData>(data.clone())
+                        {
                             return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                         }
                     }
 
                     // Ticker (legacy)
                     if topic.starts_with("/contractMarket/ticker:") {
-                        if let Ok(ticker_data) = serde_json::from_value::<KucoinFuturesTickerData>(data.clone()) {
+                        if let Ok(ticker_data) =
+                            serde_json::from_value::<KucoinFuturesTickerData>(data.clone())
+                        {
                             return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                         }
                     }
 
                     // Level2 OrderBook
                     if topic.starts_with("/contractMarket/level2:") {
-                        if let Ok(ob_data) = serde_json::from_value::<KucoinFuturesOrderBookData>(data.clone()) {
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<KucoinFuturesOrderBookData>(data.clone())
+                        {
                             let symbol_part = topic.trim_start_matches("/contractMarket/level2:");
                             let symbol = Self::to_unified_symbol(symbol_part);
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol, false)));
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data, &symbol, false,
+                            )));
                         }
                     }
 
                     // Level2 Depth (snapshot)
                     if topic.starts_with("/contractMarket/level2Depth") {
-                        if let Ok(ob_data) = serde_json::from_value::<KucoinFuturesOrderBookData>(data.clone()) {
+                        if let Ok(ob_data) =
+                            serde_json::from_value::<KucoinFuturesOrderBookData>(data.clone())
+                        {
                             let symbol_part = topic.split(':').nth(1).unwrap_or("");
                             let symbol = Self::to_unified_symbol(symbol_part);
-                            return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol, true)));
+                            return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                &ob_data, &symbol, true,
+                            )));
                         }
                     }
 
                     // Execution (trades)
                     if topic.starts_with("/contractMarket/execution:") {
-                        if let Ok(trade_data) = serde_json::from_value::<KucoinFuturesTradeData>(data.clone()) {
+                        if let Ok(trade_data) =
+                            serde_json::from_value::<KucoinFuturesTradeData>(data.clone())
+                        {
                             return Some(WsMessage::Trade(Self::parse_trade(&trade_data)));
                         }
                     }
 
                     // Candles
                     if topic.starts_with("/contractMarket/candle:") {
-                        if let Ok(candle_data) = serde_json::from_value::<KucoinFuturesCandleData>(data.clone()) {
+                        if let Ok(candle_data) =
+                            serde_json::from_value::<KucoinFuturesCandleData>(data.clone())
+                        {
                             // Extract timeframe from topic (e.g., "/contractMarket/candle:XBTUSDTM_1")
                             let parts: Vec<&str> = topic.split('_').collect();
                             let timeframe = if parts.len() >= 2 {
@@ -456,7 +509,9 @@ impl KucoinFuturesWs {
 
                     // Order updates (/contractMarket/tradeOrders)
                     if topic.starts_with("/contractMarket/tradeOrders") {
-                        if let Ok(order_data) = serde_json::from_value::<KucoinFuturesOrderData>(data.clone()) {
+                        if let Ok(order_data) =
+                            serde_json::from_value::<KucoinFuturesOrderData>(data.clone())
+                        {
                             // Check if this is a trade (match) event
                             if order_data.order_type.as_deref() == Some("match") {
                                 if let Some(trade_event) = Self::parse_my_trade(&order_data) {
@@ -472,7 +527,9 @@ impl KucoinFuturesWs {
 
                     // Balance updates (/contractAccount/wallet)
                     if topic.starts_with("/contractAccount/wallet") {
-                        if let Ok(balance_data) = serde_json::from_value::<KucoinFuturesBalanceData>(data.clone()) {
+                        if let Ok(balance_data) =
+                            serde_json::from_value::<KucoinFuturesBalanceData>(data.clone())
+                        {
                             if let Some(balance_event) = Self::parse_balance_update(&balance_data) {
                                 return Some(WsMessage::Balance(balance_event));
                             }
@@ -496,7 +553,9 @@ impl KucoinFuturesWs {
     fn parse_order_update(data: &KucoinFuturesOrderData) -> Option<WsOrderEvent> {
         let symbol = Self::to_unified_symbol(&data.symbol);
         // KuCoin Futures timestamp is in nanoseconds, convert to milliseconds
-        let timestamp_ms = data.ts.map(|t| t / 1_000_000)
+        let timestamp_ms = data
+            .ts
+            .map(|t| t / 1_000_000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let side = match data.side.as_str() {
@@ -519,12 +578,18 @@ impl KucoinFuturesWs {
             Some("match") => OrderStatus::Open, // Partial fill
             Some("done") => {
                 // Check if canceled or filled
-                if data.remain_size.as_ref().and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default() > Decimal::ZERO {
+                if data
+                    .remain_size
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or_default()
+                    > Decimal::ZERO
+                {
                     OrderStatus::Canceled
                 } else {
                     OrderStatus::Closed
                 }
-            }
+            },
             Some("canceled") => OrderStatus::Canceled,
             _ => OrderStatus::Open,
         };
@@ -539,12 +604,20 @@ impl KucoinFuturesWs {
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
         let amount = data.size.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let filled = data.filled_size.as_ref().and_then(|s| Decimal::from_str(s).ok());
-        let remaining = data.remain_size.as_ref().and_then(|s| Decimal::from_str(s).ok());
+        let filled = data
+            .filled_size
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
+        let remaining = data
+            .remain_size
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok());
 
         let average = if let (Some(_amt), Some(fill)) = (amount, filled) {
             if fill > Decimal::ZERO {
-                data.fill_price.as_ref().and_then(|p| Decimal::from_str(p).ok())
+                data.fill_price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok())
             } else {
                 None
             }
@@ -558,13 +631,15 @@ impl KucoinFuturesWs {
             None
         };
 
-        let fee = data.fee.as_ref().and_then(|f| Decimal::from_str(f).ok()).map(|fee_amount| {
-            Fee {
+        let fee = data
+            .fee
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok())
+            .map(|fee_amount| Fee {
                 currency: data.fee_currency.clone(),
                 cost: Some(fee_amount),
                 rate: None,
-            }
-        });
+            });
 
         let is_post_only = data.time_in_force.as_deref() == Some("GTX");
 
@@ -586,7 +661,10 @@ impl KucoinFuturesWs {
             side,
             price,
             trigger_price: None,
-            stop_price: data.stop_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            stop_price: data
+                .stop_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             take_profit_price: None,
             stop_loss_price: None,
             average,
@@ -614,11 +692,19 @@ impl KucoinFuturesWs {
 
         let symbol = Self::to_unified_symbol(&data.symbol);
         // KuCoin Futures timestamp is in nanoseconds, convert to milliseconds
-        let timestamp_ms = data.ts.map(|t| t / 1_000_000)
+        let timestamp_ms = data
+            .ts
+            .map(|t| t / 1_000_000)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let match_size = data.match_size.as_ref().and_then(|s| Decimal::from_str(s).ok())?;
-        let match_price = data.match_price.as_ref().and_then(|p| Decimal::from_str(p).ok())?;
+        let match_size = data
+            .match_size
+            .as_ref()
+            .and_then(|s| Decimal::from_str(s).ok())?;
+        let match_price = data
+            .match_price
+            .as_ref()
+            .and_then(|p| Decimal::from_str(p).ok())?;
 
         if match_size == Decimal::ZERO {
             return None;
@@ -631,13 +717,15 @@ impl KucoinFuturesWs {
             Some(TakerOrMaker::Maker)
         };
 
-        let fee = data.fee.as_ref().and_then(|f| Decimal::from_str(f).ok()).map(|fee_amount| {
-            Fee {
+        let fee = data
+            .fee
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok())
+            .map(|fee_amount| Fee {
                 currency: data.fee_currency.clone(),
                 cost: Some(fee_amount),
                 rate: None,
-            }
-        });
+            });
 
         let trade = Trade {
             id: data.trade_id.clone().unwrap_or_default(),
@@ -671,9 +759,13 @@ impl KucoinFuturesWs {
         let timestamp = data.time.unwrap_or_else(|| Utc::now().timestamp_millis());
         let mut currencies: HashMap<String, Balance> = HashMap::new();
 
-        let total = data.account_equity.as_ref()
+        let total = data
+            .account_equity
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok());
-        let available = data.available_balance.as_ref()
+        let available = data
+            .available_balance
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok());
         let used = match (total, available) {
             (Some(t), Some(a)) => Some(t - a),
@@ -704,16 +796,29 @@ impl KucoinFuturesWs {
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
-    async fn subscribe_stream(&mut self, topics: Vec<String>, channel: &str, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        topics: Vec<String>,
+        channel: &str,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
         // Get WebSocket token
         let token_data = Self::get_public_token().await?;
-        let server = token_data.instance_servers.first()
-            .ok_or_else(|| CcxtError::ExchangeError { message: "No WebSocket server available".into() })?;
+        let server =
+            token_data
+                .instance_servers
+                .first()
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "No WebSocket server available".into(),
+                })?;
 
-        let ws_url = format!("{}?token={}&connectId={}", server.endpoint, token_data.token, self.connect_id);
+        let ws_url = format!(
+            "{}?token={}&connectId={}",
+            server.endpoint, token_data.token, self.connect_id
+        );
 
         let ping_interval = (server.ping_interval.unwrap_or(18000) / 1000) as u64;
 
@@ -724,6 +829,7 @@ impl KucoinFuturesWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: ping_interval,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -746,7 +852,10 @@ impl KucoinFuturesWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -756,19 +865,19 @@ impl KucoinFuturesWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -777,16 +886,28 @@ impl KucoinFuturesWs {
     }
 
     /// Private 채널 구독 (인증 필요)
-    async fn subscribe_private_stream(&mut self, topics: Vec<String>, channel: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_private_stream(
+        &mut self,
+        topics: Vec<String>,
+        channel: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
         // Get private WebSocket token (requires authentication)
         let token_data = self.get_private_token().await?;
-        let server = token_data.instance_servers.first()
-            .ok_or_else(|| CcxtError::ExchangeError { message: "No WebSocket server available".into() })?;
+        let server =
+            token_data
+                .instance_servers
+                .first()
+                .ok_or_else(|| CcxtError::ExchangeError {
+                    message: "No WebSocket server available".into(),
+                })?;
 
-        let ws_url = format!("{}?token={}&connectId={}", server.endpoint, token_data.token, self.connect_id);
+        let ws_url = format!(
+            "{}?token={}&connectId={}",
+            server.endpoint, token_data.token, self.connect_id
+        );
 
         let ping_interval = (server.ping_interval.unwrap_or(18000) / 1000) as u64;
 
@@ -797,6 +918,7 @@ impl KucoinFuturesWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: ping_interval,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -819,7 +941,10 @@ impl KucoinFuturesWs {
         // Store subscription
         {
             let key = format!("private:{channel}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Send authenticated message
@@ -832,19 +957,19 @@ impl KucoinFuturesWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -865,18 +990,28 @@ impl WsExchange for KucoinFuturesWs {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let topics = vec![format!("/contractMarket/tickerV2:{}", market_id)];
-        client.subscribe_stream(topics, "ticker", Some(symbol)).await
+        client
+            .subscribe_stream(topics, "ticker", Some(symbol))
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let topics: Vec<String> = symbols.iter()
+        let topics: Vec<String> = symbols
+            .iter()
             .map(|s| format!("/contractMarket/tickerV2:{}", Self::format_symbol(s)))
             .collect();
         client.subscribe_stream(topics, "tickers", None).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         // Use level2Depth5 or level2Depth50 for snapshots
@@ -886,17 +1021,25 @@ impl WsExchange for KucoinFuturesWs {
             _ => format!("/contractMarket/level2:{market_id}"),
         };
         let topics = vec![topic];
-        client.subscribe_stream(topics, "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream(topics, "orderBook", Some(symbol))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let topics = vec![format!("/contractMarket/execution:{}", market_id)];
-        client.subscribe_stream(topics, "trades", Some(symbol)).await
+        client
+            .subscribe_stream(topics, "trades", Some(symbol))
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
@@ -936,9 +1079,15 @@ impl WsExchange for KucoinFuturesWs {
         Ok(())
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if let (Some(key), Some(secret), Some(pass)) =
-            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) = (
+            self.api_key.as_ref(),
+            self.api_secret.as_ref(),
+            self.passphrase.as_ref(),
+        ) {
             Self::with_credentials(key, secret, pass)
         } else {
             return Err(CcxtError::AuthenticationError {
@@ -955,9 +1104,15 @@ impl WsExchange for KucoinFuturesWs {
         client.subscribe_private_stream(vec![topic], "orders").await
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if let (Some(key), Some(secret), Some(pass)) =
-            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) = (
+            self.api_key.as_ref(),
+            self.api_secret.as_ref(),
+            self.passphrase.as_ref(),
+        ) {
             Self::with_credentials(key, secret, pass)
         } else {
             return Err(CcxtError::AuthenticationError {
@@ -972,12 +1127,17 @@ impl WsExchange for KucoinFuturesWs {
             "/contractMarket/tradeOrders".to_string()
         };
 
-        client.subscribe_private_stream(vec![topic], "myTrades").await
+        client
+            .subscribe_private_stream(vec![topic], "myTrades")
+            .await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
-        let mut client = if let (Some(key), Some(secret), Some(pass)) =
-            (self.api_key.as_ref(), self.api_secret.as_ref(), self.passphrase.as_ref()) {
+        let mut client = if let (Some(key), Some(secret), Some(pass)) = (
+            self.api_key.as_ref(),
+            self.api_secret.as_ref(),
+            self.passphrase.as_ref(),
+        ) {
             Self::with_credentials(key, secret, pass)
         } else {
             return Err(CcxtError::AuthenticationError {
@@ -986,7 +1146,9 @@ impl WsExchange for KucoinFuturesWs {
         };
 
         let topic = "/contractAccount/wallet".to_string();
-        client.subscribe_private_stream(vec![topic], "balance").await
+        client
+            .subscribe_private_stream(vec![topic], "balance")
+            .await
     }
 }
 
@@ -1181,8 +1343,14 @@ mod tests {
 
     #[test]
     fn test_to_unified_symbol() {
-        assert_eq!(KucoinFuturesWs::to_unified_symbol("XBTUSDTM"), "BTC/USDT:USDT");
-        assert_eq!(KucoinFuturesWs::to_unified_symbol("ETHUSDTM"), "ETH/USDT:USDT");
+        assert_eq!(
+            KucoinFuturesWs::to_unified_symbol("XBTUSDTM"),
+            "BTC/USDT:USDT"
+        );
+        assert_eq!(
+            KucoinFuturesWs::to_unified_symbol("ETHUSDTM"),
+            "ETH/USDT:USDT"
+        );
         assert_eq!(KucoinFuturesWs::to_unified_symbol("BTCUSDM"), "BTC/USD:USD");
     }
 
@@ -1239,7 +1407,10 @@ mod tests {
         let trade_event = event.unwrap();
         assert_eq!(trade_event.symbol, "BTC/USDT:USDT");
         assert!(!trade_event.trades.is_empty());
-        assert_eq!(trade_event.trades[0].amount, Decimal::from_str("0.5").unwrap());
+        assert_eq!(
+            trade_event.trades[0].amount,
+            Decimal::from_str("0.5").unwrap()
+        );
     }
 
     #[test]
@@ -1251,8 +1422,14 @@ mod tests {
         let balance_event = event.unwrap();
         assert!(balance_event.balances.currencies.contains_key("USDT"));
         let usdt_balance = balance_event.balances.currencies.get("USDT").unwrap();
-        assert_eq!(usdt_balance.free, Some(Decimal::from_str("9000.00").unwrap()));
-        assert_eq!(usdt_balance.total, Some(Decimal::from_str("10000.00").unwrap()));
+        assert_eq!(
+            usdt_balance.free,
+            Some(Decimal::from_str("9000.00").unwrap())
+        );
+        assert_eq!(
+            usdt_balance.total,
+            Some(Decimal::from_str("10000.00").unwrap())
+        );
     }
 
     #[test]

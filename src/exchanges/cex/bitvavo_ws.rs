@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Exchange, OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, OHLCV,
-    WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    Exchange, OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage,
+    WsOhlcvEvent, WsOrderBookEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 use super::bitvavo::Bitvavo;
@@ -74,7 +74,9 @@ impl BitvavoWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &BitvavoWsTicker, market: &str) -> WsTickerEvent {
         let unified_symbol = Self::to_unified_symbol(market);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: unified_symbol.clone(),
@@ -146,6 +148,7 @@ impl BitvavoWs {
             nonce: data.nonce,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -158,7 +161,9 @@ impl BitvavoWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &BitvavoWsTrade, market: &str) -> Trade {
         let unified_symbol = Self::to_unified_symbol(market);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Trade {
             id: data.id.clone(),
@@ -175,9 +180,7 @@ impl BitvavoWs {
             taker_or_maker: None,
             price: data.price.unwrap_or_default(),
             amount: data.amount.unwrap_or_default(),
-            cost: data
-                .price
-                .and_then(|p| data.amount.map(|a| p * a)),
+            cost: data.price.and_then(|p| data.amount.map(|a| p * a)),
             fee: None,
             fees: Vec::new(),
             info: serde_json::to_value(data).unwrap_or_default(),
@@ -192,21 +195,11 @@ impl BitvavoWs {
 
         Some(OHLCV {
             timestamp: candle[0].as_i64()?,
-            open: candle[1]
-                .as_str()
-                .and_then(|s| Decimal::from_str(s).ok())?,
-            high: candle[2]
-                .as_str()
-                .and_then(|s| Decimal::from_str(s).ok())?,
-            low: candle[3]
-                .as_str()
-                .and_then(|s| Decimal::from_str(s).ok())?,
-            close: candle[4]
-                .as_str()
-                .and_then(|s| Decimal::from_str(s).ok())?,
-            volume: candle[5]
-                .as_str()
-                .and_then(|s| Decimal::from_str(s).ok())?,
+            open: candle[1].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+            high: candle[2].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+            low: candle[3].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+            close: candle[4].as_str().and_then(|s| Decimal::from_str(s).ok())?,
+            volume: candle[5].as_str().and_then(|s| Decimal::from_str(s).ok())?,
         })
     }
 
@@ -227,17 +220,19 @@ impl BitvavoWs {
                         symbol: None,
                     });
                 }
-            }
+            },
             "ticker24h" => {
                 let data = value.get("data")?.as_array()?;
                 if let Some(ticker_data) = data.first() {
-                    if let Ok(ticker) = serde_json::from_value::<BitvavoWsTicker>(ticker_data.clone()) {
+                    if let Ok(ticker) =
+                        serde_json::from_value::<BitvavoWsTicker>(ticker_data.clone())
+                    {
                         if let Some(market) = ticker.market.as_ref() {
                             return Some(WsMessage::Ticker(Self::parse_ticker(&ticker, market)));
                         }
                     }
                 }
-            }
+            },
             "book" => {
                 let market = value.get("market")?.as_str()?;
                 if let Ok(ob_data) = serde_json::from_value::<BitvavoWsOrderBook>(value.clone()) {
@@ -249,7 +244,7 @@ impl BitvavoWs {
                         is_snapshot,
                     )));
                 }
-            }
+            },
             "trade" => {
                 let market = value.get("market")?.as_str()?;
                 if let Ok(trade) = serde_json::from_value::<BitvavoWsTrade>(value.clone()) {
@@ -259,7 +254,7 @@ impl BitvavoWs {
                         trades,
                     }));
                 }
-            }
+            },
             "candle" => {
                 let market = value.get("market")?.as_str()?;
                 let interval = value.get("interval")?.as_str()?;
@@ -292,8 +287,8 @@ impl BitvavoWs {
                         }
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -316,6 +311,7 @@ impl BitvavoWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -356,19 +352,19 @@ impl BitvavoWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -453,6 +449,7 @@ impl WsExchange for BitvavoWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             self.ws_client = Some(ws_client);

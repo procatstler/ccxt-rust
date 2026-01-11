@@ -13,15 +13,15 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+use super::binance_ws::BinanceWs;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    Transaction, WsExchange, WsMessage, OHLCV,
+    Balance, Balances, ConvertCurrencyPair, ConvertQuote, ConvertTrade, Exchange, ExchangeFeatures,
+    ExchangeId, ExchangeUrls, Market, MarketLimits, MarketPrecision, MarketType, Order, OrderBook,
+    OrderBookEntry, OrderSide, OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker,
+    TimeInForce, Timeframe, Trade, Transaction, WsExchange, WsMessage, OHLCV,
 };
-use super::binance_ws::BinanceWs;
 use std::sync::Arc;
 use tokio::sync::RwLock as TokioRwLock;
 
@@ -174,12 +174,18 @@ impl Binance {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -194,8 +200,8 @@ impl Binance {
             .join("&");
 
         // Create HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -209,9 +215,14 @@ impl Binance {
         match method {
             "GET" => self.private_client.get(&url, None, Some(headers)).await,
             "POST" => {
-                headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
-                self.private_client.post(&format!("{path}?{signed_query}"), None, Some(headers)).await
-            }
+                headers.insert(
+                    "Content-Type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
+                self.private_client
+                    .post(&format!("{path}?{signed_query}"), None, Some(headers))
+                    .await
+            },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -232,7 +243,9 @@ impl Binance {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &BinanceTicker, symbol: &str) -> Ticker {
-        let timestamp = data.close_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .close_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -292,18 +305,24 @@ impl Binance {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
         let amount: Decimal = data.orig_qty.parse().unwrap_or_default();
         let filled: Decimal = data.executed_qty.parse().unwrap_or_default();
         let remaining = Some(amount - filled);
-        let cost = data.cummulative_quote_qty.as_ref().and_then(|c| c.parse().ok());
+        let cost = data
+            .cummulative_quote_qty
+            .as_ref()
+            .and_then(|c| c.parse().ok());
         let average = if filled > Decimal::ZERO {
             cost.map(|c| c / filled)
         } else {
@@ -374,7 +393,7 @@ impl Binance {
         let status = match data.status {
             0 => crate::types::TransactionStatus::Pending,
             1 => crate::types::TransactionStatus::Ok,
-            6 => crate::types::TransactionStatus::Pending,  // credited but cannot withdraw
+            6 => crate::types::TransactionStatus::Pending, // credited but cannot withdraw
             _ => crate::types::TransactionStatus::Pending,
         };
 
@@ -405,23 +424,25 @@ impl Binance {
     /// 출금 내역 파싱
     fn parse_withdrawal(&self, data: &BinanceWithdrawal) -> Transaction {
         let status = match data.status {
-            0 => crate::types::TransactionStatus::Pending,  // Email sent
+            0 => crate::types::TransactionStatus::Pending, // Email sent
             1 => crate::types::TransactionStatus::Canceled,
-            2 => crate::types::TransactionStatus::Pending,  // Awaiting approval
-            3 => crate::types::TransactionStatus::Failed,   // Rejected
-            4 => crate::types::TransactionStatus::Pending,  // Processing
+            2 => crate::types::TransactionStatus::Pending, // Awaiting approval
+            3 => crate::types::TransactionStatus::Failed,  // Rejected
+            4 => crate::types::TransactionStatus::Pending, // Processing
             5 => crate::types::TransactionStatus::Failed,
             6 => crate::types::TransactionStatus::Ok,
             _ => crate::types::TransactionStatus::Pending,
         };
 
-        let fee = data.transaction_fee.parse::<Decimal>().ok().map(|cost| {
-            crate::types::Fee {
+        let fee = data
+            .transaction_fee
+            .parse::<Decimal>()
+            .ok()
+            .map(|cost| crate::types::Fee {
                 cost: Some(cost),
                 currency: Some(data.coin.clone()),
                 rate: None,
-            }
-        });
+            });
 
         Transaction {
             id: data.id.clone(),
@@ -508,9 +529,7 @@ impl Exchange for Binance {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BinanceExchangeInfo = self
-            .public_get("/api/v3/exchangeInfo", None)
-            .await?;
+        let response: BinanceExchangeInfo = self.public_get("/api/v3/exchangeInfo", None).await?;
 
         let mut markets = Vec::new();
 
@@ -578,17 +597,13 @@ impl Exchange for Binance {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: BinanceTicker = self
-            .public_get("/api/v3/ticker/24hr", Some(params))
-            .await?;
+        let response: BinanceTicker = self.public_get("/api/v3/ticker/24hr", Some(params)).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: Vec<BinanceTicker> = self
-            .public_get("/api/v3/ticker/24hr", None)
-            .await?;
+        let response: Vec<BinanceTicker> = self.public_get("/api/v3/ticker/24hr", None).await?;
 
         let _markets = self.markets.read().unwrap();
         let markets_by_id = self.markets_by_id.read().unwrap();
@@ -620,9 +635,7 @@ impl Exchange for Binance {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: BinanceOrderBook = self
-            .public_get("/api/v3/depth", Some(params))
-            .await?;
+        let response: BinanceOrderBook = self.public_get("/api/v3/depth", Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .bids
@@ -649,6 +662,7 @@ impl Exchange for Binance {
             nonce: Some(response.last_update_id),
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -665,9 +679,7 @@ impl Exchange for Binance {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<BinanceTrade> = self
-            .public_get("/api/v3/trades", Some(params))
-            .await?;
+        let response: Vec<BinanceTrade> = self.public_get("/api/v3/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -715,9 +727,12 @@ impl Exchange for Binance {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -729,9 +744,8 @@ impl Exchange for Binance {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self
-            .public_get("/api/v3/klines", Some(params))
-            .await?;
+        let response: Vec<Vec<serde_json::Value>> =
+            self.public_get("/api/v3/klines", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
@@ -775,22 +789,32 @@ impl Exchange for Binance {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT",
-            OrderType::Market => "MARKET",
-            OrderType::LimitMaker => "LIMIT_MAKER",
-            OrderType::StopLoss => "STOP_LOSS",
-            OrderType::StopLossLimit => "STOP_LOSS_LIMIT",
-            OrderType::TakeProfit => "TAKE_PROFIT",
-            OrderType::TakeProfitLimit => "TAKE_PROFIT_LIMIT",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT",
+                OrderType::Market => "MARKET",
+                OrderType::LimitMaker => "LIMIT_MAKER",
+                OrderType::StopLoss => "STOP_LOSS",
+                OrderType::StopLossLimit => "STOP_LOSS_LIMIT",
+                OrderType::TakeProfit => "TAKE_PROFIT",
+                OrderType::TakeProfitLimit => "TAKE_PROFIT_LIMIT",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("quantity".into(), amount.to_string());
 
         if order_type == OrderType::Limit || order_type == OrderType::LimitMaker {
@@ -829,9 +853,7 @@ impl Exchange for Binance {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: BinanceOrder = self
-            .private_request("GET", "/api/v3/order", params)
-            .await?;
+        let response: BinanceOrder = self.private_request("GET", "/api/v3/order", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -871,10 +893,8 @@ impl Exchange for Binance {
     // === Phase 5 API Implementations ===
 
     async fn fetch_time(&self) -> CcxtResult<i64> {
-        let response: BinanceServerTime = self
-            .public_client
-            .get("/api/v3/time", None, None)
-            .await?;
+        let response: BinanceServerTime =
+            self.public_client.get("/api/v3/time", None, None).await?;
 
         Ok(response.server_time)
     }
@@ -1131,7 +1151,12 @@ impl Exchange for Binance {
         // Filter to only closed orders
         let orders: Vec<Order> = response
             .iter()
-            .filter(|o| o.status == "FILLED" || o.status == "CANCELED" || o.status == "EXPIRED" || o.status == "REJECTED")
+            .filter(|o| {
+                o.status == "FILLED"
+                    || o.status == "CANCELED"
+                    || o.status == "EXPIRED"
+                    || o.status == "REJECTED"
+            })
             .map(|o| self.parse_order(o, symbol))
             .collect();
 
@@ -1160,10 +1185,8 @@ impl Exchange for Binance {
             .private_request("GET", "/sapi/v1/capital/deposit/hisrec", params)
             .await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|d| self.parse_deposit(d))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|d| self.parse_deposit(d)).collect();
 
         Ok(transactions)
     }
@@ -1190,10 +1213,8 @@ impl Exchange for Binance {
             .private_request("GET", "/sapi/v1/capital/withdraw/history", params)
             .await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|w| self.parse_withdrawal(w))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|w| self.parse_withdrawal(w)).collect();
 
         Ok(transactions)
     }
@@ -1214,9 +1235,11 @@ impl Exchange for Binance {
             .private_request("GET", "/sapi/v1/capital/deposit/address", params)
             .await?;
 
-        Ok(crate::types::DepositAddress::new(response.coin, response.address)
-            .with_network(response.network)
-            .with_tag(response.tag))
+        Ok(
+            crate::types::DepositAddress::new(response.coin, response.address)
+                .with_network(response.network)
+                .with_tag(response.tag),
+        )
     }
 
     async fn withdraw(
@@ -1420,7 +1443,10 @@ impl Exchange for Binance {
             message: format!("No borrow rate data for {code}"),
         })?;
 
-        let rate = rate_data.daily_interest_rate.parse::<Decimal>().unwrap_or_default();
+        let rate = rate_data
+            .daily_interest_rate
+            .parse::<Decimal>()
+            .unwrap_or_default();
         let _timestamp = rate_data.timestamp;
 
         Ok(crate::types::CrossBorrowRate::new(rate)
@@ -1450,9 +1476,15 @@ impl Exchange for Binance {
             let quote_data = &data.data[1];
             (
                 base_data.coin.clone(),
-                base_data.daily_interest.parse::<Decimal>().unwrap_or_default(),
+                base_data
+                    .daily_interest
+                    .parse::<Decimal>()
+                    .unwrap_or_default(),
                 quote_data.coin.clone(),
-                quote_data.daily_interest.parse::<Decimal>().unwrap_or_default(),
+                quote_data
+                    .daily_interest
+                    .parse::<Decimal>()
+                    .unwrap_or_default(),
             )
         } else {
             return Err(CcxtError::ExchangeError {
@@ -1461,12 +1493,192 @@ impl Exchange for Binance {
         };
 
         Ok(crate::types::IsolatedBorrowRate::new(
-            symbol,
-            base,
-            base_rate,
-            quote,
-            quote_rate,
+            symbol, base, base_rate, quote, quote_rate,
         ))
+    }
+
+    // === Convert API ===
+
+    /// Fetch available convert currency pairs
+    async fn fetch_convert_currencies(&self) -> CcxtResult<Vec<ConvertCurrencyPair>> {
+        let params: HashMap<String, String> = HashMap::new();
+        let response: Vec<BinanceConvertPair> = self
+            .private_request("GET", "/sapi/v1/convert/exchangeInfo", params)
+            .await?;
+
+        let pairs = response
+            .into_iter()
+            .map(|pair| {
+                let mut cp = ConvertCurrencyPair::new(&pair.from_asset, &pair.to_asset);
+                cp.min_amount = pair.from_asset_min_amount.parse().ok();
+                cp.max_amount = pair.from_asset_max_amount.parse().ok();
+                cp.info = serde_json::to_value(&pair).unwrap_or_default();
+                cp
+            })
+            .collect();
+
+        Ok(pairs)
+    }
+
+    /// Get a convert quote
+    async fn fetch_convert_quote(
+        &self,
+        from_code: &str,
+        to_code: &str,
+        amount: Decimal,
+    ) -> CcxtResult<ConvertQuote> {
+        let mut params = HashMap::new();
+        params.insert("fromAsset".to_string(), from_code.to_string());
+        params.insert("toAsset".to_string(), to_code.to_string());
+        params.insert("fromAmount".to_string(), amount.to_string());
+        params.insert("walletType".to_string(), "SPOT".to_string());
+
+        let response: BinanceConvertQuote = self
+            .private_request("POST", "/sapi/v1/convert/getQuote", params)
+            .await?;
+
+        let timestamp = Utc::now().timestamp_millis();
+        let ratio: Decimal = response.ratio.parse().unwrap_or_default();
+        let to_amount: Decimal = response.to_amount.parse().unwrap_or_default();
+
+        let mut quote = ConvertQuote::new(&response.quote_id, from_code, to_code, amount, ratio);
+        quote.to_amount = Some(to_amount);
+        quote.timestamp = Some(timestamp);
+        quote.datetime = Some(Utc::now().to_rfc3339());
+        quote.expire_timestamp = response.valid_time;
+        quote.info = serde_json::to_value(&response).unwrap_or_default();
+
+        Ok(quote)
+    }
+
+    /// Accept a convert quote and execute the trade
+    async fn create_convert_trade(&self, quote_id: &str) -> CcxtResult<ConvertTrade> {
+        let mut params = HashMap::new();
+        params.insert("quoteId".to_string(), quote_id.to_string());
+
+        let response: BinanceConvertResult = self
+            .private_request("POST", "/sapi/v1/convert/acceptQuote", params)
+            .await?;
+
+        let from_amount: Decimal = response.from_amount.parse().unwrap_or_default();
+        let to_amount: Decimal = response.to_amount.parse().unwrap_or_default();
+        let ratio = if from_amount > Decimal::ZERO {
+            to_amount / from_amount
+        } else {
+            Decimal::ZERO
+        };
+
+        let mut trade = ConvertTrade::new(
+            &response.order_id,
+            &response.from_asset,
+            &response.to_asset,
+            from_amount,
+            to_amount,
+            ratio,
+        );
+        trade.timestamp = response.create_time;
+        trade.datetime = response.create_time.map(|t| {
+            chrono::DateTime::from_timestamp_millis(t)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+        });
+        trade.info = serde_json::to_value(&response).unwrap_or_default();
+        trade.status = Some(response.order_status);
+
+        Ok(trade)
+    }
+
+    /// Fetch a convert trade by ID
+    async fn fetch_convert_trade(&self, id: &str) -> CcxtResult<ConvertTrade> {
+        let mut params = HashMap::new();
+        params.insert("orderId".to_string(), id.to_string());
+
+        let response: BinanceConvertOrder = self
+            .private_request("GET", "/sapi/v1/convert/orderStatus", params)
+            .await?;
+
+        let from_amount: Decimal = response.from_amount.parse().unwrap_or_default();
+        let to_amount: Decimal = response.to_amount.parse().unwrap_or_default();
+        let ratio: Decimal = response.ratio.parse().unwrap_or_default();
+
+        let mut trade = ConvertTrade::new(
+            &response.order_id,
+            &response.from_asset,
+            &response.to_asset,
+            from_amount,
+            to_amount,
+            ratio,
+        );
+        trade.timestamp = response.create_time;
+        trade.datetime = response.create_time.map(|t| {
+            chrono::DateTime::from_timestamp_millis(t)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+        });
+        trade.info = serde_json::to_value(&response).unwrap_or_default();
+        trade.status = Some(response.order_status);
+
+        Ok(trade)
+    }
+
+    /// Fetch convert trade history
+    async fn fetch_convert_trade_history(
+        &self,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<ConvertTrade>> {
+        let mut params = HashMap::new();
+
+        if let Some(since_ts) = since {
+            params.insert("startTime".to_string(), since_ts.to_string());
+        } else {
+            // Default to last 30 days
+            let start = Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000);
+            params.insert("startTime".to_string(), start.to_string());
+        }
+
+        params.insert(
+            "endTime".to_string(),
+            Utc::now().timestamp_millis().to_string(),
+        );
+
+        if let Some(l) = limit {
+            params.insert("limit".to_string(), l.to_string());
+        }
+
+        let response: BinanceConvertHistory = self
+            .private_request("GET", "/sapi/v1/convert/tradeFlow", params)
+            .await?;
+
+        let trades = response
+            .list
+            .into_iter()
+            .map(|order| {
+                let from_amount: Decimal = order.from_amount.parse().unwrap_or_default();
+                let to_amount: Decimal = order.to_amount.parse().unwrap_or_default();
+                let ratio: Decimal = order.ratio.parse().unwrap_or_default();
+
+                let mut trade = ConvertTrade::new(
+                    &order.order_id,
+                    &order.from_asset,
+                    &order.to_asset,
+                    from_amount,
+                    to_amount,
+                    ratio,
+                );
+                trade.timestamp = order.create_time;
+                trade.datetime = order.create_time.map(|t| {
+                    chrono::DateTime::from_timestamp_millis(t)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                });
+                trade.info = serde_json::to_value(&order).unwrap_or_default();
+                trade.status = Some(order.order_status);
+                trade
+            })
+            .collect();
+
+        Ok(trades)
     }
 }
 
@@ -1723,6 +1935,84 @@ struct BinanceIsolatedMarginCoinData {
     daily_interest: String,
     #[serde(default)]
     borrow_limit: Option<String>,
+}
+
+// === Binance Convert API Response Types ===
+
+/// Convert currency pair info from /sapi/v1/convert/exchangeInfo
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceConvertPair {
+    from_asset: String,
+    to_asset: String,
+    #[serde(default)]
+    from_asset_min_amount: String,
+    #[serde(default)]
+    from_asset_max_amount: String,
+    #[serde(default)]
+    to_asset_min_amount: String,
+    #[serde(default)]
+    to_asset_max_amount: String,
+}
+
+/// Convert quote response from /sapi/v1/convert/getQuote
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceConvertQuote {
+    quote_id: String,
+    ratio: String,
+    #[serde(default)]
+    inverse_ratio: String,
+    #[serde(default)]
+    valid_time: Option<i64>,
+    to_amount: String,
+}
+
+/// Convert result from /sapi/v1/convert/acceptQuote
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceConvertResult {
+    order_id: String,
+    order_status: String,
+    from_asset: String,
+    from_amount: String,
+    to_asset: String,
+    to_amount: String,
+    #[serde(default)]
+    create_time: Option<i64>,
+}
+
+/// Convert order status from /sapi/v1/convert/orderStatus
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceConvertOrder {
+    order_id: String,
+    order_status: String,
+    from_asset: String,
+    from_amount: String,
+    to_asset: String,
+    to_amount: String,
+    ratio: String,
+    #[serde(default)]
+    inverse_ratio: String,
+    #[serde(default)]
+    create_time: Option<i64>,
+}
+
+/// Convert trade history from /sapi/v1/convert/tradeFlow
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceConvertHistory {
+    #[serde(default)]
+    list: Vec<BinanceConvertOrder>,
+    #[serde(default)]
+    start_time: Option<i64>,
+    #[serde(default)]
+    end_time: Option<i64>,
+    #[serde(default)]
+    limit: Option<i32>,
+    #[serde(default)]
+    more_data: bool,
 }
 
 #[cfg(test)]

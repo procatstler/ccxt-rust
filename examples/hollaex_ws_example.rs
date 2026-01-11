@@ -46,15 +46,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("[OrderBook] Received 3 updates, stopping...");
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => {
                     eprintln!("[OrderBook] Error: {err}");
-                }
+                },
                 WsMessage::Disconnected => {
                     println!("[OrderBook] Disconnected");
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     });
@@ -74,26 +74,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for trade in &event.trades {
                         println!(
                             "[Trades] {} - ID: {}, Side: {:?}, Price: {}, Amount: {}",
-                            event.symbol,
-                            trade.id,
-                            trade.side,
-                            trade.price,
-                            trade.amount
+                            event.symbol, trade.id, trade.side, trade.price, trade.amount
                         );
                     }
                     if count >= 5 {
                         println!("[Trades] Received 5 trade events, stopping...");
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => {
                     eprintln!("[Trades] Error: {err}");
-                }
+                },
                 WsMessage::Disconnected => {
                     println!("[Trades] Disconnected");
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     });
@@ -102,7 +98,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 3: Watching multiple symbols (BTC/USDT, ETH/USDT)...");
     let mut ws3 = HollaexWs::new();
     ws3.ws_connect().await?;
-    let mut multi_trades_rx = ws3.watch_trades_for_symbols(&["BTC/USDT", "ETH/USDT"]).await?;
+    let mut multi_trades_rx = ws3
+        .watch_trades_for_symbols(&["BTC/USDT", "ETH/USDT"])
+        .await?;
 
     tokio::spawn(async move {
         let mut count = 0;
@@ -113,25 +111,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for trade in &event.trades {
                         println!(
                             "[Multi] {} - Side: {:?}, Price: {}, Amount: {}",
-                            event.symbol,
-                            trade.side,
-                            trade.price,
-                            trade.amount
+                            event.symbol, trade.side, trade.price, trade.amount
                         );
                     }
                     if count >= 10 {
                         println!("[Multi] Received 10 trade events, stopping...");
                         break;
                     }
-                }
+                },
                 WsMessage::Error(err) => {
                     eprintln!("[Multi] Error: {err}");
-                }
+                },
                 WsMessage::Disconnected => {
                     println!("[Multi] Disconnected");
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     });

@@ -19,9 +19,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderEvent,
-    WsTickerEvent, WsOrderBookEvent, WsTradeEvent, WsOhlcvEvent, OHLCV,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_PUBLIC_URL: &str = "wss://api.whitebit.com/ws";
@@ -132,14 +132,18 @@ impl WhitebitWs {
 
     /// Sign request for authentication (WhiteBIT uses HMAC-SHA512)
     fn sign(&self, payload: &str) -> CcxtResult<String> {
-        let secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for signing".into(),
-        })?;
-
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
-                message: "Invalid secret key".into(),
+        let secret = self
+            .api_secret
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required for signing".into(),
             })?;
+
+        let mut mac = HmacSha512::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
 
         mac.update(payload.as_bytes());
         let result = mac.finalize();
@@ -180,7 +184,10 @@ impl WhitebitWs {
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
         let amount = data.amount.as_ref().and_then(|a| Decimal::from_str(a).ok());
-        let filled = data.executed_amount.as_ref().and_then(|f| Decimal::from_str(f).ok());
+        let filled = data
+            .executed_amount
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok());
         let remaining = match (amount, filled) {
             (Some(a), Some(f)) => Some(a - f),
             _ => None,
@@ -213,7 +220,10 @@ impl WhitebitWs {
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
-            cost: match (price, filled) { (Some(p), Some(f)) => Some(p * f), _ => None },
+            cost: match (price, filled) {
+                (Some(p), Some(f)) => Some(p * f),
+                _ => None,
+            },
             reduce_only: None,
             post_only: None,
             trades: vec![],
@@ -231,20 +241,27 @@ impl WhitebitWs {
 
         for bal in balances_data {
             if let Some(currency) = &bal.currency {
-                let available = bal.available.as_ref()
+                let available = bal
+                    .available
+                    .as_ref()
                     .and_then(|a| Decimal::from_str(a).ok())
                     .unwrap_or_default();
-                let freeze = bal.freeze.as_ref()
+                let freeze = bal
+                    .freeze
+                    .as_ref()
                     .and_then(|f| Decimal::from_str(f).ok())
                     .unwrap_or_default();
                 let total = available + freeze;
 
-                currencies.insert(currency.to_uppercase(), Balance {
-                    free: Some(available),
-                    used: Some(freeze),
-                    total: Some(total),
-                    debt: None,
-                });
+                currencies.insert(
+                    currency.to_uppercase(),
+                    Balance {
+                        free: Some(available),
+                        used: Some(freeze),
+                        total: Some(total),
+                        debt: None,
+                    },
+                );
             }
         }
 
@@ -301,30 +318,43 @@ impl WhitebitWs {
     }
 
     /// Parse order book message
-    fn parse_order_book(data: &WhitebitOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+    fn parse_order_book(
+        data: &WhitebitOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.timestamp
+        let timestamp = data
+            .timestamp
             .map(|t| (t * 1000.0) as i64)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -339,6 +369,7 @@ impl WhitebitWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -352,7 +383,8 @@ impl WhitebitWs {
     #[allow(dead_code)]
     fn parse_trade(data: &WhitebitTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.market);
-        let timestamp = data.time
+        let timestamp = data
+            .time
             .map(|t| (t * 1000.0) as i64)
             .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.price.parse().unwrap_or_default();
@@ -383,7 +415,11 @@ impl WhitebitWs {
     }
 
     /// Parse candle message
-    fn parse_candle(data: &[serde_json::Value], symbol: &str, timeframe: Timeframe) -> Option<WsOhlcvEvent> {
+    fn parse_candle(
+        data: &[serde_json::Value],
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> Option<WsOhlcvEvent> {
         if data.len() < 6 {
             return None;
         }
@@ -410,7 +446,10 @@ impl WhitebitWs {
         if let Ok(response) = serde_json::from_str::<WhitebitWsResponse>(msg) {
             // Check for errors
             if let Some(error) = &response.error {
-                return Some(WsMessage::Error(format!("{}: {}", error.code, error.message)));
+                return Some(WsMessage::Error(format!(
+                    "{}: {}",
+                    error.code, error.message
+                )));
             }
 
             // Handle result (subscription confirmation)
@@ -427,84 +466,113 @@ impl WhitebitWs {
                     // Ticker update
                     "ticker_update" => {
                         if let Some(params) = &response.params {
-                            if let Ok(ticker_data) = serde_json::from_value::<WhitebitTickerData>(params[0].clone()) {
+                            if let Ok(ticker_data) =
+                                serde_json::from_value::<WhitebitTickerData>(params[0].clone())
+                            {
                                 return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                             }
                         }
-                    }
+                    },
                     // Depth update
                     "depth_update" => {
                         if let Some(params) = &response.params {
                             if params.len() >= 3 {
                                 let is_snapshot = params[0].as_bool().unwrap_or(false);
-                                if let Ok(ob_data) = serde_json::from_value::<WhitebitOrderBookData>(params[1].clone()) {
+                                if let Ok(ob_data) = serde_json::from_value::<WhitebitOrderBookData>(
+                                    params[1].clone(),
+                                ) {
                                     let market = params[2].as_str().unwrap_or("");
                                     let symbol = Self::to_unified_symbol(market);
-                                    return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol, is_snapshot)));
+                                    return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                        &ob_data,
+                                        &symbol,
+                                        is_snapshot,
+                                    )));
                                 }
                             }
                         }
-                    }
+                    },
                     // Trades update
                     "trades_update" => {
                         if let Some(params) = &response.params {
                             if params.len() >= 2 {
                                 let market = params[0].as_str().unwrap_or("");
-                                if let Ok(trades_arr) = serde_json::from_value::<Vec<WhitebitTradeData>>(params[1].clone()) {
+                                if let Ok(trades_arr) =
+                                    serde_json::from_value::<Vec<WhitebitTradeData>>(
+                                        params[1].clone(),
+                                    )
+                                {
                                     let symbol = Self::to_unified_symbol(market);
-                                    let trades: Vec<Trade> = trades_arr.iter().map(|t| {
-                                        let timestamp = t.time.map(|time| (time * 1000.0) as i64)
-                                            .unwrap_or_else(|| Utc::now().timestamp_millis());
-                                        let price: Decimal = t.price.parse().unwrap_or_default();
-                                        let amount: Decimal = t.amount.parse().unwrap_or_default();
+                                    let trades: Vec<Trade> = trades_arr
+                                        .iter()
+                                        .map(|t| {
+                                            let timestamp = t
+                                                .time
+                                                .map(|time| (time * 1000.0) as i64)
+                                                .unwrap_or_else(|| Utc::now().timestamp_millis());
+                                            let price: Decimal =
+                                                t.price.parse().unwrap_or_default();
+                                            let amount: Decimal =
+                                                t.amount.parse().unwrap_or_default();
 
-                                        Trade {
-                                            id: t.id.to_string(),
-                                            order: None,
-                                            timestamp: Some(timestamp),
-                                            datetime: Some(
-                                                chrono::DateTime::from_timestamp_millis(timestamp)
+                                            Trade {
+                                                id: t.id.to_string(),
+                                                order: None,
+                                                timestamp: Some(timestamp),
+                                                datetime: Some(
+                                                    chrono::DateTime::from_timestamp_millis(
+                                                        timestamp,
+                                                    )
                                                     .map(|dt| dt.to_rfc3339())
                                                     .unwrap_or_default(),
-                                            ),
-                                            symbol: symbol.clone(),
-                                            trade_type: None,
-                                            side: Some(t.trade_type.clone()),
-                                            taker_or_maker: None,
-                                            price,
-                                            amount,
-                                            cost: Some(price * amount),
-                                            fee: None,
-                                            fees: Vec::new(),
-                                            info: serde_json::to_value(t).unwrap_or_default(),
-                                        }
-                                    }).collect();
+                                                ),
+                                                symbol: symbol.clone(),
+                                                trade_type: None,
+                                                side: Some(t.trade_type.clone()),
+                                                taker_or_maker: None,
+                                                price,
+                                                amount,
+                                                cost: Some(price * amount),
+                                                fee: None,
+                                                fees: Vec::new(),
+                                                info: serde_json::to_value(t).unwrap_or_default(),
+                                            }
+                                        })
+                                        .collect();
 
                                     return Some(WsMessage::Trade(WsTradeEvent { symbol, trades }));
                                 }
                             }
                         }
-                    }
+                    },
                     // Candles update
                     "candles_update" => {
                         if let Some(params) = &response.params {
                             if let Some(candle_arr) = params.first() {
-                                if let Ok(candle_data) = serde_json::from_value::<Vec<serde_json::Value>>(candle_arr.clone()) {
+                                if let Ok(candle_data) =
+                                    serde_json::from_value::<Vec<serde_json::Value>>(
+                                        candle_arr.clone(),
+                                    )
+                                {
                                     if candle_data.len() >= 8 {
                                         let market = candle_data[7].as_str().unwrap_or("");
                                         let symbol = Self::to_unified_symbol(market);
                                         // Infer timeframe from interval - for now default to 1m
                                         // In production, you'd track subscriptions to know the timeframe
                                         let timeframe = Timeframe::Minute1;
-                                        if let Some(event) = Self::parse_candle(&candle_data[..7], &symbol, timeframe) {
+                                        if let Some(event) = Self::parse_candle(
+                                            &candle_data[..7],
+                                            &symbol,
+                                            timeframe,
+                                        ) {
                                             return Some(WsMessage::Ohlcv(event));
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -530,6 +598,7 @@ impl WhitebitWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -548,7 +617,10 @@ impl WhitebitWs {
         // Store subscription
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, method.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, method.to_string());
         }
 
         // Spawn event processing task
@@ -558,19 +630,19 @@ impl WhitebitWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -591,10 +663,16 @@ impl WsExchange for WhitebitWs {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let params = vec![serde_json::json!(market_id)];
-        client.subscribe_stream("ticker_subscribe", params, "ticker", Some(symbol)).await
+        client
+            .subscribe_stream("ticker_subscribe", params, "ticker", Some(symbol))
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let depth = limit.unwrap_or(100);
@@ -605,25 +683,34 @@ impl WsExchange for WhitebitWs {
             serde_json::json!(price_interval),
             serde_json::json!(true), // Allow multiple subscriptions
         ];
-        client.subscribe_stream("depth_subscribe", params, "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream("depth_subscribe", params, "orderBook", Some(symbol))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
         let params = vec![serde_json::json!(market_id)];
-        client.subscribe_stream("trades_subscribe", params, "trades", Some(symbol)).await
+        client
+            .subscribe_stream("trades_subscribe", params, "trades", Some(symbol))
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let market_id = Self::format_symbol(symbol);
-        let interval = Self::format_interval(timeframe).parse::<i64>().unwrap_or(60);
-        let params = vec![
-            serde_json::json!(market_id),
-            serde_json::json!(interval),
-        ];
-        client.subscribe_stream("candles_subscribe", params, "ohlcv", Some(symbol)).await
+        let interval = Self::format_interval(timeframe)
+            .parse::<i64>()
+            .unwrap_or(60);
+        let params = vec![serde_json::json!(market_id), serde_json::json!(interval)];
+        client
+            .subscribe_stream("candles_subscribe", params, "ohlcv", Some(symbol))
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -649,7 +736,10 @@ impl WsExchange for WhitebitWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -663,11 +753,15 @@ impl WsExchange for WhitebitWs {
         // 3. Subscribe to "orders_pending_update" channel
         // 4. Process messages through parse_order
         Err(CcxtError::NotSupported {
-            feature: "watch_orders - WhiteBIT private WebSocket requires API v4 implementation".to_string(),
+            feature: "watch_orders - WhiteBIT private WebSocket requires API v4 implementation"
+                .to_string(),
         })
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -676,7 +770,8 @@ impl WsExchange for WhitebitWs {
 
         // WhiteBIT private channels require API v4 implementation
         Err(CcxtError::NotSupported {
-            feature: "watch_my_trades - WhiteBIT private WebSocket requires API v4 implementation".to_string(),
+            feature: "watch_my_trades - WhiteBIT private WebSocket requires API v4 implementation"
+                .to_string(),
         })
     }
 
@@ -689,7 +784,8 @@ impl WsExchange for WhitebitWs {
 
         // WhiteBIT private channels require API v4 implementation
         Err(CcxtError::NotSupported {
-            feature: "watch_balance - WhiteBIT private WebSocket requires API v4 implementation".to_string(),
+            feature: "watch_balance - WhiteBIT private WebSocket requires API v4 implementation"
+                .to_string(),
         })
     }
 
@@ -851,10 +947,16 @@ mod tests {
             assert_eq!(event.order.symbol, "BTC/USDT");
             assert_eq!(event.order.side, OrderSide::Buy);
             assert_eq!(event.order.order_type, OrderType::Limit);
-            assert_eq!(event.order.price, Some(Decimal::from_str("50000.00").unwrap()));
+            assert_eq!(
+                event.order.price,
+                Some(Decimal::from_str("50000.00").unwrap())
+            );
             assert_eq!(event.order.amount, Decimal::from_str("1.5").unwrap());
             assert_eq!(event.order.filled, Decimal::from_str("0.5").unwrap());
-            assert_eq!(event.order.remaining, Some(Decimal::from_str("1.0").unwrap()));
+            assert_eq!(
+                event.order.remaining,
+                Some(Decimal::from_str("1.0").unwrap())
+            );
             assert_eq!(event.order.status, OrderStatus::Open);
         } else {
             panic!("Expected Order event");
@@ -893,7 +995,10 @@ mod tests {
             let usdt_balance = event.balances.currencies.get("USDT").unwrap();
             assert_eq!(usdt_balance.free, Some(Decimal::from_str("800.0").unwrap()));
             assert_eq!(usdt_balance.used, Some(Decimal::from_str("200.0").unwrap()));
-            assert_eq!(usdt_balance.total, Some(Decimal::from_str("1000.0").unwrap()));
+            assert_eq!(
+                usdt_balance.total,
+                Some(Decimal::from_str("1000.0").unwrap())
+            );
         } else {
             panic!("Expected Balance event");
         }

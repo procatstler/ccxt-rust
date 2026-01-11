@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -12,15 +13,13 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use base64::{Engine as _, engine::general_purpose};
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade,
-    Transaction, Fee, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
+    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderSide, OrderStatus, OrderType,
+    SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, Transaction, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -45,7 +44,11 @@ pub struct CoinbaseInternational {
 impl CoinbaseInternational {
     /// Create new CoinbaseInternational instance
     pub fn new(config: ExchangeConfig) -> CcxtResult<Self> {
-        let base_url = if config.is_sandbox() { SANDBOX_URL } else { BASE_URL };
+        let base_url = if config.is_sandbox() {
+            SANDBOX_URL
+        } else {
+            BASE_URL
+        };
         let client = HttpClient::new(base_url, &config)?;
         let rate_limiter = RateLimiter::new(RATE_LIMIT_MS);
 
@@ -145,10 +148,19 @@ impl CoinbaseInternational {
     }
 
     /// Create HMAC signature for authentication
-    fn create_signature(&self, timestamp: &str, method: &str, path: &str, body: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+    fn create_signature(
+        &self,
+        timestamp: &str,
+        method: &str,
+        path: &str,
+        body: &str,
+    ) -> CcxtResult<String> {
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let message = format!("{timestamp}{method}{path}{body}");
         let secret_bytes = general_purpose::STANDARD
@@ -157,8 +169,8 @@ impl CoinbaseInternational {
                 message: format!("Failed to decode secret: {e}"),
             })?;
 
-        let mut mac = HmacSha256::new_from_slice(&secret_bytes)
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(&secret_bytes).expect("HMAC can take key of any size");
         mac.update(message.as_bytes());
         Ok(general_purpose::STANDARD.encode(mac.finalize().into_bytes()))
     }
@@ -173,9 +185,8 @@ impl CoinbaseInternational {
         }
 
         // Fetch portfolios and find default
-        let response: CoinbaseIntlPortfoliosResponse = self
-            .private_get("/v1/portfolios", HashMap::new())
-            .await?;
+        let response: CoinbaseIntlPortfoliosResponse =
+            self.private_get("/v1/portfolios", HashMap::new()).await?;
 
         for portfolio in &response.portfolios {
             if portfolio.is_default.unwrap_or(false) {
@@ -210,13 +221,19 @@ impl CoinbaseInternational {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required".into(),
-        })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp().to_string();
         let full_path = if params.is_empty() {
@@ -250,13 +267,19 @@ impl CoinbaseInternational {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required".into(),
-        })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp().to_string();
         let body_str = body.to_string();
@@ -280,13 +303,19 @@ impl CoinbaseInternational {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required".into(),
-        })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp().to_string();
         let body_str = body.to_string();
@@ -303,19 +332,22 @@ impl CoinbaseInternational {
     }
 
     /// Private DELETE request
-    async fn private_delete<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> CcxtResult<T> {
+    async fn private_delete<T: serde::de::DeserializeOwned>(&self, path: &str) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
 
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required".into(),
-        })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp().to_string();
         let signature = self.create_signature(&timestamp, "DELETE", path, "")?;
@@ -380,7 +412,9 @@ impl CoinbaseInternational {
             maker: Some(Decimal::new(20, 4)), // 0.002 = 0.2%
             contract_size: data.contract_size.as_ref().and_then(|v| v.parse().ok()),
             expiry: data.expiry.as_ref().and_then(|e| {
-                chrono::DateTime::parse_from_rfc3339(e).ok().map(|dt| dt.timestamp_millis())
+                chrono::DateTime::parse_from_rfc3339(e)
+                    .ok()
+                    .map(|dt| dt.timestamp_millis())
             }),
             expiry_datetime: data.expiry.clone(),
             strike: None,
@@ -388,7 +422,9 @@ impl CoinbaseInternational {
             percentage: true,
             tier_based: true,
             precision: MarketPrecision {
-                amount: data.base_increment.as_ref()
+                amount: data
+                    .base_increment
+                    .as_ref()
                     .and_then(|v| v.parse::<Decimal>().ok())
                     .map(|d| {
                         let s = d.to_string();
@@ -398,7 +434,9 @@ impl CoinbaseInternational {
                             0
                         }
                     }),
-                price: data.quote_increment.as_ref()
+                price: data
+                    .quote_increment
+                    .as_ref()
                     .and_then(|v| v.parse::<Decimal>().ok())
                     .map(|d| {
                         let s = d.to_string();
@@ -432,7 +470,9 @@ impl CoinbaseInternational {
 
     /// Parse ticker data
     fn parse_ticker(&self, data: &CoinbaseIntlQuote, symbol: &str) -> Ticker {
-        let timestamp = data.time.as_ref()
+        let timestamp = data
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -469,7 +509,9 @@ impl CoinbaseInternational {
 
     /// Parse order data
     fn parse_order(&self, data: &CoinbaseIntlOrder, symbol: &str) -> CcxtResult<Order> {
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis());
 
@@ -495,10 +537,14 @@ impl CoinbaseInternational {
         };
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|v| v.parse().ok());
-        let amount: Decimal = data.size.as_ref()
+        let amount: Decimal = data
+            .size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.filled_size.as_ref()
+        let filled: Decimal = data
+            .filled_size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
 
@@ -545,15 +591,21 @@ impl CoinbaseInternational {
 
     /// Parse trade/fill data
     fn parse_trade_data(&self, data: &CoinbaseIntlFill, symbol: &str) -> Trade {
-        let timestamp = data.time.as_ref()
+        let timestamp = data
+            .time
+            .as_ref()
             .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let price: Decimal = data.price.as_ref()
+        let price: Decimal = data
+            .price
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let amount: Decimal = data.size.as_ref()
+        let amount: Decimal = data
+            .size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
 
@@ -579,11 +631,15 @@ impl CoinbaseInternational {
             price,
             amount,
             cost: Some(price * amount),
-            fee: data.fee.as_ref().and_then(|v| v.parse().ok()).map(|cost| Fee {
-                cost: Some(cost),
-                currency: data.fee_asset.clone(),
-                rate: None,
-            }),
+            fee: data
+                .fee
+                .as_ref()
+                .and_then(|v| v.parse().ok())
+                .map(|cost| Fee {
+                    cost: Some(cost),
+                    currency: data.fee_asset.clone(),
+                    rate: None,
+                }),
             fees: Vec::new(),
             info: serde_json::to_value(data).unwrap_or_default(),
         }
@@ -592,10 +648,14 @@ impl CoinbaseInternational {
     /// Parse balance data
     fn parse_balance_data(&self, data: &CoinbaseIntlBalance) -> (String, Balance) {
         let currency = data.asset.clone().unwrap_or_default();
-        let total: Decimal = data.quantity.as_ref()
+        let total: Decimal = data
+            .quantity
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let hold: Decimal = data.hold.as_ref()
+        let hold: Decimal = data
+            .hold
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
         let available = total - hold;
@@ -639,7 +699,11 @@ impl Exchange for CoinbaseInternational {
     }
 
     fn symbol(&self, market_id: &str) -> Option<String> {
-        self.markets.read().ok()?.get(market_id).map(|m| m.symbol.clone())
+        self.markets
+            .read()
+            .ok()?
+            .get(market_id)
+            .map(|m| m.symbol.clone())
     }
 
     fn sign(
@@ -656,8 +720,11 @@ impl Exchange for CoinbaseInternational {
 
         let message = format!("{timestamp}{method}{path}{body_str}");
 
-        let signature = if let (Some(secret), Some(_api_key), Some(_passphrase)) =
-            (self.config.secret(), self.config.api_key(), self.config.password()) {
+        let signature = if let (Some(secret), Some(_api_key), Some(_passphrase)) = (
+            self.config.secret(),
+            self.config.api_key(),
+            self.config.password(),
+        ) {
             if let Ok(secret_bytes) = general_purpose::STANDARD.decode(secret.as_bytes()) {
                 let mut mac = HmacSha256::new_from_slice(&secret_bytes)
                     .expect("HMAC can take key of any size");
@@ -679,7 +746,11 @@ impl Exchange for CoinbaseInternational {
         }
         new_headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-        let base_url = if self.config.is_sandbox() { SANDBOX_URL } else { BASE_URL };
+        let base_url = if self.config.is_sandbox() {
+            SANDBOX_URL
+        } else {
+            BASE_URL
+        };
         let url = if method == "GET" && !params.is_empty() {
             let query: String = params
                 .iter()
@@ -700,9 +771,8 @@ impl Exchange for CoinbaseInternational {
     }
 
     async fn load_markets(&self, _reload: bool) -> CcxtResult<HashMap<String, Market>> {
-        let response: CoinbaseIntlInstrumentsResponse = self
-            .public_get("/v1/instruments", None)
-            .await?;
+        let response: CoinbaseIntlInstrumentsResponse =
+            self.public_get("/v1/instruments", None).await?;
 
         let mut markets = HashMap::new();
         let mut markets_by_id = HashMap::new();
@@ -738,9 +808,8 @@ impl Exchange for CoinbaseInternational {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: CoinbaseIntlInstrumentsResponse = self
-            .public_get("/v1/instruments", None)
-            .await?;
+        let response: CoinbaseIntlInstrumentsResponse =
+            self.public_get("/v1/instruments", None).await?;
 
         let mut tickers = HashMap::new();
         for instrument in &response.instruments {
@@ -766,7 +835,12 @@ impl Exchange for CoinbaseInternational {
         })
     }
 
-    async fn fetch_trades(&self, _symbol: &str, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        _symbol: &str,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         Err(CcxtError::NotSupported {
             feature: "fetch_trades not supported by Coinbase International".into(),
         })
@@ -780,7 +854,9 @@ impl Exchange for CoinbaseInternational {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let granularity = self.timeframes.get(&timeframe)
+        let granularity = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::BadRequest {
                 message: format!("Unsupported timeframe: {timeframe:?}"),
             })?;
@@ -796,23 +872,48 @@ impl Exchange for CoinbaseInternational {
         }
 
         let response: CoinbaseIntlCandlesResponse = self
-            .public_get(&format!("/v1/instruments/{market_id}/candles"), Some(params))
+            .public_get(
+                &format!("/v1/instruments/{market_id}/candles"),
+                Some(params),
+            )
             .await?;
 
-        let ohlcv: Vec<OHLCV> = response.aggregations.iter()
+        let ohlcv: Vec<OHLCV> = response
+            .aggregations
+            .iter()
             .take(limit.unwrap_or(300) as usize)
-            .map(|c| {
-                OHLCV {
-                    timestamp: c.start.as_ref()
-                        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-                        .map(|dt| dt.timestamp_millis())
-                        .unwrap_or_default(),
-                    open: c.open.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                    high: c.high.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                    low: c.low.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                    close: c.close.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                    volume: c.volume.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default(),
-                }
+            .map(|c| OHLCV {
+                timestamp: c
+                    .start
+                    .as_ref()
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                    .map(|dt| dt.timestamp_millis())
+                    .unwrap_or_default(),
+                open: c
+                    .open
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                high: c
+                    .high
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                low: c
+                    .low
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                close: c
+                    .close
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
+                volume: c
+                    .volume
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default(),
             })
             .collect();
 
@@ -822,7 +923,10 @@ impl Exchange for CoinbaseInternational {
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let portfolio_id = self.ensure_portfolio_id().await?;
         let response: CoinbaseIntlBalancesResponse = self
-            .private_get(&format!("/v1/portfolios/{portfolio_id}/balances"), HashMap::new())
+            .private_get(
+                &format!("/v1/portfolios/{portfolio_id}/balances"),
+                HashMap::new(),
+            )
             .await?;
 
         let mut balances = Balances {
@@ -867,7 +971,7 @@ impl Exchange for CoinbaseInternational {
                 body["order_type"] = serde_json::json!("MARKET");
                 body["quote_size"] = serde_json::json!(amount.to_string());
                 body["tif"] = serde_json::json!("IOC");
-            }
+            },
             OrderType::Limit => {
                 let p = price.ok_or_else(|| CcxtError::BadRequest {
                     message: "Price required for limit order".into(),
@@ -876,25 +980,21 @@ impl Exchange for CoinbaseInternational {
                 body["base_size"] = serde_json::json!(amount.to_string());
                 body["limit_price"] = serde_json::json!(p.to_string());
                 body["tif"] = serde_json::json!("GTC");
-            }
+            },
             _ => {
                 return Err(CcxtError::BadRequest {
                     message: format!("Unsupported order type: {order_type:?}"),
                 });
-            }
+            },
         }
 
-        let response: CoinbaseIntlOrder = self
-            .private_post("/v1/orders", body)
-            .await?;
+        let response: CoinbaseIntlOrder = self.private_post("/v1/orders", body).await?;
 
         self.parse_order(&response, symbol)
     }
 
     async fn cancel_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
-        let _response: serde_json::Value = self
-            .private_delete(&format!("/v1/orders/{id}"))
-            .await?;
+        let _response: serde_json::Value = self.private_delete(&format!("/v1/orders/{id}")).await?;
 
         Ok(Order {
             id: id.to_string(),
@@ -932,14 +1032,21 @@ impl Exchange for CoinbaseInternational {
             .private_get(&format!("/v1/orders/{id}"), HashMap::new())
             .await?;
 
-        let symbol = response.product_id.clone()
+        let symbol = response
+            .product_id
+            .clone()
             .map(|id| self.to_symbol(&id))
             .unwrap_or_default();
 
         self.parse_order(&response, &symbol)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let portfolio_id = self.ensure_portfolio_id().await?;
         let mut params = HashMap::new();
         params.insert("portfolio_id".to_string(), portfolio_id);
@@ -951,13 +1058,13 @@ impl Exchange for CoinbaseInternational {
             params.insert("result_limit".to_string(), l.to_string());
         }
 
-        let response: CoinbaseIntlOrdersResponse = self
-            .private_get("/v1/orders", params)
-            .await?;
+        let response: CoinbaseIntlOrdersResponse = self.private_get("/v1/orders", params).await?;
 
         let mut orders = Vec::new();
         for order_data in &response.orders {
-            let sym = order_data.product_id.clone()
+            let sym = order_data
+                .product_id
+                .clone()
                 .map(|id| self.to_symbol(&id))
                 .unwrap_or_default();
             orders.push(self.parse_order(order_data, &sym)?);
@@ -966,13 +1073,23 @@ impl Exchange for CoinbaseInternational {
         Ok(orders)
     }
 
-    async fn fetch_closed_orders(&self, _symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        _symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         Err(CcxtError::NotSupported {
             feature: "fetch_closed_orders not supported by Coinbase International".into(),
         })
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let portfolio_id = self.ensure_portfolio_id().await?;
         let mut params = HashMap::new();
 
@@ -987,21 +1104,37 @@ impl Exchange for CoinbaseInternational {
             .private_get(&format!("/v1/portfolios/{portfolio_id}/fills"), params)
             .await?;
 
-        let trades: Vec<Trade> = response.fills.iter().map(|f| {
-            let sym = f.product_id.clone()
-                .map(|id| self.to_symbol(&id))
-                .unwrap_or_default();
-            self.parse_trade_data(f, &sym)
-        }).collect();
+        let trades: Vec<Trade> = response
+            .fills
+            .iter()
+            .map(|f| {
+                let sym = f
+                    .product_id
+                    .clone()
+                    .map(|id| self.to_symbol(&id))
+                    .unwrap_or_default();
+                self.parse_trade_data(f, &sym)
+            })
+            .collect();
 
         Ok(trades)
     }
 
-    async fn fetch_deposits(&self, _code: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Transaction>> {
+    async fn fetch_deposits(
+        &self,
+        _code: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Transaction>> {
         Ok(Vec::new())
     }
 
-    async fn fetch_withdrawals(&self, _code: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Transaction>> {
+    async fn fetch_withdrawals(
+        &self,
+        _code: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Transaction>> {
         Ok(Vec::new())
     }
 }

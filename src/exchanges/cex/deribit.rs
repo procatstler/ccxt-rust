@@ -17,10 +17,38 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, TimeInForce, OHLCV,
-    Position, PositionSide, MarginMode, FundingRate, FundingRateHistory, Trade,
+    Balance,
+    Balances,
+    Exchange,
+    ExchangeFeatures,
+    ExchangeId,
+    ExchangeUrls,
+    FundingRate,
+    FundingRateHistory,
+    // Options types
+    Greeks,
+    MarginMode,
+    Market,
+    MarketLimits,
+    MarketPrecision,
+    MarketType,
+    MinMax,
+    OptionChain,
+    OptionContract,
+    Order,
+    OrderBook,
+    OrderBookEntry,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    Position,
+    PositionSide,
+    SignedRequest,
+    Ticker,
+    TimeInForce,
+    Timeframe,
+    Trade,
+    OHLCV,
 };
 
 const BASE_URL: &str = "https://www.deribit.com";
@@ -305,6 +333,11 @@ impl Deribit {
             watch_ticker: true,
             watch_order_book: true,
             watch_trades: true,
+            // Options trading features
+            fetch_option: true,
+            fetch_option_chain: true,
+            fetch_greeks: true,
+            fetch_underlying_assets: true,
             ..Default::default()
         };
 
@@ -349,15 +382,18 @@ impl Deribit {
 
     /// Generate HMAC-SHA256 signature
     fn sign(&self, message: &str) -> CcxtResult<String> {
-        let secret = self.config.secret()
+        let secret = self
+            .config
+            .secret()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API secret required".to_string(),
             })?;
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
                 message: format!("HMAC error: {e}"),
-            })?;
+            }
+        })?;
         mac.update(message.as_bytes());
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
@@ -373,11 +409,15 @@ impl Deribit {
             }
         }
 
-        let api_key = self.config.api_key()
+        let api_key = self
+            .config
+            .api_key()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API key required".to_string(),
             })?;
-        let secret = self.config.secret()
+        let secret = self
+            .config
+            .secret()
             .ok_or_else(|| CcxtError::AuthenticationError {
                 message: "API secret required".to_string(),
             })?;
@@ -393,7 +433,10 @@ impl Deribit {
             }
         });
 
-        let response: DeribitResponse<DeribitAuth> = self.client.post("/api/v2/public/auth", Some(params), None).await?;
+        let response: DeribitResponse<DeribitAuth> = self
+            .client
+            .post("/api/v2/public/auth", Some(params), None)
+            .await?;
 
         if let Some(error) = response.error {
             return Err(CcxtError::AuthenticationError {
@@ -401,9 +444,11 @@ impl Deribit {
             });
         }
 
-        let auth = response.result.ok_or_else(|| CcxtError::AuthenticationError {
-            message: "No auth result".to_string(),
-        })?;
+        let auth = response
+            .result
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "No auth result".to_string(),
+            })?;
 
         *self.access_token.write().unwrap() = Some(auth.access_token.clone());
         *self.refresh_token.write().unwrap() = Some(auth.refresh_token);
@@ -432,7 +477,8 @@ impl Deribit {
         });
 
         let path = format!("/api/v2/{method}");
-        let response: DeribitResponse<T> = self.client.post(&path, Some(body), Some(headers)).await?;
+        let response: DeribitResponse<T> =
+            self.client.post(&path, Some(body), Some(headers)).await?;
 
         if let Some(error) = response.error {
             return Err(CcxtError::ExchangeError {
@@ -532,9 +578,15 @@ impl Deribit {
         let amount = Decimal::from_f64_retain(order.amount).unwrap_or_default();
         let filled = Decimal::from_f64_retain(order.filled_amount).unwrap_or_default();
         let remaining = amount - filled;
-        let price = order.price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let average = order.average_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
-        let stop_price = order.stop_price.or(order.trigger_price)
+        let price = order
+            .price
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
+        let average = order
+            .average_price
+            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
+        let stop_price = order
+            .stop_price
+            .or(order.trigger_price)
             .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
 
         let cost = average.map(|avg| avg * filled);
@@ -590,13 +642,17 @@ impl Deribit {
         let contracts = Some(Decimal::from_f64_retain(pos.size.abs()).unwrap_or_default());
         let entry_price = Some(Decimal::from_f64_retain(pos.average_price).unwrap_or_default());
         let mark_price = Some(Decimal::from_f64_retain(pos.mark_price).unwrap_or_default());
-        let liquidation_price = pos.estimated_liquidation_price
+        let liquidation_price = pos
+            .estimated_liquidation_price
             .map(|p| Decimal::from_f64_retain(p).unwrap_or_default());
         let leverage = pos.leverage.map(Decimal::from);
-        let unrealized_pnl = Some(Decimal::from_f64_retain(pos.floating_profit_loss).unwrap_or_default());
-        let realized_pnl = Some(Decimal::from_f64_retain(pos.realized_profit_loss).unwrap_or_default());
+        let unrealized_pnl =
+            Some(Decimal::from_f64_retain(pos.floating_profit_loss).unwrap_or_default());
+        let realized_pnl =
+            Some(Decimal::from_f64_retain(pos.realized_profit_loss).unwrap_or_default());
         let initial_margin = Some(Decimal::from_f64_retain(pos.initial_margin).unwrap_or_default());
-        let maintenance_margin = Some(Decimal::from_f64_retain(pos.maintenance_margin).unwrap_or_default());
+        let maintenance_margin =
+            Some(Decimal::from_f64_retain(pos.maintenance_margin).unwrap_or_default());
 
         Position {
             symbol: pos.instrument_name.clone(),
@@ -690,10 +746,10 @@ impl Exchange for Deribit {
                     "expired": false
                 });
 
-                let instruments: Vec<DeribitInstrument> = match self.public_request(
-                    "public/get_instruments",
-                    Some(params),
-                ).await {
+                let instruments: Vec<DeribitInstrument> = match self
+                    .public_request("public/get_instruments", Some(params))
+                    .await
+                {
                     Ok(i) => i,
                     Err(_) => continue,
                 };
@@ -721,14 +777,19 @@ impl Exchange for Deribit {
 
                     let limits = MarketLimits {
                         amount: MinMax {
-                            min: Some(Decimal::from_f64_retain(inst.min_trade_amount).unwrap_or_default()),
+                            min: Some(
+                                Decimal::from_f64_retain(inst.min_trade_amount).unwrap_or_default(),
+                            ),
                             max: None,
                         },
                         price: MinMax {
                             min: Some(Decimal::from_f64_retain(inst.tick_size).unwrap_or_default()),
                             max: None,
                         },
-                        cost: MinMax { min: None, max: None },
+                        cost: MinMax {
+                            min: None,
+                            max: None,
+                        },
                         leverage: MinMax {
                             min: Some(Decimal::ONE),
                             max: Some(Decimal::from(100)),
@@ -760,7 +821,9 @@ impl Exchange for Deribit {
                         index: false,
                         contract: true,
                         settle: inst.settlement_currency.clone(),
-                        contract_size: Some(Decimal::from_f64_retain(inst.contract_size).unwrap_or(Decimal::ONE)),
+                        contract_size: Some(
+                            Decimal::from_f64_retain(inst.contract_size).unwrap_or(Decimal::ONE),
+                        ),
                         linear: Some(false),
                         inverse: Some(true),
                         sub_type: None,
@@ -770,10 +833,16 @@ impl Exchange for Deribit {
                                 .map(|dt| dt.to_rfc3339())
                                 .unwrap_or_default()
                         }),
-                        strike: inst.strike.map(|s| Decimal::from_f64_retain(s).unwrap_or_default()),
+                        strike: inst
+                            .strike
+                            .map(|s| Decimal::from_f64_retain(s).unwrap_or_default()),
                         option_type: inst.option_type.clone(),
-                        taker: Some(Decimal::from_f64_retain(inst.taker_commission).unwrap_or_default()),
-                        maker: Some(Decimal::from_f64_retain(inst.maker_commission).unwrap_or_default()),
+                        taker: Some(
+                            Decimal::from_f64_retain(inst.taker_commission).unwrap_or_default(),
+                        ),
+                        maker: Some(
+                            Decimal::from_f64_retain(inst.maker_commission).unwrap_or_default(),
+                        ),
                         percentage: true,
                         tier_based: false,
                         precision,
@@ -805,24 +874,35 @@ impl Exchange for Deribit {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let params = json!({ "instrument_name": market_id });
         let ticker: DeribitTicker = self.public_request("public/ticker", Some(params)).await?;
 
         let timestamp = Some(ticker.timestamp);
-        let datetime = chrono::DateTime::from_timestamp_millis(ticker.timestamp)
-            .map(|dt| dt.to_rfc3339());
+        let datetime =
+            chrono::DateTime::from_timestamp_millis(ticker.timestamp).map(|dt| dt.to_rfc3339());
 
         let (high, low, volume, percentage) = if let Some(stats) = &ticker.stats {
             (
-                stats.high.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                stats.low.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                stats.volume.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                stats.price_change.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                stats
+                    .high
+                    .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                stats
+                    .low
+                    .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                stats
+                    .volume
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                stats
+                    .price_change
+                    .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             )
         } else {
             (None, None, None, None)
@@ -834,24 +914,42 @@ impl Exchange for Deribit {
             datetime,
             high,
             low,
-            bid: ticker.best_bid_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            bid_volume: ticker.best_bid_amount.map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
-            ask: ticker.best_ask_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            ask_volume: ticker.best_ask_amount.map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
+            bid: ticker
+                .best_bid_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            bid_volume: ticker
+                .best_bid_amount
+                .map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
+            ask: ticker
+                .best_ask_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            ask_volume: ticker
+                .best_ask_amount
+                .map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
             vwap: None,
             open: None,
-            close: ticker.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            last: ticker.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            close: ticker
+                .last_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            last: ticker
+                .last_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             previous_close: None,
             change: None,
             percentage,
             average: None,
             base_volume: volume,
-            quote_volume: ticker.stats.as_ref()
+            quote_volume: ticker
+                .stats
+                .as_ref()
                 .and_then(|s| s.volume_usd)
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-            index_price: ticker.index_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-            mark_price: ticker.mark_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            index_price: ticker
+                .index_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+            mark_price: ticker
+                .mark_price
+                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
             info: serde_json::to_value(&ticker).unwrap_or(Value::Null),
         })
     }
@@ -864,10 +962,10 @@ impl Exchange for Deribit {
         // Fetch book summaries for each currency
         for currency in &["BTC", "ETH"] {
             let params = json!({ "currency": currency, "kind": "future" });
-            let summaries: Vec<DeribitTicker> = match self.public_request(
-                "public/get_book_summary_by_currency",
-                Some(params),
-            ).await {
+            let summaries: Vec<DeribitTicker> = match self
+                .public_request("public/get_book_summary_by_currency", Some(params))
+                .await
+            {
                 Ok(s) => s,
                 Err(_) => continue,
             };
@@ -888,10 +986,18 @@ impl Exchange for Deribit {
 
                     let (high, low, volume, percentage) = if let Some(stats) = &ticker.stats {
                         (
-                            stats.high.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                            stats.low.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                            stats.volume.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                            stats.price_change.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                            stats
+                                .high
+                                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                            stats
+                                .low
+                                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                            stats
+                                .volume
+                                .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                            stats
+                                .price_change
+                                .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                         )
                     } else {
                         (None, None, None, None)
@@ -903,22 +1009,38 @@ impl Exchange for Deribit {
                         datetime,
                         high,
                         low,
-                        bid: ticker.best_bid_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                        bid_volume: ticker.best_bid_amount.map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
-                        ask: ticker.best_ask_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                        ask_volume: ticker.best_ask_amount.map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
+                        bid: ticker
+                            .best_bid_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        bid_volume: ticker
+                            .best_bid_amount
+                            .map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
+                        ask: ticker
+                            .best_ask_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        ask_volume: ticker
+                            .best_ask_amount
+                            .map(|a| Decimal::from_f64_retain(a).unwrap_or_default()),
                         vwap: None,
                         open: None,
-                        close: ticker.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                        last: ticker.last_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        close: ticker
+                            .last_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        last: ticker
+                            .last_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                         previous_close: None,
                         change: None,
                         percentage,
                         average: None,
                         base_volume: volume,
                         quote_volume: None,
-                        index_price: ticker.index_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                        mark_price: ticker.mark_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        index_price: ticker
+                            .index_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        mark_price: ticker
+                            .mark_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
                         info: serde_json::to_value(&ticker).unwrap_or(Value::Null),
                     };
 
@@ -935,9 +1057,12 @@ impl Exchange for Deribit {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let depth = limit.unwrap_or(20);
@@ -946,16 +1071,22 @@ impl Exchange for Deribit {
             "depth": depth
         });
 
-        let book: DeribitOrderBook = self.public_request("public/get_order_book", Some(params)).await?;
+        let book: DeribitOrderBook = self
+            .public_request("public/get_order_book", Some(params))
+            .await?;
 
-        let bids: Vec<OrderBookEntry> = book.bids.iter()
+        let bids: Vec<OrderBookEntry> = book
+            .bids
+            .iter()
             .map(|b| OrderBookEntry {
                 price: Decimal::from_f64_retain(b[0]).unwrap_or_default(),
                 amount: Decimal::from_f64_retain(b[1]).unwrap_or_default(),
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = book.asks.iter()
+        let asks: Vec<OrderBookEntry> = book
+            .asks
+            .iter()
             .map(|a| OrderBookEntry {
                 price: Decimal::from_f64_retain(a[0]).unwrap_or_default(),
                 amount: Decimal::from_f64_retain(a[1]).unwrap_or_default(),
@@ -970,6 +1101,7 @@ impl Exchange for Deribit {
             nonce: book.change_id,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -983,9 +1115,12 @@ impl Exchange for Deribit {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let params = json!({
@@ -998,13 +1133,17 @@ impl Exchange for Deribit {
             trades: Vec<DeribitTrade>,
         }
 
-        let response: TradesResponse = self.public_request("public/get_last_trades_by_instrument", Some(params)).await?;
+        let response: TradesResponse = self
+            .public_request("public/get_last_trades_by_instrument", Some(params))
+            .await?;
 
-        let trades: Vec<Trade> = response.trades.iter()
+        let trades: Vec<Trade> = response
+            .trades
+            .iter()
             .map(|t| {
                 let timestamp = Some(t.timestamp);
-                let datetime = chrono::DateTime::from_timestamp_millis(t.timestamp)
-                    .map(|dt| dt.to_rfc3339());
+                let datetime =
+                    chrono::DateTime::from_timestamp_millis(t.timestamp).map(|dt| dt.to_rfc3339());
 
                 let side = match t.direction.to_lowercase().as_str() {
                     "buy" => "buy",
@@ -1048,12 +1187,17 @@ impl Exchange for Deribit {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
-        let resolution = self.timeframes.get(&timeframe)
+        let resolution = self
+            .timeframes
+            .get(&timeframe)
             .cloned()
             .unwrap_or_else(|| "60".to_string());
 
@@ -1078,7 +1222,9 @@ impl Exchange for Deribit {
             volume: Vec<f64>,
         }
 
-        let response: OhlcvResponse = self.public_request("public/get_tradingview_chart_data", Some(params)).await?;
+        let response: OhlcvResponse = self
+            .public_request("public/get_tradingview_chart_data", Some(params))
+            .await?;
 
         let count = response.ticks.len();
         let max_count = limit.unwrap_or(500) as usize;
@@ -1104,20 +1250,27 @@ impl Exchange for Deribit {
 
         for currency in &["BTC", "ETH"] {
             let params = json!({ "currency": currency });
-            let account: DeribitAccountSummary = match self.private_request(
-                "private/get_account_summary",
-                Some(params),
-            ).await {
+            let account: DeribitAccountSummary = match self
+                .private_request("private/get_account_summary", Some(params))
+                .await
+            {
                 Ok(a) => a,
                 Err(_) => continue,
             };
 
-            result.currencies.insert(account.currency.clone(), Balance {
-                free: Some(Decimal::from_f64_retain(account.available_funds).unwrap_or_default()),
-                used: Some(Decimal::from_f64_retain(account.initial_margin).unwrap_or_default()),
-                total: Some(Decimal::from_f64_retain(account.equity).unwrap_or_default()),
-                debt: None,
-            });
+            result.currencies.insert(
+                account.currency.clone(),
+                Balance {
+                    free: Some(
+                        Decimal::from_f64_retain(account.available_funds).unwrap_or_default(),
+                    ),
+                    used: Some(
+                        Decimal::from_f64_retain(account.initial_margin).unwrap_or_default(),
+                    ),
+                    total: Some(Decimal::from_f64_retain(account.equity).unwrap_or_default()),
+                    debt: None,
+                },
+            );
         }
 
         Ok(result)
@@ -1134,22 +1287,28 @@ impl Exchange for Deribit {
         let _params = if let Some(sym) = symbol {
             let market_id = {
                 let markets = self.markets.read().unwrap();
-                markets.get(sym)
+                markets
+                    .get(sym)
                     .map(|m| m.id.clone())
-                    .ok_or_else(|| CcxtError::BadSymbol { symbol: sym.to_string() })?
+                    .ok_or_else(|| CcxtError::BadSymbol {
+                        symbol: sym.to_string(),
+                    })?
             };
             json!({ "instrument_name": market_id })
         } else {
             json!({})
         };
 
-        let orders: Vec<DeribitOrder> = self.private_request(
-            "private/get_open_orders_by_currency",
-            Some(json!({ "currency": "any" })),
-        ).await?;
+        let orders: Vec<DeribitOrder> = self
+            .private_request(
+                "private/get_open_orders_by_currency",
+                Some(json!({ "currency": "any" })),
+            )
+            .await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let result: Vec<Order> = orders.iter()
+        let result: Vec<Order> = orders
+            .iter()
             .filter(|o| {
                 if let Some(sym) = symbol {
                     if let Some(order_symbol) = markets_by_id.get(&o.instrument_name) {
@@ -1175,7 +1334,9 @@ impl Exchange for Deribit {
 
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let params = json!({ "order_id": id });
-        let order: DeribitOrder = self.private_request("private/get_order_state", Some(params)).await?;
+        let order: DeribitOrder = self
+            .private_request("private/get_order_state", Some(params))
+            .await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut result = self.parse_order(&order);
@@ -1193,10 +1354,10 @@ impl Exchange for Deribit {
 
         for currency in &["BTC", "ETH"] {
             let params = json!({ "currency": currency });
-            let positions: Vec<DeribitPosition> = match self.private_request(
-                "private/get_positions",
-                Some(params),
-            ).await {
+            let positions: Vec<DeribitPosition> = match self
+                .private_request("private/get_positions", Some(params))
+                .await
+            {
                 Ok(p) => p,
                 Err(_) => continue,
             };
@@ -1225,7 +1386,10 @@ impl Exchange for Deribit {
         Ok(all_positions)
     }
 
-    async fn fetch_funding_rates(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, FundingRate>> {
+    async fn fetch_funding_rates(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<HashMap<String, FundingRate>> {
         self.load_markets(false).await?;
 
         let mut result = HashMap::new();
@@ -1234,10 +1398,11 @@ impl Exchange for Deribit {
             let perpetual = format!("{currency}-PERPETUAL");
             let params = json!({ "instrument_name": perpetual });
 
-            let ticker: DeribitTicker = match self.public_request("public/ticker", Some(params)).await {
-                Ok(t) => t,
-                Err(_) => continue,
-            };
+            let ticker: DeribitTicker =
+                match self.public_request("public/ticker", Some(params)).await {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
 
             let markets_by_id = self.markets_by_id.read().unwrap();
             if let Some(symbol) = markets_by_id.get(&ticker.instrument_name) {
@@ -1251,27 +1416,39 @@ impl Exchange for Deribit {
                 let datetime = chrono::DateTime::from_timestamp_millis(ticker.timestamp)
                     .map(|dt| dt.to_rfc3339());
 
-                result.insert(symbol.clone(), FundingRate {
-                    info: serde_json::to_value(&ticker).unwrap_or(Value::Null),
-                    symbol: symbol.clone(),
-                    mark_price: ticker.mark_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    index_price: ticker.index_price.map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    interest_rate: None,
-                    estimated_settle_price: ticker.estimated_delivery_price
-                        .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
-                    timestamp,
-                    datetime,
-                    funding_rate: ticker.current_funding.map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),
-                    funding_timestamp: None,
-                    funding_datetime: None,
-                    next_funding_rate: ticker.funding_8h.map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),
-                    next_funding_timestamp: None,
-                    next_funding_datetime: None,
-                    previous_funding_rate: None,
-                    previous_funding_timestamp: None,
-                    previous_funding_datetime: None,
-                    interval: Some("8h".to_string()),
-                });
+                result.insert(
+                    symbol.clone(),
+                    FundingRate {
+                        info: serde_json::to_value(&ticker).unwrap_or(Value::Null),
+                        symbol: symbol.clone(),
+                        mark_price: ticker
+                            .mark_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        index_price: ticker
+                            .index_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        interest_rate: None,
+                        estimated_settle_price: ticker
+                            .estimated_delivery_price
+                            .map(|p| Decimal::from_f64_retain(p).unwrap_or_default()),
+                        timestamp,
+                        datetime,
+                        funding_rate: ticker
+                            .current_funding
+                            .map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),
+                        funding_timestamp: None,
+                        funding_datetime: None,
+                        next_funding_rate: ticker
+                            .funding_8h
+                            .map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),
+                        next_funding_timestamp: None,
+                        next_funding_datetime: None,
+                        previous_funding_rate: None,
+                        previous_funding_timestamp: None,
+                        previous_funding_datetime: None,
+                        interval: Some("8h".to_string()),
+                    },
+                );
             }
         }
 
@@ -1288,9 +1465,12 @@ impl Exchange for Deribit {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let now = chrono::Utc::now().timestamp_millis();
@@ -1303,18 +1483,18 @@ impl Exchange for Deribit {
             "end_timestamp": end
         });
 
-        let funding: Vec<DeribitFundingRate> = self.public_request(
-            "public/get_funding_rate_history",
-            Some(params),
-        ).await?;
+        let funding: Vec<DeribitFundingRate> = self
+            .public_request("public/get_funding_rate_history", Some(params))
+            .await?;
 
         let max_count = limit.unwrap_or(100) as usize;
-        let result: Vec<FundingRateHistory> = funding.iter()
+        let result: Vec<FundingRateHistory> = funding
+            .iter()
             .take(max_count)
             .map(|f| {
                 let timestamp = Some(f.timestamp);
-                let datetime = chrono::DateTime::from_timestamp_millis(f.timestamp)
-                    .map(|dt| dt.to_rfc3339());
+                let datetime =
+                    chrono::DateTime::from_timestamp_millis(f.timestamp).map(|dt| dt.to_rfc3339());
 
                 FundingRateHistory {
                     info: serde_json::to_value(f).unwrap_or(Value::Null),
@@ -1341,9 +1521,12 @@ impl Exchange for Deribit {
 
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?
+                .ok_or_else(|| CcxtError::BadSymbol {
+                    symbol: symbol.to_string(),
+                })?
         };
 
         let method = match side {
@@ -1411,6 +1594,197 @@ impl Exchange for Deribit {
         markets_by_id.get(market_id).cloned()
     }
 
+    // === Options Trading Implementation ===
+
+    async fn fetch_option(&self, symbol: &str) -> CcxtResult<OptionContract> {
+        let instrument_name = self.market_id(symbol).unwrap_or_else(|| symbol.to_string());
+
+        let params = json!({ "instrument_name": instrument_name });
+        let ticker: DeribitTicker = self.public_request("public/ticker", Some(params)).await?;
+
+        Ok(OptionContract {
+            info: serde_json::to_value(&ticker).unwrap_or_default(),
+            currency: ticker.underlying_index.clone().unwrap_or_default(),
+            symbol: symbol.to_string(),
+            timestamp: Some(ticker.timestamp),
+            datetime: chrono::DateTime::from_timestamp_millis(ticker.timestamp)
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            implied_volatility: Decimal::try_from(
+                ticker.greeks.as_ref().map(|_| 0.0).unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+            open_interest: Decimal::try_from(ticker.open_interest.unwrap_or(0.0))
+                .unwrap_or_default(),
+            bid_price: Decimal::try_from(ticker.best_bid_price.unwrap_or(0.0)).unwrap_or_default(),
+            ask_price: Decimal::try_from(ticker.best_ask_price.unwrap_or(0.0)).unwrap_or_default(),
+            mid_price: Decimal::try_from(
+                (ticker.best_bid_price.unwrap_or(0.0) + ticker.best_ask_price.unwrap_or(0.0)) / 2.0,
+            )
+            .unwrap_or_default(),
+            mark_price: Decimal::try_from(ticker.mark_price.unwrap_or(0.0)).unwrap_or_default(),
+            last_price: Decimal::try_from(ticker.last_price.unwrap_or(0.0)).unwrap_or_default(),
+            underlying_price: Decimal::try_from(ticker.underlying_price.unwrap_or(0.0))
+                .unwrap_or_default(),
+            change: Decimal::try_from(
+                ticker
+                    .stats
+                    .as_ref()
+                    .and_then(|s| s.price_change)
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+            percentage: Decimal::try_from(
+                ticker
+                    .stats
+                    .as_ref()
+                    .and_then(|s| s.price_change)
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+            base_volume: Decimal::try_from(
+                ticker.stats.as_ref().and_then(|s| s.volume).unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+            quote_volume: Decimal::try_from(
+                ticker
+                    .stats
+                    .as_ref()
+                    .and_then(|s| s.volume_usd)
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or_default(),
+        })
+    }
+
+    async fn fetch_option_chain(&self, underlying: &str) -> CcxtResult<OptionChain> {
+        let currency = underlying.to_uppercase();
+        let params = json!({
+            "currency": currency,
+            "kind": "option",
+            "expired": false
+        });
+
+        let instruments: Vec<DeribitInstrument> = self
+            .public_request("public/get_instruments", Some(params))
+            .await?;
+
+        let mut chain = OptionChain::new();
+
+        for inst in instruments {
+            let symbol = self.parse_symbol(&inst.instrument_name);
+
+            // Fetch ticker for each option to get current pricing
+            let ticker_params = json!({ "instrument_name": inst.instrument_name });
+            if let Ok(ticker) = self
+                .public_request::<DeribitTicker>("public/ticker", Some(ticker_params))
+                .await
+            {
+                let contract = OptionContract {
+                    info: serde_json::to_value(&inst).unwrap_or_default(),
+                    currency: currency.clone(),
+                    symbol: symbol.clone(),
+                    timestamp: Some(ticker.timestamp),
+                    datetime: chrono::DateTime::from_timestamp_millis(ticker.timestamp)
+                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+                    implied_volatility: Decimal::ZERO,
+                    open_interest: Decimal::try_from(ticker.open_interest.unwrap_or(0.0))
+                        .unwrap_or_default(),
+                    bid_price: Decimal::try_from(ticker.best_bid_price.unwrap_or(0.0))
+                        .unwrap_or_default(),
+                    ask_price: Decimal::try_from(ticker.best_ask_price.unwrap_or(0.0))
+                        .unwrap_or_default(),
+                    mid_price: Decimal::try_from(
+                        (ticker.best_bid_price.unwrap_or(0.0)
+                            + ticker.best_ask_price.unwrap_or(0.0))
+                            / 2.0,
+                    )
+                    .unwrap_or_default(),
+                    mark_price: Decimal::try_from(ticker.mark_price.unwrap_or(0.0))
+                        .unwrap_or_default(),
+                    last_price: Decimal::try_from(ticker.last_price.unwrap_or(0.0))
+                        .unwrap_or_default(),
+                    underlying_price: Decimal::try_from(ticker.underlying_price.unwrap_or(0.0))
+                        .unwrap_or_default(),
+                    change: Decimal::try_from(
+                        ticker
+                            .stats
+                            .as_ref()
+                            .and_then(|s| s.price_change)
+                            .unwrap_or(0.0),
+                    )
+                    .unwrap_or_default(),
+                    percentage: Decimal::try_from(
+                        ticker
+                            .stats
+                            .as_ref()
+                            .and_then(|s| s.price_change)
+                            .unwrap_or(0.0),
+                    )
+                    .unwrap_or_default(),
+                    base_volume: Decimal::try_from(
+                        ticker.stats.as_ref().and_then(|s| s.volume).unwrap_or(0.0),
+                    )
+                    .unwrap_or_default(),
+                    quote_volume: Decimal::try_from(
+                        ticker
+                            .stats
+                            .as_ref()
+                            .and_then(|s| s.volume_usd)
+                            .unwrap_or(0.0),
+                    )
+                    .unwrap_or_default(),
+                };
+                chain.insert(symbol, contract);
+            }
+        }
+
+        Ok(chain)
+    }
+
+    async fn fetch_greeks(&self, symbol: &str) -> CcxtResult<Greeks> {
+        let instrument_name = self.market_id(symbol).unwrap_or_else(|| symbol.to_string());
+
+        let params = json!({ "instrument_name": instrument_name });
+        let ticker: DeribitTicker = self.public_request("public/ticker", Some(params)).await?;
+
+        let greeks = ticker.greeks.as_ref();
+
+        Ok(Greeks {
+            symbol: symbol.to_string(),
+            timestamp: Some(ticker.timestamp),
+            datetime: chrono::DateTime::from_timestamp_millis(ticker.timestamp)
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            delta: Decimal::try_from(greeks.and_then(|g| g.delta).unwrap_or(0.0))
+                .unwrap_or_default(),
+            gamma: Decimal::try_from(greeks.and_then(|g| g.gamma).unwrap_or(0.0))
+                .unwrap_or_default(),
+            theta: Decimal::try_from(greeks.and_then(|g| g.theta).unwrap_or(0.0))
+                .unwrap_or_default(),
+            vega: Decimal::try_from(greeks.and_then(|g| g.vega).unwrap_or(0.0)).unwrap_or_default(),
+            rho: Decimal::try_from(greeks.and_then(|g| g.rho).unwrap_or(0.0)).unwrap_or_default(),
+            vanna: None,
+            volga: None,
+            charm: None,
+            bid_size: Decimal::try_from(ticker.best_bid_amount.unwrap_or(0.0)).unwrap_or_default(),
+            ask_size: Decimal::try_from(ticker.best_ask_amount.unwrap_or(0.0)).unwrap_or_default(),
+            bid_implied_volatility: Decimal::ZERO,
+            ask_implied_volatility: Decimal::ZERO,
+            mark_implied_volatility: Decimal::ZERO,
+            bid_price: Decimal::try_from(ticker.best_bid_price.unwrap_or(0.0)).unwrap_or_default(),
+            ask_price: Decimal::try_from(ticker.best_ask_price.unwrap_or(0.0)).unwrap_or_default(),
+            mark_price: Decimal::try_from(ticker.mark_price.unwrap_or(0.0)).unwrap_or_default(),
+            last_price: Decimal::try_from(ticker.last_price.unwrap_or(0.0)).unwrap_or_default(),
+            underlying_price: Decimal::try_from(ticker.underlying_price.unwrap_or(0.0))
+                .unwrap_or_default(),
+            info: serde_json::to_value(&ticker).unwrap_or_default(),
+        })
+    }
+
+    async fn fetch_underlying_assets(&self) -> CcxtResult<Vec<String>> {
+        // Deribit supports BTC and ETH as underlying assets for options
+        Ok(vec!["BTC".to_string(), "ETH".to_string()])
+    }
+
     fn sign(
         &self,
         _path: &str,
@@ -1443,9 +1817,18 @@ mod tests {
 
     #[test]
     fn test_order_status_parsing() {
-        assert!(matches!(Deribit::parse_order_status("open"), OrderStatus::Open));
-        assert!(matches!(Deribit::parse_order_status("filled"), OrderStatus::Closed));
-        assert!(matches!(Deribit::parse_order_status("cancelled"), OrderStatus::Canceled));
+        assert!(matches!(
+            Deribit::parse_order_status("open"),
+            OrderStatus::Open
+        ));
+        assert!(matches!(
+            Deribit::parse_order_status("filled"),
+            OrderStatus::Closed
+        ));
+        assert!(matches!(
+            Deribit::parse_order_status("cancelled"),
+            OrderStatus::Canceled
+        ));
     }
 
     #[test]

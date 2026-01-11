@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// 수수료 정보
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Fee {
     /// 수수료 금액
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,7 +48,6 @@ impl Fee {
         self.rate.map(|r| amount * r)
     }
 }
-
 
 /// 거래 수수료 구조 (기존 - 하위 호환성 유지)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -193,13 +191,8 @@ impl FeeInfo {
 
     /// 수수료 계산
     pub fn calculate(&self, amount: Decimal) -> Option<Decimal> {
-        self.fee.map(|f| {
-            if self.percentage {
-                amount * f
-            } else {
-                f
-            }
-        })
+        self.fee
+            .map(|f| if self.percentage { amount * f } else { f })
     }
 }
 
@@ -587,14 +580,8 @@ mod tests {
     fn test_deposit_withdraw_fee_with_networks() {
         let fee = DepositWithdrawFee::new("USDT")
             .with_withdraw(FeeInfo::fixed(dec!(1)))
-            .add_network(
-                NetworkFee::new("TRC20")
-                    .with_withdraw(FeeInfo::fixed(dec!(0.5)))
-            )
-            .add_network(
-                NetworkFee::new("ERC20")
-                    .with_withdraw(FeeInfo::fixed(dec!(5)))
-            );
+            .add_network(NetworkFee::new("TRC20").with_withdraw(FeeInfo::fixed(dec!(0.5))))
+            .add_network(NetworkFee::new("ERC20").with_withdraw(FeeInfo::fixed(dec!(5))));
 
         assert_eq!(fee.networks.len(), 2);
 
@@ -686,8 +673,7 @@ mod tests {
 
     #[test]
     fn test_bid_ask_missing_values() {
-        let ba = BidAsk::new("BTC/USDT")
-            .with_bid(dec!(50000), None);
+        let ba = BidAsk::new("BTC/USDT").with_bid(dec!(50000), None);
 
         assert!(ba.spread().is_none());
         assert!(ba.mid().is_none());

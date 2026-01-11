@@ -7,7 +7,7 @@
 //! - Exponential backoff after rate limit errors
 //! - Request statistics and metrics
 
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
@@ -152,12 +152,16 @@ impl RateLimiter {
 
             if current >= required {
                 // 토큰 소비
-                if self.tokens.compare_exchange(
-                    current,
-                    current - required,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                ).is_ok() {
+                if self
+                    .tokens
+                    .compare_exchange(
+                        current,
+                        current - required,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    )
+                    .is_ok()
+                {
                     break;
                 }
             } else {
@@ -218,12 +222,14 @@ impl RateLimiter {
         let current = self.tokens.load(Ordering::SeqCst);
 
         if current >= required {
-            self.tokens.compare_exchange(
-                current,
-                current - required,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ).is_ok()
+            self.tokens
+                .compare_exchange(
+                    current,
+                    current - required,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_ok()
         } else {
             false
         }

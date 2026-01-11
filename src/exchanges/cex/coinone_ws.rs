@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://stream.coinone.co.kr";
@@ -82,7 +82,9 @@ impl CoinoneWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &CoinoneTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.target_currency_pair);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
@@ -120,7 +122,9 @@ impl CoinoneWs {
     fn parse_order_book(data: &CoinoneOrderBookData) -> WsOrderBookEvent {
         let symbol = Self::to_unified_symbol(&data.target_currency_pair);
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|b| {
                 let price = b.price.parse::<Decimal>().ok()?;
                 let amount = b.qty.parse::<Decimal>().ok()?;
@@ -128,7 +132,9 @@ impl CoinoneWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|a| {
                 let price = a.price.parse::<Decimal>().ok()?;
                 let amount = a.qty.parse::<Decimal>().ok()?;
@@ -136,7 +142,9 @@ impl CoinoneWs {
             })
             .collect();
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.clone(),
@@ -149,6 +157,7 @@ impl CoinoneWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -161,7 +170,9 @@ impl CoinoneWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &CoinoneTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.target_currency_pair);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price: Decimal = data.price.parse().unwrap_or_default();
         let amount: Decimal = data.qty.parse().unwrap_or_default();
 
@@ -210,20 +221,23 @@ impl CoinoneWs {
 
                 match channel {
                     "TICKER" => {
-                        let ticker_data: CoinoneTickerData = serde_json::from_value(data.clone()).ok()?;
+                        let ticker_data: CoinoneTickerData =
+                            serde_json::from_value(data.clone()).ok()?;
                         Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)))
-                    }
+                    },
                     "ORDERBOOK" => {
-                        let ob_data: CoinoneOrderBookData = serde_json::from_value(data.clone()).ok()?;
+                        let ob_data: CoinoneOrderBookData =
+                            serde_json::from_value(data.clone()).ok()?;
                         Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data)))
-                    }
+                    },
                     "TRADE" => {
-                        let trade_data: CoinoneTradeData = serde_json::from_value(data.clone()).ok()?;
+                        let trade_data: CoinoneTradeData =
+                            serde_json::from_value(data.clone()).ok()?;
                         Some(WsMessage::Trade(Self::parse_trade(&trade_data)))
-                    }
+                    },
                     _ => None,
                 }
-            }
+            },
             "SUBSCRIBED" | "UNSUBSCRIBED" | "PONG" => None,
             _ => None,
         }
@@ -235,7 +249,7 @@ impl CoinoneWs {
         channel: &str,
         symbols: Vec<String>,
         subscription_key: &str,
-        symbol: Option<&str>
+        symbol: Option<&str>,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
@@ -247,6 +261,7 @@ impl CoinoneWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -267,7 +282,10 @@ impl CoinoneWs {
         // 구독 저장
         {
             let key = format!("{}:{}", subscription_key, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, subscription_key.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, subscription_key.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -277,19 +295,19 @@ impl CoinoneWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -314,30 +332,50 @@ impl WsExchange for CoinoneWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let target = Self::extract_target_currency(symbol);
-        client.subscribe_stream("TICKER", vec![target], "ticker", Some(symbol)).await
+        client
+            .subscribe_stream("TICKER", vec![target], "ticker", Some(symbol))
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let targets: Vec<String> = symbols.iter()
+        let targets: Vec<String> = symbols
+            .iter()
             .map(|s| Self::extract_target_currency(s))
             .collect();
-        client.subscribe_stream("TICKER", targets, "tickers", None).await
+        client
+            .subscribe_stream("TICKER", targets, "tickers", None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let target = Self::extract_target_currency(symbol);
-        client.subscribe_stream("ORDERBOOK", vec![target], "orderBook", Some(symbol)).await
+        client
+            .subscribe_stream("ORDERBOOK", vec![target], "orderBook", Some(symbol))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let target = Self::extract_target_currency(symbol);
-        client.subscribe_stream("TRADE", vec![target], "trades", Some(symbol)).await
+        client
+            .subscribe_stream("TRADE", vec![target], "trades", Some(symbol))
+            .await
     }
 
-    async fn watch_ohlcv(&self, _symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        _symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Coinone does not support OHLCV streaming via WebSocket
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watch_ohlcv".to_string(),
@@ -366,7 +404,10 @@ impl WsExchange for CoinoneWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(crate::errors::CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -377,7 +418,10 @@ impl WsExchange for CoinoneWs {
         })
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(crate::errors::CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),

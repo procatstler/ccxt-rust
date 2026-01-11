@@ -28,9 +28,9 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent,
-    WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -134,7 +134,9 @@ impl CoinCatchWs {
     /// Parse ticker message
     fn parse_ticker(data: &CoinCatchTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.inst_id);
-        let timestamp = data.ts.as_ref()
+        let timestamp = data
+            .ts
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -146,7 +148,10 @@ impl CoinCatchWs {
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default(),
             ),
-            high: data.high24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            high: data
+                .high24h
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             low: data.low24h.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             bid: data.bid_pr.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             bid_volume: data.bid_sz.as_ref().and_then(|v| Decimal::from_str(v).ok()),
@@ -154,16 +159,29 @@ impl CoinCatchWs {
             ask_volume: data.ask_sz.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             vwap: None,
             open: data.open.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            close: data.last_pr.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            last: data.last_pr.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            close: data
+                .last_pr
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            last: data
+                .last_pr
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             previous_close: None,
             change: data.change.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            percentage: data.change_pct.as_ref().and_then(|v| {
-                Decimal::from_str(v.trim_end_matches('%')).ok()
-            }),
+            percentage: data
+                .change_pct
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v.trim_end_matches('%')).ok()),
             average: None,
-            base_volume: data.base_vol.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            quote_volume: data.quote_vol.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            base_volume: data
+                .base_vol
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            quote_volume: data
+                .quote_vol
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             index_price: None,
             mark_price: None,
             info: serde_json::to_value(data).unwrap_or_default(),
@@ -173,30 +191,44 @@ impl CoinCatchWs {
     }
 
     /// Parse order book message
-    fn parse_order_book(data: &CoinCatchOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&b[0]).ok()?,
-                    amount: Decimal::from_str(&b[1]).ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+    fn parse_order_book(
+        data: &CoinCatchOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&b[0]).ok()?,
+                        amount: Decimal::from_str(&b[1]).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: Decimal::from_str(&a[0]).ok()?,
-                    amount: Decimal::from_str(&a[1]).ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: Decimal::from_str(&a[0]).ok()?,
+                        amount: Decimal::from_str(&a[1]).ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let timestamp = data.ts.as_ref()
+        let timestamp = data
+            .ts
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -211,6 +243,7 @@ impl CoinCatchWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -222,39 +255,47 @@ impl CoinCatchWs {
 
     /// Parse trade message
     fn parse_trades(data: &[CoinCatchTradeData], symbol: &str) -> WsTradeEvent {
-        let trades: Vec<Trade> = data.iter().map(|t| {
-            let timestamp = t.ts.as_ref()
-                .and_then(|ts| ts.parse::<i64>().ok())
-                .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let trades: Vec<Trade> = data
+            .iter()
+            .map(|t| {
+                let timestamp =
+                    t.ts.as_ref()
+                        .and_then(|ts| ts.parse::<i64>().ok())
+                        .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let price = t.price.as_ref()
-                .and_then(|p| Decimal::from_str(p).ok())
-                .unwrap_or(Decimal::ZERO);
-            let amount = t.size.as_ref()
-                .and_then(|s| Decimal::from_str(s).ok())
-                .unwrap_or(Decimal::ZERO);
+                let price = t
+                    .price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok())
+                    .unwrap_or(Decimal::ZERO);
+                let amount = t
+                    .size
+                    .as_ref()
+                    .and_then(|s| Decimal::from_str(s).ok())
+                    .unwrap_or(Decimal::ZERO);
 
-            Trade {
-                id: t.trade_id.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
-                symbol: symbol.to_string(),
-                trade_type: None,
-                side: t.side.clone(),
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: vec![],
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.trade_id.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.to_string(),
+                    trade_type: None,
+                    side: t.side.clone(),
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: vec![],
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         WsTradeEvent {
             symbol: symbol.to_string(),
@@ -263,7 +304,11 @@ impl CoinCatchWs {
     }
 
     /// Parse OHLCV message
-    fn parse_ohlcv(data: &CoinCatchCandleData, symbol: &str, timeframe: Timeframe) -> Option<WsOhlcvEvent> {
+    fn parse_ohlcv(
+        data: &CoinCatchCandleData,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> Option<WsOhlcvEvent> {
         let timestamp = data.ts.as_ref()?.parse::<i64>().ok()?;
 
         let ohlcv = OHLCV {
@@ -284,7 +329,9 @@ impl CoinCatchWs {
 
     /// Parse order update message
     fn parse_order(data: &CoinCatchOrderData) -> WsOrderEvent {
-        let timestamp = data.c_time.as_ref()
+        let timestamp = data
+            .c_time
+            .as_ref()
             .and_then(|t| t.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -311,10 +358,14 @@ impl CoinCatchWs {
         };
 
         let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.size.as_ref()
+        let amount = data
+            .size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
-        let filled = data.fill_sz.as_ref()
+        let filled = data
+            .fill_sz
+            .as_ref()
             .and_then(|f| Decimal::from_str(f).ok())
             .unwrap_or(Decimal::ZERO);
         let remaining = amount - filled;
@@ -336,7 +387,10 @@ impl CoinCatchWs {
             time_in_force: None,
             side,
             price,
-            average: data.fill_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            average: data
+                .fill_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             amount,
             filled,
             remaining: Some(remaining),
@@ -344,7 +398,10 @@ impl CoinCatchWs {
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
-            cost: data.fill_notional.as_ref().and_then(|n| Decimal::from_str(n).ok()),
+            cost: data
+                .fill_notional
+                .as_ref()
+                .and_then(|n| Decimal::from_str(n).ok()),
             trades: vec![],
             fee: None,
             fees: vec![],
@@ -362,24 +419,33 @@ impl CoinCatchWs {
 
         for asset in data {
             let currency = asset.coin.clone().unwrap_or_default();
-            let free = asset.available.as_ref()
+            let free = asset
+                .available
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
-            let frozen = asset.frozen.as_ref()
+            let frozen = asset
+                .frozen
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
-            let locked = asset.lock.as_ref()
+            let locked = asset
+                .lock
+                .as_ref()
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
             let used = frozen + locked;
             let total = free + used;
 
-            currencies.insert(currency, Balance {
-                free: Some(free),
-                used: Some(used),
-                total: Some(total),
-                debt: None,
-            });
+            currencies.insert(
+                currency,
+                Balance {
+                    free: Some(free),
+                    used: Some(used),
+                    total: Some(total),
+                    debt: None,
+                },
+            );
         }
 
         let timestamp = Utc::now().timestamp_millis();
@@ -432,53 +498,67 @@ impl CoinCatchWs {
         match channel {
             "ticker" => {
                 if let Some(ticker_data) = data.first() {
-                    if let Ok(ticker) = serde_json::from_value::<CoinCatchTickerData>(ticker_data.clone()) {
+                    if let Ok(ticker) =
+                        serde_json::from_value::<CoinCatchTickerData>(ticker_data.clone())
+                    {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&ticker)));
                     }
                 }
-            }
+            },
             "books" | "books5" | "books15" => {
                 if let Some(book_data) = data.first() {
-                    if let Ok(book) = serde_json::from_value::<CoinCatchOrderBookData>(book_data.clone()) {
+                    if let Ok(book) =
+                        serde_json::from_value::<CoinCatchOrderBookData>(book_data.clone())
+                    {
                         let is_snapshot = json.action.as_deref() == Some("snapshot");
-                        return Some(WsMessage::OrderBook(Self::parse_order_book(&book, &symbol, is_snapshot)));
+                        return Some(WsMessage::OrderBook(Self::parse_order_book(
+                            &book,
+                            &symbol,
+                            is_snapshot,
+                        )));
                     }
                 }
-            }
+            },
             "trade" => {
-                let trades: Vec<CoinCatchTradeData> = data.iter()
+                let trades: Vec<CoinCatchTradeData> = data
+                    .iter()
                     .filter_map(|d| serde_json::from_value(d.clone()).ok())
                     .collect();
                 if !trades.is_empty() {
                     return Some(WsMessage::Trade(Self::parse_trades(&trades, &symbol)));
                 }
-            }
+            },
             c if c.starts_with("candle") => {
                 if let Some(candle_data) = data.first() {
-                    if let Ok(candle) = serde_json::from_value::<CoinCatchCandleData>(candle_data.clone()) {
+                    if let Ok(candle) =
+                        serde_json::from_value::<CoinCatchCandleData>(candle_data.clone())
+                    {
                         let tf = timeframe_hint.unwrap_or(Timeframe::Minute1);
                         if let Some(ohlcv) = Self::parse_ohlcv(&candle, &symbol, tf) {
                             return Some(WsMessage::Ohlcv(ohlcv));
                         }
                     }
                 }
-            }
+            },
             "orders" => {
                 if let Some(order_data) = data.first() {
-                    if let Ok(order) = serde_json::from_value::<CoinCatchOrderData>(order_data.clone()) {
+                    if let Ok(order) =
+                        serde_json::from_value::<CoinCatchOrderData>(order_data.clone())
+                    {
                         return Some(WsMessage::Order(Self::parse_order(&order)));
                     }
                 }
-            }
+            },
             "account" => {
-                let balances: Vec<CoinCatchBalanceData> = data.iter()
+                let balances: Vec<CoinCatchBalanceData> = data
+                    .iter()
                     .filter_map(|d| serde_json::from_value(d.clone()).ok())
                     .collect();
                 if !balances.is_empty() {
                     return Some(WsMessage::Balance(Self::parse_balance(&balances)));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -494,7 +574,11 @@ impl CoinCatchWs {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
-        let ws_url = if requires_auth { WS_PRIVATE_URL } else { WS_PUBLIC_URL };
+        let ws_url = if requires_auth {
+            WS_PRIVATE_URL
+        } else {
+            WS_PUBLIC_URL
+        };
 
         let mut ws_client = WsClient::new(WsConfig {
             url: ws_url.to_string(),
@@ -503,6 +587,7 @@ impl CoinCatchWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -550,7 +635,10 @@ impl CoinCatchWs {
         // Save subscription
         {
             let key = format!("{channel}:{inst_id}");
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // Event processing task
@@ -560,19 +648,19 @@ impl CoinCatchWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg, None) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -581,7 +669,10 @@ impl CoinCatchWs {
     }
 
     /// Subscribe to order updates (private channel)
-    pub async fn watch_orders(&mut self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    pub async fn watch_orders(
+        &mut self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let inst_id = symbol.map(Self::format_symbol).unwrap_or_default();
         self.subscribe_stream("orders", &inst_id, true).await
     }
@@ -619,7 +710,11 @@ impl WsExchange for CoinCatchWs {
         ws.subscribe_stream("ticker", &inst_id, false).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let inst_id = Self::format_symbol(symbol);
         ws.subscribe_stream("books", &inst_id, false).await
@@ -631,7 +726,11 @@ impl WsExchange for CoinCatchWs {
         ws.subscribe_stream("trade", &inst_id, false).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut ws = self.clone();
         let inst_id = Self::format_symbol(symbol);
         let channel = format!("candle{}", Self::format_interval(timeframe));
@@ -647,6 +746,7 @@ impl WsExchange for CoinCatchWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
 
             ws_client.connect().await?;
@@ -869,9 +969,18 @@ mod tests {
 
         let event = CoinCatchWs::parse_ticker(&data);
         assert_eq!(event.symbol, "BTC/USDT");
-        assert_eq!(event.ticker.last, Some(Decimal::from_str("42000.00").unwrap()));
-        assert_eq!(event.ticker.bid, Some(Decimal::from_str("41999.00").unwrap()));
-        assert_eq!(event.ticker.ask, Some(Decimal::from_str("42001.00").unwrap()));
+        assert_eq!(
+            event.ticker.last,
+            Some(Decimal::from_str("42000.00").unwrap())
+        );
+        assert_eq!(
+            event.ticker.bid,
+            Some(Decimal::from_str("41999.00").unwrap())
+        );
+        assert_eq!(
+            event.ticker.ask,
+            Some(Decimal::from_str("42001.00").unwrap())
+        );
     }
 
     #[test]
@@ -893,26 +1002,30 @@ mod tests {
         assert!(event.is_snapshot);
         assert_eq!(event.order_book.bids.len(), 2);
         assert_eq!(event.order_book.asks.len(), 2);
-        assert_eq!(event.order_book.bids[0].price, Decimal::from_str("42000.00").unwrap());
+        assert_eq!(
+            event.order_book.bids[0].price,
+            Decimal::from_str("42000.00").unwrap()
+        );
     }
 
     #[test]
     fn test_parse_trades() {
-        let data = vec![
-            CoinCatchTradeData {
-                trade_id: Some("123".to_string()),
-                ts: Some("1704067200000".to_string()),
-                side: Some("buy".to_string()),
-                price: Some("42000.00".to_string()),
-                size: Some("0.1".to_string()),
-            },
-        ];
+        let data = vec![CoinCatchTradeData {
+            trade_id: Some("123".to_string()),
+            ts: Some("1704067200000".to_string()),
+            side: Some("buy".to_string()),
+            price: Some("42000.00".to_string()),
+            size: Some("0.1".to_string()),
+        }];
 
         let event = CoinCatchWs::parse_trades(&data, "BTC/USDT");
         assert_eq!(event.symbol, "BTC/USDT");
         assert_eq!(event.trades.len(), 1);
         assert_eq!(event.trades[0].id, "123");
-        assert_eq!(event.trades[0].price, Decimal::from_str("42000.00").unwrap());
+        assert_eq!(
+            event.trades[0].price,
+            Decimal::from_str("42000.00").unwrap()
+        );
     }
 
     #[test]

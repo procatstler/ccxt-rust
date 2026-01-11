@@ -18,9 +18,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, OHLCV, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// Paymium Exchange
@@ -238,7 +238,10 @@ impl Paymium {
         headers.insert("Api-Nonce".to_string(), nonce);
         headers.insert("Api-Signature".to_string(), signature);
 
-        let response = self.private_client.delete(&url, Some(headers), None).await?;
+        let response = self
+            .private_client
+            .delete(&url, Some(headers), None)
+            .await?;
         serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
             message: e.to_string(),
             data_type: std::any::type_name::<T>().to_string(),
@@ -278,10 +281,7 @@ impl Paymium {
             ask: ticker.ask.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             ask_volume: None,
             vwap,
-            open: ticker
-                .open
-                .as_ref()
-                .and_then(|v| Decimal::from_str(v).ok()),
+            open: ticker.open.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             close: last,
             last,
             previous_close: None,
@@ -370,7 +370,8 @@ impl Exchange for Paymium {
     }
 
     fn timeframes(&self) -> &HashMap<Timeframe, String> {
-        static TIMEFRAMES: std::sync::OnceLock<HashMap<Timeframe, String>> = std::sync::OnceLock::new();
+        static TIMEFRAMES: std::sync::OnceLock<HashMap<Timeframe, String>> =
+            std::sync::OnceLock::new();
         TIMEFRAMES.get_or_init(HashMap::new)
     }
 
@@ -489,18 +490,17 @@ impl Exchange for Paymium {
         Ok(self.parse_ticker(&ticker, symbol))
     }
 
-    async fn fetch_tickers(&self, _symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
+    async fn fetch_tickers(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<HashMap<String, Ticker>> {
         let ticker = self.fetch_ticker("BTC/EUR").await?;
         let mut result = HashMap::new();
         result.insert("BTC/EUR".to_string(), ticker);
         Ok(result)
     }
 
-    async fn fetch_order_book(
-        &self,
-        symbol: &str,
-        _limit: Option<u32>,
-    ) -> CcxtResult<OrderBook> {
+    async fn fetch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<OrderBook> {
         if symbol != "BTC/EUR" {
             return Err(CcxtError::BadSymbol {
                 symbol: symbol.to_string(),
@@ -551,6 +551,7 @@ impl Exchange for Paymium {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
@@ -586,9 +587,7 @@ impl Exchange for Paymium {
         let mut currencies = HashMap::new();
 
         // Parse BTC balance
-        if let (Some(btc_free), Some(btc_locked)) =
-            (&response.balance_btc, &response.locked_btc)
-        {
+        if let (Some(btc_free), Some(btc_locked)) = (&response.balance_btc, &response.locked_btc) {
             let free = Decimal::from_str(btc_free).unwrap_or_default();
             let used = Decimal::from_str(btc_locked).unwrap_or_default();
             currencies.insert(
@@ -603,9 +602,7 @@ impl Exchange for Paymium {
         }
 
         // Parse EUR balance
-        if let (Some(eur_free), Some(eur_locked)) =
-            (&response.balance_eur, &response.locked_eur)
-        {
+        if let (Some(eur_free), Some(eur_locked)) = (&response.balance_eur, &response.locked_eur) {
             let free = Decimal::from_str(eur_free).unwrap_or_default();
             let used = Decimal::from_str(eur_locked).unwrap_or_default();
             currencies.insert(
@@ -648,7 +645,7 @@ impl Exchange for Paymium {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type {order_type:?}"),
                 })
-            }
+            },
         };
 
         let direction = match side {

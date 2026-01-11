@@ -8,8 +8,8 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -276,27 +276,42 @@ impl Coinsph {
     }
 
     fn generate_signature(&self, query_string: &str) -> CcxtResult<String> {
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret not configured".into(),
-        })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret not configured".into(),
+            })?;
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError { message: e.to_string() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
+                message: e.to_string(),
+            }
+        })?;
         mac.update(query_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
         Ok(signature)
     }
 
-    async fn public_get<T: serde::de::DeserializeOwned>(&self, path: &str, params: Option<&HashMap<String, String>>) -> CcxtResult<T> {
+    async fn public_get<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        params: Option<&HashMap<String, String>>,
+    ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
         let url = if let Some(p) = params {
             if !p.is_empty() {
-                let query: String = p.iter()
+                let query: String = p
+                    .iter()
                     .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                     .collect::<Vec<_>>()
                     .join("&");
-                format!("{}{}", path, if path.contains('?') { "&" } else { "?" }.to_string() + &query)
+                format!(
+                    "{}{}",
+                    path,
+                    if path.contains('?') { "&" } else { "?" }.to_string() + &query
+                )
             } else {
                 path.to_string()
             }
@@ -307,12 +322,20 @@ impl Coinsph {
         self.client.get(&url, None, None).await
     }
 
-    async fn private_request<T: serde::de::DeserializeOwned>(&self, method: &str, path: &str, params: Option<HashMap<String, String>>) -> CcxtResult<T> {
+    async fn private_request<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        params: Option<HashMap<String, String>>,
+    ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key not configured".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key not configured".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
         let mut query_params = params.unwrap_or_default();
@@ -337,18 +360,23 @@ impl Coinsph {
             "GET" => {
                 let url = format!("{path}?{query_string}&signature={signature}");
                 self.client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
-                headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                headers.insert(
+                    "Content-Type".to_string(),
+                    "application/x-www-form-urlencoded".to_string(),
+                );
                 let body_str = format!("{query_string}&signature={signature}");
                 let body = serde_json::json!(body_str);
                 self.client.post(path, Some(body), Some(headers)).await
-            }
+            },
             "DELETE" => {
                 let url = format!("{path}?{query_string}&signature={signature}");
                 self.client.delete(&url, None, Some(headers)).await
-            }
-            _ => Err(CcxtError::BadRequest { message: format!("Unsupported HTTP method: {method}") })
+            },
+            _ => Err(CcxtError::BadRequest {
+                message: format!("Unsupported HTTP method: {method}"),
+            }),
         }
     }
 
@@ -414,31 +442,57 @@ impl Coinsph {
 
     fn parse_ticker(&self, ticker: &CoinsphTicker) -> CcxtResult<Ticker> {
         let symbol = self.get_symbol(&ticker.symbol);
-        let timestamp = ticker.close_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = ticker
+            .close_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let last = ticker.last_price.as_ref()
+        let last = ticker
+            .last_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let high = ticker.high_price.as_ref()
+        let high = ticker
+            .high_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let low = ticker.low_price.as_ref()
+        let low = ticker
+            .low_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let open = ticker.open_price.as_ref()
+        let open = ticker
+            .open_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let bid = ticker.bid_price.as_ref()
+        let bid = ticker
+            .bid_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let bid_volume = ticker.bid_qty.as_ref()
+        let bid_volume = ticker
+            .bid_qty
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok());
-        let ask = ticker.ask_price.as_ref()
+        let ask = ticker
+            .ask_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
-        let ask_volume = ticker.ask_qty.as_ref()
+        let ask_volume = ticker
+            .ask_qty
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok());
-        let base_volume = ticker.volume.as_ref()
+        let base_volume = ticker
+            .volume
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok());
-        let quote_volume = ticker.quote_volume.as_ref()
+        let quote_volume = ticker
+            .quote_volume
+            .as_ref()
             .and_then(|v| Decimal::from_str(v).ok());
-        let change = ticker.price_change.as_ref()
+        let change = ticker
+            .price_change
+            .as_ref()
             .and_then(|c| Decimal::from_str(c).ok());
-        let percentage = ticker.price_change_percent.as_ref()
+        let percentage = ticker
+            .price_change_percent
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
 
         let vwap = if let (Some(qv), Some(bv)) = (quote_volume, base_volume) {
@@ -454,9 +508,11 @@ impl Coinsph {
         Ok(Ticker {
             symbol,
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             high,
             low,
             bid,
@@ -510,7 +566,8 @@ impl Exchange for Coinsph {
             }
         }
 
-        let response: CoinsphExchangeInfo = self.public_get("/openapi/v1/exchangeInfo", None).await?;
+        let response: CoinsphExchangeInfo =
+            self.public_get("/openapi/v1/exchangeInfo", None).await?;
 
         let mut markets = HashMap::new();
         let mut markets_by_id = HashMap::new();
@@ -521,10 +578,15 @@ impl Exchange for Coinsph {
             let symbol = format!("{base}/{quote}");
             let market_id = symbol_info.symbol.clone();
 
-            let active = symbol_info.status.as_ref().map(|s| s == "TRADING").unwrap_or(true);
+            let active = symbol_info
+                .status
+                .as_ref()
+                .map(|s| s == "TRADING")
+                .unwrap_or(true);
 
             let base_precision = symbol_info.base_asset_precision.unwrap_or(8);
-            let quote_precision = symbol_info.quote_asset_precision
+            let quote_precision = symbol_info
+                .quote_asset_precision
                 .or(symbol_info.quote_precision)
                 .unwrap_or(8);
 
@@ -549,7 +611,7 @@ impl Exchange for Coinsph {
                             if let Some(ts) = &filter.tick_size {
                                 price_precision = self.count_decimals(ts);
                             }
-                        }
+                        },
                         "LOT_SIZE" => {
                             if let Some(mq) = &filter.min_qty {
                                 min_amount = Decimal::from_str(mq).ok();
@@ -560,13 +622,13 @@ impl Exchange for Coinsph {
                             if let Some(ss) = &filter.step_size {
                                 amount_precision = self.count_decimals(ss);
                             }
-                        }
+                        },
                         "MIN_NOTIONAL" => {
                             if let Some(mn) = &filter.min_notional {
                                 min_cost = Decimal::from_str(mn).ok();
                             }
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
             }
@@ -670,7 +732,8 @@ impl Exchange for Coinsph {
         let url = format!("{}{}", Self::BASE_URL, path);
 
         let final_url = if !params.is_empty() && method == "GET" {
-            let query: String = params.iter()
+            let query: String = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -697,12 +760,16 @@ impl Exchange for Coinsph {
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
 
-        let response: CoinsphTicker = self.public_get("/openapi/quote/v1/ticker/24hr", Some(&params)).await?;
+        let response: CoinsphTicker = self
+            .public_get("/openapi/quote/v1/ticker/24hr", Some(&params))
+            .await?;
         self.parse_ticker(&response)
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: Vec<CoinsphTicker> = self.public_get("/openapi/quote/v1/ticker/24hr", None).await?;
+        let response: Vec<CoinsphTicker> = self
+            .public_get("/openapi/quote/v1/ticker/24hr", None)
+            .await?;
 
         let mut tickers = HashMap::new();
         for ticker_data in response {
@@ -728,7 +795,9 @@ impl Exchange for Coinsph {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let response: CoinsphOrderBook = self.public_get("/openapi/quote/v1/depth", Some(&params)).await?;
+        let response: CoinsphOrderBook = self
+            .public_get("/openapi/quote/v1/depth", Some(&params))
+            .await?;
 
         let mut bids = Vec::new();
         let mut asks = Vec::new();
@@ -755,13 +824,19 @@ impl Exchange for Coinsph {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: Some(Utc::now().timestamp_millis()),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: response.last_update_id,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.get_market_id(symbol)?;
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
@@ -769,7 +844,9 @@ impl Exchange for Coinsph {
             params.insert("limit".to_string(), l.min(1000).to_string());
         }
 
-        let response: Vec<CoinsphTrade> = self.public_get("/openapi/quote/v1/trades", Some(&params)).await?;
+        let response: Vec<CoinsphTrade> = self
+            .public_get("/openapi/quote/v1/trades", Some(&params))
+            .await?;
 
         let mut trades = Vec::new();
         for trade_data in response {
@@ -788,9 +865,11 @@ impl Exchange for Coinsph {
                 order: None,
                 info: serde_json::json!({}),
                 timestamp: Some(trade_data.time),
-                datetime: Some(chrono::DateTime::from_timestamp_millis(trade_data.time)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()),
+                datetime: Some(
+                    chrono::DateTime::from_timestamp_millis(trade_data.time)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
+                ),
                 symbol: symbol.to_string(),
                 trade_type: None,
                 taker_or_maker: None,
@@ -814,8 +893,12 @@ impl Exchange for Coinsph {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.get_market_id(symbol)?;
-        let tf = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: format!("Timeframe {timeframe:?} not supported") })?;
+        let tf = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: format!("Timeframe {timeframe:?} not supported"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".to_string(), market_id);
@@ -828,25 +911,32 @@ impl Exchange for Coinsph {
             params.insert("limit".to_string(), l.min(1000).to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self.public_get("/openapi/quote/v1/klines", Some(&params)).await?;
+        let response: Vec<Vec<serde_json::Value>> = self
+            .public_get("/openapi/quote/v1/klines", Some(&params))
+            .await?;
 
         let mut ohlcv = Vec::new();
         for kline in response {
             if kline.len() >= 6 {
                 let timestamp = kline[0].as_i64().unwrap_or(0);
-                let open = kline[1].as_str()
+                let open = kline[1]
+                    .as_str()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
-                let high = kline[2].as_str()
+                let high = kline[2]
+                    .as_str()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
-                let low = kline[3].as_str()
+                let low = kline[3]
+                    .as_str()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
-                let close = kline[4].as_str()
+                let close = kline[4]
+                    .as_str()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
-                let volume = kline[5].as_str()
+                let volume = kline[5]
+                    .as_str()
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or(Decimal::ZERO);
 
@@ -865,7 +955,9 @@ impl Exchange for Coinsph {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: CoinsphAccountInfo = self.private_request("GET", "/openapi/v1/account", None).await?;
+        let response: CoinsphAccountInfo = self
+            .private_request("GET", "/openapi/v1/account", None)
+            .await?;
 
         let mut currencies = HashMap::new();
 
@@ -933,23 +1025,30 @@ impl Exchange for Coinsph {
             }
         }
 
-        let response: CoinsphOrder = self.private_request("POST", "/openapi/v1/order", Some(params)).await?;
+        let response: CoinsphOrder = self
+            .private_request("POST", "/openapi/v1/order", Some(params))
+            .await?;
 
-        let filled = response.executed_qty
+        let filled = response
+            .executed_qty
             .as_ref()
             .and_then(|q| Decimal::from_str(q).ok())
             .unwrap_or(Decimal::ZERO);
 
-        let remaining = response.orig_qty
+        let remaining = response
+            .orig_qty
             .as_ref()
             .and_then(|q| Decimal::from_str(q).ok())
-            .unwrap_or(amount) - filled;
+            .unwrap_or(amount)
+            - filled;
 
-        let avg_price = response.avg_price
+        let avg_price = response
+            .avg_price
             .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
 
-        let cost = response.cummulative_quote_qty
+        let cost = response
+            .cummulative_quote_qty
             .as_ref()
             .and_then(|c| Decimal::from_str(c).ok())
             .unwrap_or(Decimal::ZERO);
@@ -957,14 +1056,22 @@ impl Exchange for Coinsph {
         Ok(Order {
             id: response.order_id.to_string(),
             client_order_id: response.client_order_id.clone(),
-            datetime: Some(response.transact_time
-                .and_then(chrono::DateTime::from_timestamp_millis)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
-            timestamp: Some(response.transact_time.unwrap_or_else(|| Utc::now().timestamp_millis())),
+            datetime: Some(
+                response
+                    .transact_time
+                    .and_then(chrono::DateTime::from_timestamp_millis)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
+            timestamp: Some(
+                response
+                    .transact_time
+                    .unwrap_or_else(|| Utc::now().timestamp_millis()),
+            ),
             last_trade_timestamp: None,
             last_update_timestamp: None,
-            status: response.status
+            status: response
+                .status
                 .as_ref()
                 .map(|s| self.parse_order_status(s))
                 .unwrap_or(OrderStatus::Open),
@@ -972,7 +1079,12 @@ impl Exchange for Coinsph {
             order_type,
             time_in_force: None,
             side,
-            price: price.or_else(|| response.price.as_ref().and_then(|p| Decimal::from_str(p).ok())),
+            price: price.or_else(|| {
+                response
+                    .price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok())
+            }),
             average: avg_price,
             amount,
             filled,
@@ -998,14 +1110,18 @@ impl Exchange for Coinsph {
         params.insert("symbol".to_string(), market_id);
         params.insert("orderId".to_string(), id.to_string());
 
-        let response: CoinsphOrder = self.private_request("DELETE", "/openapi/v1/order", Some(params)).await?;
+        let response: CoinsphOrder = self
+            .private_request("DELETE", "/openapi/v1/order", Some(params))
+            .await?;
 
-        let amount = response.orig_qty
+        let amount = response
+            .orig_qty
             .as_ref()
             .and_then(|q| Decimal::from_str(q).ok())
             .unwrap_or(Decimal::ZERO);
 
-        let filled = response.executed_qty
+        let filled = response
+            .executed_qty
             .as_ref()
             .and_then(|q| Decimal::from_str(q).ok())
             .unwrap_or(Decimal::ZERO);
@@ -1013,26 +1129,41 @@ impl Exchange for Coinsph {
         Ok(Order {
             id: response.order_id.to_string(),
             client_order_id: response.client_order_id.clone(),
-            datetime: Some(response.time
-                .and_then(chrono::DateTime::from_timestamp_millis)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
-            timestamp: Some(response.time.unwrap_or_else(|| Utc::now().timestamp_millis())),
+            datetime: Some(
+                response
+                    .time
+                    .and_then(chrono::DateTime::from_timestamp_millis)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
+            timestamp: Some(
+                response
+                    .time
+                    .unwrap_or_else(|| Utc::now().timestamp_millis()),
+            ),
             last_trade_timestamp: None,
             last_update_timestamp: None,
             status: OrderStatus::Canceled,
             symbol: symbol.to_string(),
-            order_type: response.order_type
+            order_type: response
+                .order_type
                 .as_ref()
                 .map(|t| self.parse_order_type(t))
                 .unwrap_or(OrderType::Limit),
             time_in_force: None,
-            side: response.side
+            side: response
+                .side
                 .as_ref()
                 .map(|s| self.parse_order_side(s))
                 .unwrap_or(OrderSide::Buy),
-            price: response.price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            average: response.avg_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            price: response
+                .price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            average: response
+                .avg_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             amount,
             filled,
             remaining: Some(amount - filled),
@@ -1057,19 +1188,24 @@ impl Exchange for Coinsph {
         params.insert("symbol".to_string(), market_id);
         params.insert("orderId".to_string(), id.to_string());
 
-        let response: CoinsphOrder = self.private_request("GET", "/openapi/v1/order", Some(params)).await?;
+        let response: CoinsphOrder = self
+            .private_request("GET", "/openapi/v1/order", Some(params))
+            .await?;
 
-        let amount = response.orig_qty
+        let amount = response
+            .orig_qty
             .as_ref()
             .and_then(|q| Decimal::from_str(q).ok())
             .unwrap_or(Decimal::ZERO);
 
-        let filled = response.executed_qty
+        let filled = response
+            .executed_qty
             .as_ref()
             .and_then(|q| Decimal::from_str(q).ok())
             .unwrap_or(Decimal::ZERO);
 
-        let cost = response.cummulative_quote_qty
+        let cost = response
+            .cummulative_quote_qty
             .as_ref()
             .and_then(|c| Decimal::from_str(c).ok())
             .unwrap_or(Decimal::ZERO);
@@ -1077,29 +1213,45 @@ impl Exchange for Coinsph {
         Ok(Order {
             id: response.order_id.to_string(),
             client_order_id: response.client_order_id.clone(),
-            datetime: Some(response.time
-                .and_then(chrono::DateTime::from_timestamp_millis)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
-            timestamp: Some(response.time.unwrap_or_else(|| Utc::now().timestamp_millis())),
+            datetime: Some(
+                response
+                    .time
+                    .and_then(chrono::DateTime::from_timestamp_millis)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
+            timestamp: Some(
+                response
+                    .time
+                    .unwrap_or_else(|| Utc::now().timestamp_millis()),
+            ),
             last_trade_timestamp: response.update_time,
             last_update_timestamp: None,
-            status: response.status
+            status: response
+                .status
                 .as_ref()
                 .map(|s| self.parse_order_status(s))
                 .unwrap_or(OrderStatus::Open),
             symbol: symbol.to_string(),
-            order_type: response.order_type
+            order_type: response
+                .order_type
                 .as_ref()
                 .map(|t| self.parse_order_type(t))
                 .unwrap_or(OrderType::Limit),
             time_in_force: None,
-            side: response.side
+            side: response
+                .side
                 .as_ref()
                 .map(|s| self.parse_order_side(s))
                 .unwrap_or(OrderSide::Buy),
-            price: response.price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-            average: response.avg_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+            price: response
+                .price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
+            average: response
+                .avg_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok()),
             amount,
             filled,
             remaining: Some(amount - filled),
@@ -1117,7 +1269,12 @@ impl Exchange for Coinsph {
         })
     }
 
-    async fn fetch_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             params.insert("symbol".to_string(), self.get_market_id(s)?);
@@ -1126,22 +1283,27 @@ impl Exchange for Coinsph {
             params.insert("limit".to_string(), l.min(1000).to_string());
         }
 
-        let response: Vec<CoinsphOrder> = self.private_request("GET", "/openapi/v1/historyOrders", Some(params)).await?;
+        let response: Vec<CoinsphOrder> = self
+            .private_request("GET", "/openapi/v1/historyOrders", Some(params))
+            .await?;
 
         let mut orders = Vec::new();
         for order_data in response {
             let sym = self.get_symbol(&order_data.symbol);
-            let amount = order_data.orig_qty
+            let amount = order_data
+                .orig_qty
                 .as_ref()
                 .and_then(|q| Decimal::from_str(q).ok())
                 .unwrap_or(Decimal::ZERO);
 
-            let filled = order_data.executed_qty
+            let filled = order_data
+                .executed_qty
                 .as_ref()
                 .and_then(|q| Decimal::from_str(q).ok())
                 .unwrap_or(Decimal::ZERO);
 
-            let cost = order_data.cummulative_quote_qty
+            let cost = order_data
+                .cummulative_quote_qty
                 .as_ref()
                 .and_then(|c| Decimal::from_str(c).ok())
                 .unwrap_or(Decimal::ZERO);
@@ -1149,29 +1311,41 @@ impl Exchange for Coinsph {
             orders.push(Order {
                 id: order_data.order_id.to_string(),
                 client_order_id: order_data.client_order_id.clone(),
-                datetime: Some(order_data.time
-                    .and_then(chrono::DateTime::from_timestamp_millis)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()),
+                datetime: Some(
+                    order_data
+                        .time
+                        .and_then(chrono::DateTime::from_timestamp_millis)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
+                ),
                 timestamp: Some(order_data.time.unwrap_or(0)),
                 last_trade_timestamp: order_data.update_time,
                 last_update_timestamp: None,
-                status: order_data.status
+                status: order_data
+                    .status
                     .as_ref()
                     .map(|s| self.parse_order_status(s))
                     .unwrap_or(OrderStatus::Open),
                 symbol: sym,
-                order_type: order_data.order_type
+                order_type: order_data
+                    .order_type
                     .as_ref()
                     .map(|t| self.parse_order_type(t))
                     .unwrap_or(OrderType::Limit),
                 time_in_force: None,
-                side: order_data.side
+                side: order_data
+                    .side
                     .as_ref()
                     .map(|s| self.parse_order_side(s))
                     .unwrap_or(OrderSide::Buy),
-                price: order_data.price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-                average: order_data.avg_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+                price: order_data
+                    .price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok()),
+                average: order_data
+                    .avg_price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok()),
                 amount,
                 filled,
                 remaining: Some(amount - filled),
@@ -1192,28 +1366,38 @@ impl Exchange for Coinsph {
         Ok(orders)
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             params.insert("symbol".to_string(), self.get_market_id(s)?);
         }
 
-        let response: Vec<CoinsphOrder> = self.private_request("GET", "/openapi/v1/openOrders", Some(params)).await?;
+        let response: Vec<CoinsphOrder> = self
+            .private_request("GET", "/openapi/v1/openOrders", Some(params))
+            .await?;
 
         let mut orders = Vec::new();
         for order_data in response {
             let sym = self.get_symbol(&order_data.symbol);
-            let amount = order_data.orig_qty
+            let amount = order_data
+                .orig_qty
                 .as_ref()
                 .and_then(|q| Decimal::from_str(q).ok())
                 .unwrap_or(Decimal::ZERO);
 
-            let filled = order_data.executed_qty
+            let filled = order_data
+                .executed_qty
                 .as_ref()
                 .and_then(|q| Decimal::from_str(q).ok())
                 .unwrap_or(Decimal::ZERO);
 
-            let cost = order_data.cummulative_quote_qty
+            let cost = order_data
+                .cummulative_quote_qty
                 .as_ref()
                 .and_then(|c| Decimal::from_str(c).ok())
                 .unwrap_or(Decimal::ZERO);
@@ -1221,26 +1405,37 @@ impl Exchange for Coinsph {
             orders.push(Order {
                 id: order_data.order_id.to_string(),
                 client_order_id: order_data.client_order_id.clone(),
-                datetime: Some(order_data.time
-                    .and_then(chrono::DateTime::from_timestamp_millis)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()),
+                datetime: Some(
+                    order_data
+                        .time
+                        .and_then(chrono::DateTime::from_timestamp_millis)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
+                ),
                 timestamp: Some(order_data.time.unwrap_or(0)),
                 last_trade_timestamp: order_data.update_time,
                 last_update_timestamp: None,
                 status: OrderStatus::Open,
                 symbol: sym,
-                order_type: order_data.order_type
+                order_type: order_data
+                    .order_type
                     .as_ref()
                     .map(|t| self.parse_order_type(t))
                     .unwrap_or(OrderType::Limit),
                 time_in_force: None,
-                side: order_data.side
+                side: order_data
+                    .side
                     .as_ref()
                     .map(|s| self.parse_order_side(s))
                     .unwrap_or(OrderSide::Buy),
-                price: order_data.price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
-                average: order_data.avg_price.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+                price: order_data
+                    .price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok()),
+                average: order_data
+                    .avg_price
+                    .as_ref()
+                    .and_then(|p| Decimal::from_str(p).ok()),
                 amount,
                 filled,
                 remaining: Some(amount - filled),
@@ -1261,7 +1456,12 @@ impl Exchange for Coinsph {
         Ok(orders)
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let mut params = HashMap::new();
         if let Some(s) = symbol {
             params.insert("symbol".to_string(), self.get_market_id(s)?);
@@ -1270,22 +1470,31 @@ impl Exchange for Coinsph {
             params.insert("limit".to_string(), l.min(1000).to_string());
         }
 
-        let response: Vec<CoinsphMyTrade> = self.private_request("GET", "/openapi/v1/myTrades", Some(params)).await?;
+        let response: Vec<CoinsphMyTrade> = self
+            .private_request("GET", "/openapi/v1/myTrades", Some(params))
+            .await?;
 
         let mut trades = Vec::new();
         for trade_data in response {
             let sym = self.get_symbol(&trade_data.symbol);
             let price = Decimal::from_str(&trade_data.price).unwrap_or(Decimal::ZERO);
             let amount = Decimal::from_str(&trade_data.qty).unwrap_or(Decimal::ZERO);
-            let cost = trade_data.quote_qty
+            let cost = trade_data
+                .quote_qty
                 .as_ref()
                 .and_then(|q| Decimal::from_str(q).ok())
                 .unwrap_or(price * amount);
 
             let side = if trade_data.is_buyer { "buy" } else { "sell" };
-            let _taker_or_maker = if trade_data.is_maker { "maker" } else { "taker" };
+            let _taker_or_maker = if trade_data.is_maker {
+                "maker"
+            } else {
+                "taker"
+            };
 
-            let fee = if let (Some(comm), Some(asset)) = (&trade_data.commission, &trade_data.commission_asset) {
+            let fee = if let (Some(comm), Some(asset)) =
+                (&trade_data.commission, &trade_data.commission_asset)
+            {
                 Some(Fee {
                     currency: Some(asset.clone()),
                     cost: Some(Decimal::from_str(comm).unwrap_or(Decimal::ZERO)),
@@ -1300,9 +1509,11 @@ impl Exchange for Coinsph {
                 order: Some(trade_data.order_id.to_string()),
                 info: serde_json::json!({}),
                 timestamp: Some(trade_data.time),
-                datetime: Some(chrono::DateTime::from_timestamp_millis(trade_data.time)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()),
+                datetime: Some(
+                    chrono::DateTime::from_timestamp_millis(trade_data.time)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
+                ),
                 symbol: sym,
                 trade_type: None,
                 taker_or_maker: None,
@@ -1348,7 +1559,9 @@ mod tests {
         let exchange = create_test_exchange();
         let urls = exchange.urls();
         assert!(urls.api.contains_key("public"));
-        assert!(urls.doc.contains(&"https://coins-docs.github.io/rest-api".to_string()));
+        assert!(urls
+            .doc
+            .contains(&"https://coins-docs.github.io/rest-api".to_string()));
     }
 
     #[test]
@@ -1372,9 +1585,15 @@ mod tests {
         let exchange = create_test_exchange();
         assert_eq!(exchange.parse_order_status("NEW"), OrderStatus::Open);
         assert_eq!(exchange.parse_order_status("FILLED"), OrderStatus::Closed);
-        assert_eq!(exchange.parse_order_status("CANCELED"), OrderStatus::Canceled);
+        assert_eq!(
+            exchange.parse_order_status("CANCELED"),
+            OrderStatus::Canceled
+        );
         assert_eq!(exchange.parse_order_status("EXPIRED"), OrderStatus::Expired);
-        assert_eq!(exchange.parse_order_status("REJECTED"), OrderStatus::Rejected);
+        assert_eq!(
+            exchange.parse_order_status("REJECTED"),
+            OrderStatus::Rejected
+        );
     }
 
     #[test]

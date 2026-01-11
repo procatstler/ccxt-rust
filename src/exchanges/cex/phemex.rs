@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -145,26 +145,37 @@ impl Phemex {
 
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let expiry = (Utc::now().timestamp() + 60).to_string();
 
         // Build query string for GET, body for POST
         let (query_string, body) = if method == "GET" {
-            let qs = params.as_ref().map(|p| {
-                p.iter()
-                    .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-                    .collect::<Vec<_>>()
-                    .join("&")
-            }).unwrap_or_default();
+            let qs = params
+                .as_ref()
+                .map(|p| {
+                    p.iter()
+                        .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+                        .collect::<Vec<_>>()
+                        .join("&")
+                })
+                .unwrap_or_default();
             (qs, None)
         } else {
-            let b = params.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
+            let b = params
+                .as_ref()
+                .map(|p| serde_json::to_string(p).unwrap_or_default());
             (String::new(), b)
         };
 
@@ -198,11 +209,13 @@ impl Phemex {
                     format!("{path}?{query_string}")
                 };
                 self.private_client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
                 let json_body = params.map(|p| serde_json::to_value(p).unwrap_or_default());
-                self.private_client.post(path, json_body, Some(headers)).await
-            }
+                self.private_client
+                    .post(path, json_body, Some(headers))
+                    .await
+            },
             "DELETE" => {
                 let url = if query_string.is_empty() {
                     path.to_string()
@@ -210,7 +223,7 @@ impl Phemex {
                     format!("{path}?{query_string}")
                 };
                 self.private_client.delete(&url, None, Some(headers)).await
-            }
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -274,7 +287,9 @@ impl Phemex {
 
     /// 티커 파싱
     fn parse_ticker(&self, data: &PhemexTicker, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         // Phemex uses scaled integers, need to divide by scale factor
         let scale = Decimal::new(1, 8); // 10^-8
@@ -311,7 +326,10 @@ impl Phemex {
 
     /// 주문 파싱
     fn parse_order(&self, data: &PhemexOrder) -> Order {
-        let timestamp = data.create_time_ns.map(|t| t / 1_000_000).unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .create_time_ns
+            .map(|t| t / 1_000_000)
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let scale = Decimal::new(1, 8);
 
         let status = match data.ord_status.as_deref() {
@@ -336,8 +354,14 @@ impl Phemex {
         };
 
         let price = data.price_ep.map(|p| Decimal::new(p, 0) * scale);
-        let amount = data.order_qty.map(|q| Decimal::new(q, 0) * scale).unwrap_or_default();
-        let filled = data.cum_qty.map(|q| Decimal::new(q, 0) * scale).unwrap_or_default();
+        let amount = data
+            .order_qty
+            .map(|q| Decimal::new(q, 0) * scale)
+            .unwrap_or_default();
+        let filled = data
+            .cum_qty
+            .map(|q| Decimal::new(q, 0) * scale)
+            .unwrap_or_default();
         let remaining = amount - filled;
         let cost = data.cum_value_ev.map(|v| Decimal::new(v, 0) * scale);
 
@@ -382,10 +406,18 @@ impl Phemex {
 
     /// 거래 파싱
     fn parse_trade(&self, data: &PhemexTrade, symbol: &str) -> Trade {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let scale = Decimal::new(1, 8);
-        let price = data.price_ep.map(|p| Decimal::new(p, 0) * scale).unwrap_or_default();
-        let amount = data.qty.map(|q| Decimal::new(q, 0) * scale).unwrap_or_default();
+        let price = data
+            .price_ep
+            .map(|p| Decimal::new(p, 0) * scale)
+            .unwrap_or_default();
+        let amount = data
+            .qty
+            .map(|q| Decimal::new(q, 0) * scale)
+            .unwrap_or_default();
 
         let side = match data.side.as_deref() {
             Some("Buy") => "buy",
@@ -511,7 +543,8 @@ impl Exchange for Phemex {
             let qs = if params.is_empty() {
                 String::new()
             } else {
-                params.iter()
+                params
+                    .iter()
                     .map(|(k, v)| format!("{k}={v}"))
                     .collect::<Vec<_>>()
                     .join("&")
@@ -564,9 +597,7 @@ impl Exchange for Phemex {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: PhemexProductsResponse = self
-            .public_get("/public/products", None)
-            .await?;
+        let response: PhemexProductsResponse = self.public_get("/public/products", None).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -600,9 +631,8 @@ impl Exchange for Phemex {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: PhemexTickerResponse = self
-            .public_get("/md/v2/ticker/24hr", Some(params))
-            .await?;
+        let response: PhemexTickerResponse =
+            self.public_get("/md/v2/ticker/24hr", Some(params)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -619,9 +649,8 @@ impl Exchange for Phemex {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: PhemexTickersResponse = self
-            .public_get("/md/v2/ticker/24hr/all", None)
-            .await?;
+        let response: PhemexTickersResponse =
+            self.public_get("/md/v2/ticker/24hr/all", None).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -659,9 +688,8 @@ impl Exchange for Phemex {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: PhemexOrderBookResponse = self
-            .public_get("/md/v2/orderbook", Some(params))
-            .await?;
+        let response: PhemexOrderBookResponse =
+            self.public_get("/md/v2/orderbook", Some(params)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -674,11 +702,16 @@ impl Exchange for Phemex {
             message: "No data in response".into(),
         })?;
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let scale = Decimal::new(1, 8);
         let limit_usize = limit.unwrap_or(100) as usize;
 
-        let bids: Vec<OrderBookEntry> = data.book.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .book
+            .bids
+            .iter()
             .take(limit_usize)
             .filter_map(|b| {
                 if b.len() >= 2 {
@@ -691,7 +724,10 @@ impl Exchange for Phemex {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.book.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .book
+            .asks
+            .iter()
             .take(limit_usize)
             .filter_map(|a| {
                 if a.len() >= 2 {
@@ -715,17 +751,21 @@ impl Exchange for Phemex {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.convert_to_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: PhemexTradesResponse = self
-            .public_get("/md/v2/trade", Some(params))
-            .await?;
+        let response: PhemexTradesResponse = self.public_get("/md/v2/trade", Some(params)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -739,7 +779,9 @@ impl Exchange for Phemex {
         })?;
 
         let limit_usize = limit.unwrap_or(100) as usize;
-        let trades: Vec<Trade> = data.trades.iter()
+        let trades: Vec<Trade> = data
+            .trades
+            .iter()
             .take(limit_usize)
             .map(|t| self.parse_trade(t, symbol))
             .collect();
@@ -755,7 +797,11 @@ impl Exchange for Phemex {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.convert_to_market_id(symbol);
-        let resolution = self.timeframes.get(&timeframe).cloned().unwrap_or("3600".into());
+        let resolution = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or("3600".into());
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -768,9 +814,7 @@ impl Exchange for Phemex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: PhemexKlinesResponse = self
-            .public_get("/md/v2/kline", Some(params))
-            .await?;
+        let response: PhemexKlinesResponse = self.public_get("/md/v2/kline", Some(params)).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -783,7 +827,9 @@ impl Exchange for Phemex {
             message: "No data in response".into(),
         })?;
 
-        let ohlcv: Vec<OHLCV> = data.rows.iter()
+        let ohlcv: Vec<OHLCV> = data
+            .rows
+            .iter()
             .filter_map(|k| self.parse_ohlcv(k))
             .collect();
 
@@ -791,9 +837,8 @@ impl Exchange for Phemex {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: PhemexBalanceResponse = self
-            .private_request("GET", "/spot/wallets", None)
-            .await?;
+        let response: PhemexBalanceResponse =
+            self.private_request("GET", "/spot/wallets", None).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -818,8 +863,14 @@ impl Exchange for Phemex {
         let scale = Decimal::new(1, 8);
         for wallet in data {
             let currency = wallet.currency.clone();
-            let free = wallet.available_balance_ev.map(|v| Decimal::new(v, 0) * scale).unwrap_or_default();
-            let total = wallet.balance_ev.map(|v| Decimal::new(v, 0) * scale).unwrap_or_default();
+            let free = wallet
+                .available_balance_ev
+                .map(|v| Decimal::new(v, 0) * scale)
+                .unwrap_or_default();
+            let total = wallet
+                .balance_ev
+                .map(|v| Decimal::new(v, 0) * scale)
+                .unwrap_or_default();
             let used = total - free;
 
             balances.currencies.insert(
@@ -849,15 +900,21 @@ impl Exchange for Phemex {
 
         let mut request = HashMap::new();
         request.insert("symbol".into(), market_id);
-        request.insert("side".into(), match side {
-            OrderSide::Buy => "Buy".into(),
-            OrderSide::Sell => "Sell".into(),
-        });
-        request.insert("ordType".into(), match order_type {
-            OrderType::Limit => "Limit".into(),
-            OrderType::Market => "Market".into(),
-            _ => "Limit".into(),
-        });
+        request.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "Buy".into(),
+                OrderSide::Sell => "Sell".into(),
+            },
+        );
+        request.insert(
+            "ordType".into(),
+            match order_type {
+                OrderType::Limit => "Limit".into(),
+                OrderType::Market => "Market".into(),
+                _ => "Limit".into(),
+            },
+        );
 
         let qty_scaled = (amount * scale).to_string();
         request.insert("orderQtyEv".into(), qty_scaled);
@@ -970,7 +1027,15 @@ impl Exchange for Phemex {
         }
 
         let response: PhemexOrdersResponse = self
-            .private_request("GET", "/spot/orders", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/spot/orders",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1007,7 +1072,15 @@ impl Exchange for Phemex {
         }
 
         let response: PhemexMyTradesResponse = self
-            .private_request("GET", "/spot/orders/trades", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/spot/orders/trades",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1034,7 +1107,8 @@ impl Exchange for Phemex {
         amount: Decimal,
         price: Decimal,
     ) -> CcxtResult<Order> {
-        self.create_order(symbol, OrderType::Limit, side, amount, Some(price)).await
+        self.create_order(symbol, OrderType::Limit, side, amount, Some(price))
+            .await
     }
 
     async fn create_market_order(
@@ -1043,7 +1117,8 @@ impl Exchange for Phemex {
         side: OrderSide,
         amount: Decimal,
     ) -> CcxtResult<Order> {
-        self.create_order(symbol, OrderType::Market, side, amount, None).await
+        self.create_order(symbol, OrderType::Market, side, amount, None)
+            .await
     }
 
     async fn cancel_all_orders(&self, symbol: Option<&str>) -> CcxtResult<Vec<Order>> {
@@ -1053,7 +1128,15 @@ impl Exchange for Phemex {
         }
 
         let _response: PhemexResponse<serde_json::Value> = self
-            .private_request("DELETE", "/spot/orders/all", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "DELETE",
+                "/spot/orders/all",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         // Phemex doesn't return cancelled orders in response, return empty vec
@@ -1078,7 +1161,15 @@ impl Exchange for Phemex {
         }
 
         let response: PhemexOrdersResponse = self
-            .private_request("GET", "/spot/orders/closed", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/spot/orders/closed",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1124,9 +1215,8 @@ impl Exchange for Phemex {
     }
 
     async fn fetch_currencies(&self) -> CcxtResult<HashMap<String, crate::types::Currency>> {
-        let response: PhemexCurrenciesResponse = self
-            .public_get("/public/cfg/currencies", None)
-            .await?;
+        let response: PhemexCurrenciesResponse =
+            self.public_get("/public/cfg/currencies", None).await?;
 
         if response.code != 0 {
             return Err(CcxtError::ExchangeError {
@@ -1169,7 +1259,11 @@ impl Exchange for Phemex {
         }
 
         let response: PhemexDepositAddressResponse = self
-            .private_request("GET", "/phemex-user/wallets/v2/depositAddress", Some(params))
+            .private_request(
+                "GET",
+                "/phemex-user/wallets/v2/depositAddress",
+                Some(params),
+            )
             .await?;
 
         if response.code != 0 {
@@ -1210,7 +1304,15 @@ impl Exchange for Phemex {
         }
 
         let response: PhemexTransactionsResponse = self
-            .private_request("GET", "/phemex-user/wallets/deposits", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/phemex-user/wallets/deposits",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1246,7 +1348,15 @@ impl Exchange for Phemex {
         }
 
         let response: PhemexTransactionsResponse = self
-            .private_request("GET", "/phemex-user/wallets/withdrawals", if params.is_empty() { None } else { Some(params) })
+            .private_request(
+                "GET",
+                "/phemex-user/wallets/withdrawals",
+                if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                },
+            )
             .await?;
 
         if response.code != 0 {
@@ -1324,9 +1434,14 @@ impl Exchange for Phemex {
 }
 
 impl Phemex {
-    fn parse_transaction(&self, data: &PhemexTransaction, transaction_type: &str) -> crate::types::Transaction {
+    fn parse_transaction(
+        &self,
+        data: &PhemexTransaction,
+        transaction_type: &str,
+    ) -> crate::types::Transaction {
         let scale = Decimal::new(10_i64.pow(8), 0);
-        let amount = data.amount_ev
+        let amount = data
+            .amount_ev
             .map(|a| Decimal::from(a) / scale)
             .unwrap_or_default();
 
@@ -1343,9 +1458,9 @@ impl Phemex {
             id: data.id.clone().unwrap_or_default(),
             txid: data.txid.clone(),
             timestamp: data.create_time,
-            datetime: data.create_time.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .create_time
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             address: data.address.clone(),
             tag: data.address_tag.clone(),
             tx_type: if transaction_type == "deposit" {

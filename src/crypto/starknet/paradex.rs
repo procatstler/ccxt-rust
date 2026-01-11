@@ -6,10 +6,10 @@
 //!
 //! - [Paradex API Authentication](https://docs.paradex.trade/trading/api-authentication)
 
-use crate::errors::CcxtResult;
+use super::poseidon::poseidon_hash_many;
 use super::typed_data::{StarkNetDomain, StarkNetTypedData, StarkNetTypedDataField};
 use super::wallet::StarkNetWallet;
-use super::poseidon::poseidon_hash_many;
+use crate::errors::CcxtResult;
 use starknet_types_core::felt::Felt;
 use std::collections::HashMap;
 
@@ -39,8 +39,7 @@ impl ParadexAuthMessage {
 
     /// 인증 메시지를 타입 데이터로 변환
     pub fn to_typed_data(&self) -> StarkNetTypedData {
-        let domain = StarkNetDomain::new("Paradex", "1")
-            .with_chain_id(&self.chain_id);
+        let domain = StarkNetDomain::new("Paradex", "1").with_chain_id(&self.chain_id);
 
         let mut types = HashMap::new();
         types.insert(
@@ -90,15 +89,12 @@ impl ParadexOnboardingMessage {
 
     /// 온보딩 메시지를 타입 데이터로 변환
     pub fn to_typed_data(&self) -> StarkNetTypedData {
-        let domain = StarkNetDomain::new("Paradex", "1")
-            .with_chain_id(&self.chain_id);
+        let domain = StarkNetDomain::new("Paradex", "1").with_chain_id(&self.chain_id);
 
         let mut types = HashMap::new();
         types.insert(
             "Constant".to_string(),
-            vec![
-                StarkNetTypedDataField::new("action", "felt"),
-            ],
+            vec![StarkNetTypedDataField::new("action", "felt")],
         );
 
         let message = serde_json::json!({
@@ -178,8 +174,7 @@ impl ParadexOrderMessage {
 
     /// 주문 메시지를 타입 데이터로 변환
     pub fn to_typed_data(&self) -> StarkNetTypedData {
-        let domain = StarkNetDomain::new("Paradex", "1")
-            .with_chain_id(&self.chain_id);
+        let domain = StarkNetDomain::new("Paradex", "1").with_chain_id(&self.chain_id);
 
         let mut types = HashMap::new();
         types.insert(
@@ -267,8 +262,7 @@ impl ParadexFullNodeMessage {
 
     /// 풀노드 메시지를 타입 데이터로 변환
     pub fn to_typed_data(&self) -> StarkNetTypedData {
-        let domain = StarkNetDomain::new("Paradex", "1")
-            .with_chain_id(&self.chain_id);
+        let domain = StarkNetDomain::new("Paradex", "1").with_chain_id(&self.chain_id);
 
         let mut types = HashMap::new();
         types.insert(
@@ -322,10 +316,14 @@ fn parse_decimal_to_quantum(value: &str, decimals: u32) -> String {
     let result = format!("{integer_part}{frac}");
 
     // 앞의 0 제거
-    result.trim_start_matches('0').to_string()
+    result
+        .trim_start_matches('0')
+        .to_string()
         .chars()
         .next()
-        .map_or("0".to_string(), |_| result.trim_start_matches('0').to_string())
+        .map_or("0".to_string(), |_| {
+            result.trim_start_matches('0').to_string()
+        })
 }
 
 #[cfg(test)]
@@ -351,14 +349,8 @@ mod tests {
 
     #[test]
     fn test_order_message() {
-        let msg = ParadexOrderMessage::new(
-            "SN_MAIN",
-            "ETH-USD-PERP",
-            "BUY",
-            "LIMIT",
-            "1.5",
-            "2000.0",
-        );
+        let msg =
+            ParadexOrderMessage::new("SN_MAIN", "ETH-USD-PERP", "BUY", "LIMIT", "1.5", "2000.0");
 
         assert_eq!(msg.side, 1);
         assert_eq!(msg.chain_size(), "150000000");

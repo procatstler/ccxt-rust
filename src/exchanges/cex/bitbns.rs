@@ -18,9 +18,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, Fee, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
+    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 const WWW_URL: &str = "https://bitbns.com";
@@ -147,7 +147,10 @@ impl Bitbns {
         api_urls.insert("v2".into(), V2_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/a5b9a562-cdd8-4bea-9fa7-fd24c1dad3d9".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/a5b9a562-cdd8-4bea-9fa7-fd24c1dad3d9"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://bitbns.com".into()),
             doc: vec!["https://bitbns.com/trade/#/api-trading/".into()],
@@ -232,28 +235,37 @@ impl Bitbns {
 
     /// HMAC-SHA512 signature
     fn create_signature(&self, payload: &str) -> CcxtResult<String> {
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".to_string(),
-        })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".to_string(),
+            })?;
 
         type HmacSha512 = Hmac<Sha512>;
-        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha512::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Invalid secret key".to_string(),
-            })?;
+            }
+        })?;
         mac.update(payload.as_bytes());
 
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
 
     /// Public API request (www)
-    async fn www_request(&self, path: &str, params: Option<&HashMap<String, String>>) -> CcxtResult<serde_json::Value> {
+    async fn www_request(
+        &self,
+        path: &str,
+        params: Option<&HashMap<String, String>>,
+    ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
         let mut url = format!("{WWW_URL}/{path}");
         if let Some(p) = params {
             if !p.is_empty() {
-                let query: String = p.iter()
+                let query: String = p
+                    .iter()
                     .map(|(k, v)| format!("{k}={v}"))
                     .collect::<Vec<_>>()
                     .join("&");
@@ -277,12 +289,19 @@ impl Bitbns {
     }
 
     /// Private API request (v1 POST)
-    async fn v1_private_request(&self, path: &str, params: &HashMap<String, serde_json::Value>) -> CcxtResult<serde_json::Value> {
+    async fn v1_private_request(
+        &self,
+        path: &str,
+        params: &HashMap<String, serde_json::Value>,
+    ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".to_string(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".to_string(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
 
@@ -306,23 +325,37 @@ impl Bitbns {
         headers.insert("X-BITBNS-APIKEY".to_string(), api_key.to_string());
         headers.insert("X-BITBNS-PAYLOAD".to_string(), payload);
         headers.insert("X-BITBNS-SIGNATURE".to_string(), signature);
-        headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        );
 
         let url = format!("{V1_URL}/{path}");
-        let body_value: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-        let response: serde_json::Value = self.v1_client.post(&url, Some(body_value), Some(headers)).await?;
+        let body_value: serde_json::Value = serde_json::from_str(&body)
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+        let response: serde_json::Value = self
+            .v1_client
+            .post(&url, Some(body_value), Some(headers))
+            .await?;
 
         self.check_error(&response)?;
         Ok(response)
     }
 
     /// Private API request (v2 POST)
-    async fn v2_private_request(&self, path: &str, params: &HashMap<String, serde_json::Value>) -> CcxtResult<serde_json::Value> {
+    async fn v2_private_request(
+        &self,
+        path: &str,
+        params: &HashMap<String, serde_json::Value>,
+    ) -> CcxtResult<serde_json::Value> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".to_string(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".to_string(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
 
@@ -344,11 +377,18 @@ impl Bitbns {
         headers.insert("X-BITBNS-APIKEY".to_string(), api_key.to_string());
         headers.insert("X-BITBNS-PAYLOAD".to_string(), payload);
         headers.insert("X-BITBNS-SIGNATURE".to_string(), signature);
-        headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        );
 
         let url = format!("{V2_URL}/{path}");
-        let body_value: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-        let response: serde_json::Value = self.v2_client.post(&url, Some(body_value), Some(headers)).await?;
+        let body_value: serde_json::Value = serde_json::from_str(&body)
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+        let response: serde_json::Value = self
+            .v2_client
+            .post(&url, Some(body_value), Some(headers))
+            .await?;
 
         self.check_error(&response)?;
         Ok(response)
@@ -364,22 +404,32 @@ impl Bitbns {
             if c != 200 && c != 204 {
                 let err_msg = error.or(msg).unwrap_or("Unknown error");
                 return match c {
-                    400 => Err(CcxtError::BadRequest { message: err_msg.to_string() }),
-                    409 => Err(CcxtError::BadSymbol { symbol: err_msg.to_string() }),
+                    400 => Err(CcxtError::BadRequest {
+                        message: err_msg.to_string(),
+                    }),
+                    409 => Err(CcxtError::BadSymbol {
+                        symbol: err_msg.to_string(),
+                    }),
                     416 => Err(CcxtError::InsufficientFunds {
                         currency: "".to_string(),
                         required: "".to_string(),
-                        available: err_msg.to_string()
+                        available: err_msg.to_string(),
                     }),
-                    417 => Err(CcxtError::OrderNotFound { order_id: "unknown".to_string() }),
-                    _ => Err(CcxtError::ExchangeError { message: format!("Code {c}: {err_msg}") }),
+                    417 => Err(CcxtError::OrderNotFound {
+                        order_id: "unknown".to_string(),
+                    }),
+                    _ => Err(CcxtError::ExchangeError {
+                        message: format!("Code {c}: {err_msg}"),
+                    }),
                 };
             }
         }
 
         if let Some(err) = error {
             if !err.is_empty() && error != Some("null") {
-                return Err(CcxtError::ExchangeError { message: err.to_string() });
+                return Err(CcxtError::ExchangeError {
+                    message: err.to_string(),
+                });
             }
         }
 
@@ -398,14 +448,16 @@ impl Bitbns {
 
     /// Parse order
     fn parse_order(&self, order: &serde_json::Value, symbol: &str) -> Order {
-        let id = order.get("id")
+        let id = order
+            .get("id")
             .or(order.get("entry_id"))
             .and_then(|i| i.as_i64())
             .map(|i| i.to_string())
             .unwrap_or_default();
 
         let datetime = order.get("time").and_then(|t| t.as_str());
-        let timestamp = datetime.and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
+        let timestamp = datetime
+            .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
             .map(|dt| dt.timestamp_millis());
 
         let side_type = order.get("type").and_then(|t| t.as_i64());
@@ -423,16 +475,19 @@ impl Bitbns {
             self.parse_order_status(status_val)
         };
 
-        let price = order.get("rate")
+        let price = order
+            .get("rate")
             .and_then(|r| r.as_f64())
             .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
 
-        let amount = order.get("btc")
+        let amount = order
+            .get("btc")
             .and_then(|a| a.as_f64())
             .map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO))
             .unwrap_or(Decimal::ZERO);
 
-        let trigger_price = order.get("t_rate")
+        let trigger_price = order
+            .get("t_rate")
             .and_then(|t| t.as_f64())
             .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO));
 
@@ -538,7 +593,8 @@ impl Exchange for Bitbns {
         }
 
         if method == "GET" && !params.is_empty() {
-            let query: String = params.iter()
+            let query: String = params
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -585,8 +641,8 @@ impl Exchange for Bitbns {
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
         let response = self.www_request("order/fetchMarkets", None).await?;
 
-        let markets_arr: Vec<BitbnsMarket> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let markets_arr: Vec<BitbnsMarket> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "Vec<BitbnsMarket>".to_string(),
                 message: e.to_string(),
             })?;
@@ -642,18 +698,39 @@ impl Exchange for Bitbns {
                 },
                 limits: MarketLimits {
                     amount: MinMax {
-                        min: amount_limits.and_then(|l| l.min.map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))),
-                        max: amount_limits.and_then(|l| l.max.map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))),
+                        min: amount_limits.and_then(|l| {
+                            l.min
+                                .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))
+                        }),
+                        max: amount_limits.and_then(|l| {
+                            l.max
+                                .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))
+                        }),
                     },
                     price: MinMax {
-                        min: price_limits.and_then(|l| l.min.map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))),
-                        max: price_limits.and_then(|l| l.max.map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))),
+                        min: price_limits.and_then(|l| {
+                            l.min
+                                .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))
+                        }),
+                        max: price_limits.and_then(|l| {
+                            l.max
+                                .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))
+                        }),
                     },
                     cost: MinMax {
-                        min: cost_limits.and_then(|l| l.min.map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))),
-                        max: cost_limits.and_then(|l| l.max.map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))),
+                        min: cost_limits.and_then(|l| {
+                            l.min
+                                .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))
+                        }),
+                        max: cost_limits.and_then(|l| {
+                            l.max
+                                .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO))
+                        }),
                     },
-                    leverage: MinMax { min: None, max: None },
+                    leverage: MinMax {
+                        min: None,
+                        max: None,
+                    },
                 },
                 margin_modes: None,
                 created: None,
@@ -677,9 +754,12 @@ impl Exchange for Bitbns {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         // Emulated via fetchTickers
         let tickers = self.fetch_tickers(Some(&[symbol])).await?;
-        tickers.get(symbol).cloned().ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })
+        tickers
+            .get(symbol)
+            .cloned()
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
@@ -701,55 +781,78 @@ impl Exchange for Bitbns {
             }
 
             let timestamp = ticker_val.get("timestamp").and_then(|t| t.as_i64());
-            let high = ticker_val.get("high").and_then(|h| h.as_str())
+            let high = ticker_val
+                .get("high")
+                .and_then(|h| h.as_str())
                 .and_then(|s| Decimal::from_str(s).ok());
-            let low = ticker_val.get("low").and_then(|l| l.as_str())
+            let low = ticker_val
+                .get("low")
+                .and_then(|l| l.as_str())
                 .and_then(|s| Decimal::from_str(s).ok());
-            let bid = ticker_val.get("bid").and_then(|b| b.as_f64())
+            let bid = ticker_val
+                .get("bid")
+                .and_then(|b| b.as_f64())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
-            let ask = ticker_val.get("ask").and_then(|a| a.as_f64())
+            let ask = ticker_val
+                .get("ask")
+                .and_then(|a| a.as_f64())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
-            let open = ticker_val.get("open").and_then(|o| o.as_f64())
+            let open = ticker_val
+                .get("open")
+                .and_then(|o| o.as_f64())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
-            let last = ticker_val.get("last").and_then(|l| l.as_f64())
+            let last = ticker_val
+                .get("last")
+                .and_then(|l| l.as_f64())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
-            let base_volume = ticker_val.get("baseVolume").and_then(|v| v.as_f64())
+            let base_volume = ticker_val
+                .get("baseVolume")
+                .and_then(|v| v.as_f64())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
-            let change = ticker_val.get("change").and_then(|c| c.as_f64())
+            let change = ticker_val
+                .get("change")
+                .and_then(|c| c.as_f64())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
-            let percentage = ticker_val.get("percentage").and_then(|p| p.as_f64())
+            let percentage = ticker_val
+                .get("percentage")
+                .and_then(|p| p.as_f64())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
-            let average = ticker_val.get("average").and_then(|a| a.as_f64())
+            let average = ticker_val
+                .get("average")
+                .and_then(|a| a.as_f64())
                 .map(|v| Decimal::from_f64_retain(v).unwrap_or(Decimal::ZERO));
 
-            result.insert(symbol_key.clone(), Ticker {
-                symbol: symbol_key.clone(),
-                timestamp,
-                datetime: timestamp.map(|t| {
-                    chrono::DateTime::from_timestamp_millis(t)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                }),
-                high,
-                low,
-                bid,
-                bid_volume: None,
-                ask,
-                ask_volume: None,
-                vwap: None,
-                open,
-                close: last,
-                last,
-                previous_close: None,
-                change,
-                percentage,
-                average,
-                base_volume,
-                quote_volume: None,
-                index_price: None,
-                mark_price: None,
-                info: ticker_val.clone(),
-            });
+            result.insert(
+                symbol_key.clone(),
+                Ticker {
+                    symbol: symbol_key.clone(),
+                    timestamp,
+                    datetime: timestamp.map(|t| {
+                        chrono::DateTime::from_timestamp_millis(t)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    }),
+                    high,
+                    low,
+                    bid,
+                    bid_volume: None,
+                    ask,
+                    ask_volume: None,
+                    vwap: None,
+                    open,
+                    close: last,
+                    last,
+                    previous_close: None,
+                    change,
+                    percentage,
+                    average,
+                    base_volume,
+                    quote_volume: None,
+                    index_price: None,
+                    mark_price: None,
+                    info: ticker_val.clone(),
+                },
+            );
         }
 
         Ok(result)
@@ -770,10 +873,12 @@ impl Exchange for Bitbns {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let response = self.www_request("order/fetchOrderbook", Some(&params)).await?;
+        let response = self
+            .www_request("order/fetchOrderbook", Some(&params))
+            .await?;
 
-        let order_book: BitbnsOrderBook = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let order_book: BitbnsOrderBook =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "BitbnsOrderBook".to_string(),
                 message: e.to_string(),
             })?;
@@ -805,6 +910,7 @@ impl Exchange for Bitbns {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: order_book.timestamp,
             datetime: order_book.timestamp.map(|t| {
                 chrono::DateTime::from_timestamp_millis(t)
@@ -833,10 +939,12 @@ impl Exchange for Bitbns {
         params.insert("coin".to_string(), base_id);
         params.insert("market".to_string(), quote_id);
 
-        let response = self.www_request("exchangeData/tradedetails", Some(&params)).await?;
+        let response = self
+            .www_request("exchangeData/tradedetails", Some(&params))
+            .await?;
 
-        let trades_arr: Vec<BitbnsTrade> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let trades_arr: Vec<BitbnsTrade> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "Vec<BitbnsTrade>".to_string(),
                 message: e.to_string(),
             })?;
@@ -844,18 +952,23 @@ impl Exchange for Bitbns {
         let mut trades = Vec::new();
         for t in trades_arr {
             let timestamp = t.timestamp;
-            let price = t.price.as_ref()
+            let price = t
+                .price
+                .as_ref()
                 .and_then(|p| Decimal::from_str(p).ok())
                 .unwrap_or(Decimal::ZERO);
-            let amount = t.base_volume
+            let amount = t
+                .base_volume
                 .map(|a| Decimal::from_f64_retain(a).unwrap_or(Decimal::ZERO))
                 .unwrap_or(Decimal::ZERO);
-            let cost = t.quote_volume
+            let cost = t
+                .quote_volume
                 .map(|c| Decimal::from_f64_retain(c).unwrap_or(Decimal::ZERO));
 
-            let side = t.trade_type.as_ref().map(|s| {
-                if s.contains("buy") { "buy" } else { "sell" }
-            });
+            let side = t
+                .trade_type
+                .as_ref()
+                .map(|s| if s.contains("buy") { "buy" } else { "sell" });
 
             trades.push(Trade {
                 id: t.trade_id.unwrap_or_default(),
@@ -895,7 +1008,9 @@ impl Exchange for Bitbns {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response = self.v1_private_request("currentCoinBalance/EVERYTHING", &HashMap::new()).await?;
+        let response = self
+            .v1_private_request("currentCoinBalance/EVERYTHING", &HashMap::new())
+            .await?;
 
         let mut balances = HashMap::new();
 
@@ -903,22 +1018,31 @@ impl Exchange for Bitbns {
             for (key, value) in data {
                 if key.starts_with("availableorder") {
                     let currency_id = key.strip_prefix("availableorder").unwrap_or("");
-                    let currency = if currency_id == "Money" { "INR" } else { currency_id };
+                    let currency = if currency_id == "Money" {
+                        "INR"
+                    } else {
+                        currency_id
+                    };
 
-                    let free = value.as_f64()
+                    let free = value
+                        .as_f64()
                         .map(|f| Decimal::from_f64_retain(f).unwrap_or(Decimal::ZERO));
                     let used_key = format!("inorder{currency_id}");
-                    let used = data.get(&used_key)
+                    let used = data
+                        .get(&used_key)
                         .and_then(|u| u.as_f64())
                         .map(|u| Decimal::from_f64_retain(u).unwrap_or(Decimal::ZERO));
                     let total = free.zip(used).map(|(f, u)| f + u);
 
-                    balances.insert(currency.to_string(), Balance {
-                        free,
-                        used,
-                        total,
-                        debt: None,
-                    });
+                    balances.insert(
+                        currency.to_string(),
+                        Balance {
+                            free,
+                            used,
+                            total,
+                            debt: None,
+                        },
+                    );
                 }
             }
         }
@@ -949,11 +1073,25 @@ impl Exchange for Bitbns {
         };
 
         let mut params = HashMap::new();
-        params.insert("side".to_string(), serde_json::Value::String(
-            if side == OrderSide::Buy { "BUY" } else { "SELL" }.to_string()
-        ));
-        params.insert("symbol".to_string(), serde_json::Value::String(uppercase_id));
-        params.insert("quantity".to_string(), serde_json::Value::String(amount.to_string()));
+        params.insert(
+            "side".to_string(),
+            serde_json::Value::String(
+                if side == OrderSide::Buy {
+                    "BUY"
+                } else {
+                    "SELL"
+                }
+                .to_string(),
+            ),
+        );
+        params.insert(
+            "symbol".to_string(),
+            serde_json::Value::String(uppercase_id),
+        );
+        params.insert(
+            "quantity".to_string(),
+            serde_json::Value::String(amount.to_string()),
+        );
 
         let response = match order_type {
             OrderType::Limit => {
@@ -962,21 +1100,25 @@ impl Exchange for Bitbns {
                 })?;
                 params.insert("rate".to_string(), serde_json::Value::String(p.to_string()));
                 self.v2_private_request("orders", &params).await?
-            }
+            },
             OrderType::Market => {
                 params.insert("market".to_string(), serde_json::Value::String(quote_id));
                 // Use v1 for market orders
-                let path = format!("placeMarketOrderQnty/{}", symbol.split('/').next().unwrap_or(""));
+                let path = format!(
+                    "placeMarketOrderQnty/{}",
+                    symbol.split('/').next().unwrap_or("")
+                );
                 self.v1_private_request(&path, &params).await?
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type {order_type:?}"),
                 });
-            }
+            },
         };
 
-        let order_id = response.get("id")
+        let order_id = response
+            .get("id")
             .and_then(|i| i.as_i64())
             .map(|i| i.to_string())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -1022,12 +1164,25 @@ impl Exchange for Bitbns {
             market.quote.clone()
         };
 
-        let quote_side = if quote_id == "USDT" { "usdtcancelOrder" } else { "cancelOrder" };
+        let quote_side = if quote_id == "USDT" {
+            "usdtcancelOrder"
+        } else {
+            "cancelOrder"
+        };
 
         let mut params = HashMap::new();
-        params.insert("entry_id".to_string(), serde_json::Value::String(id.to_string()));
-        params.insert("symbol".to_string(), serde_json::Value::String(uppercase_id));
-        params.insert("side".to_string(), serde_json::Value::String(quote_side.to_string()));
+        params.insert(
+            "entry_id".to_string(),
+            serde_json::Value::String(id.to_string()),
+        );
+        params.insert(
+            "symbol".to_string(),
+            serde_json::Value::String(uppercase_id),
+        );
+        params.insert(
+            "side".to_string(),
+            serde_json::Value::String(quote_side.to_string()),
+        );
 
         let response = self.v2_private_request("cancel", &params).await?;
 
@@ -1072,12 +1227,16 @@ impl Exchange for Bitbns {
         };
 
         let mut params = HashMap::new();
-        params.insert("entry_id".to_string(), serde_json::Value::String(id.to_string()));
+        params.insert(
+            "entry_id".to_string(),
+            serde_json::Value::String(id.to_string()),
+        );
 
         let path = format!("orderStatus/{market_id}");
         let response = self.v1_private_request(&path, &params).await?;
 
-        let data = response.get("data")
+        let data = response
+            .get("data")
             .and_then(|d| d.as_array())
             .and_then(|arr| arr.first())
             .ok_or_else(|| CcxtError::OrderNotFound {
@@ -1106,17 +1265,28 @@ impl Exchange for Bitbns {
             market.quote.clone()
         };
 
-        let quote_side = if quote_id == "USDT" { "usdtListOpenOrders" } else { "listOpenOrders" };
+        let quote_side = if quote_id == "USDT" {
+            "usdtListOpenOrders"
+        } else {
+            "listOpenOrders"
+        };
 
         let mut params = HashMap::new();
-        params.insert("symbol".to_string(), serde_json::Value::String(uppercase_id));
+        params.insert(
+            "symbol".to_string(),
+            serde_json::Value::String(uppercase_id),
+        );
         params.insert("page".to_string(), serde_json::Value::Number(0.into()));
-        params.insert("side".to_string(), serde_json::Value::String(quote_side.to_string()));
+        params.insert(
+            "side".to_string(),
+            serde_json::Value::String(quote_side.to_string()),
+        );
 
         let response = self.v2_private_request("getordersnew", &params).await?;
 
         let empty_vec = vec![];
-        let data = response.get("data")
+        let data = response
+            .get("data")
             .and_then(|d| d.as_array())
             .unwrap_or(&empty_vec);
 
@@ -1171,17 +1341,22 @@ impl Exchange for Bitbns {
         let response = self.v1_private_request(&path, &params).await?;
 
         let empty_vec = vec![];
-        let data = response.get("data")
+        let data = response
+            .get("data")
             .and_then(|d| d.as_array())
             .unwrap_or(&empty_vec);
 
         let mut trades = Vec::new();
         for item in data {
-            let timestamp = item.get("date").and_then(|d| d.as_str())
+            let timestamp = item
+                .get("date")
+                .and_then(|d| d.as_str())
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.timestamp_millis());
 
-            let rate = item.get("rate").and_then(|r| r.as_f64())
+            let rate = item
+                .get("rate")
+                .and_then(|r| r.as_f64())
                 .map(|p| Decimal::from_f64_retain(p).unwrap_or(Decimal::ZERO))
                 .unwrap_or(Decimal::ZERO);
 
@@ -1196,11 +1371,12 @@ impl Exchange for Bitbns {
                 "sell"
             };
 
-            let fee_cost = item.get("fee").and_then(|f| f.as_f64())
+            let fee_cost = item
+                .get("fee")
+                .and_then(|f| f.as_f64())
                 .map(|f| Decimal::from_f64_retain(f).unwrap_or(Decimal::ZERO));
 
-            let trade_id = item.get("id").and_then(|i| i.as_str())
-                .unwrap_or("");
+            let trade_id = item.get("id").and_then(|i| i.as_str()).unwrap_or("");
 
             trades.push(Trade {
                 id: trade_id.to_string(),

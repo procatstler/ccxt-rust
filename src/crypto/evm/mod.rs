@@ -9,12 +9,12 @@
 //! - `eip712`: EIP-712 타입 데이터 인코딩
 //! - `wallet`: EVM 지갑 관리
 
+mod eip712;
 mod keccak;
 mod secp256k1;
-mod eip712;
 mod wallet;
 
+pub use eip712::{encode_type, hash_type, Eip712Domain, Eip712TypedData, TypedDataField};
 pub use keccak::{keccak256, keccak256_hash};
-pub use secp256k1::{sign_hash, recover_address, private_key_to_address};
-pub use eip712::{Eip712Domain, Eip712TypedData, TypedDataField, encode_type, hash_type};
+pub use secp256k1::{private_key_to_address, recover_address, sign_hash};
 pub use wallet::EvmWallet;

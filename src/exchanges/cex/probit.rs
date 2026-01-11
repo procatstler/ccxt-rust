@@ -12,9 +12,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// ProBit 거래소
@@ -125,12 +125,18 @@ impl ProBit {
             }
         }
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // OAuth 토큰 요청
         let auth_client = HttpClient::new(Self::AUTH_URL, &self.config)?;
@@ -152,9 +158,11 @@ impl ProBit {
             .post("/token", Some(body), Some(headers))
             .await?;
 
-        let token = response.access_token.ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Failed to get access token".into(),
-        })?;
+        let token = response
+            .access_token
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Failed to get access token".into(),
+            })?;
 
         // 토큰 캐시 저장
         {
@@ -304,8 +312,14 @@ impl Exchange for ProBit {
                 linear: None,
                 inverse: None,
                 sub_type: None,
-                taker: market_data.taker_fee_rate.as_ref().and_then(|s| s.parse().ok()),
-                maker: market_data.maker_fee_rate.as_ref().and_then(|s| s.parse().ok()),
+                taker: market_data
+                    .taker_fee_rate
+                    .as_ref()
+                    .and_then(|s| s.parse().ok()),
+                maker: market_data
+                    .maker_fee_rate
+                    .as_ref()
+                    .and_then(|s| s.parse().ok()),
                 contract_size: None,
                 expiry: None,
                 expiry_datetime: None,
@@ -322,8 +336,14 @@ impl Exchange for ProBit {
                 },
                 limits: MarketLimits {
                     amount: crate::types::MinMax {
-                        min: market_data.min_quantity.as_ref().and_then(|s| s.parse().ok()),
-                        max: market_data.max_quantity.as_ref().and_then(|s| s.parse().ok()),
+                        min: market_data
+                            .min_quantity
+                            .as_ref()
+                            .and_then(|s| s.parse().ok()),
+                        max: market_data
+                            .max_quantity
+                            .as_ref()
+                            .and_then(|s| s.parse().ok()),
                     },
                     price: crate::types::MinMax {
                         min: market_data.min_price.as_ref().and_then(|s| s.parse().ok()),
@@ -427,26 +447,26 @@ impl Exchange for ProBit {
 
         let timestamp = Utc::now().timestamp_millis();
 
-        let parse_entries =
-            |entries: &Vec<ProBitOrderBookLevel>| -> Vec<OrderBookEntry> {
-                let iter = entries.iter().filter_map(|e| {
-                    Some(OrderBookEntry {
-                        price: e.price.as_ref()?.parse().ok()?,
-                        amount: e.quantity.as_ref()?.parse().ok()?,
-                    })
-                });
-                if let Some(l) = limit {
-                    iter.take(l as usize).collect()
-                } else {
-                    iter.collect()
-                }
-            };
+        let parse_entries = |entries: &Vec<ProBitOrderBookLevel>| -> Vec<OrderBookEntry> {
+            let iter = entries.iter().filter_map(|e| {
+                Some(OrderBookEntry {
+                    price: e.price.as_ref()?.parse().ok()?,
+                    amount: e.quantity.as_ref()?.parse().ok()?,
+                })
+            });
+            if let Some(l) = limit {
+                iter.take(l as usize).collect()
+            } else {
+                iter.collect()
+            }
+        };
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&data.bids),
             asks: parse_entries(&data.asks),
         })
@@ -792,9 +812,8 @@ impl Exchange for ProBit {
             params.insert("market_id".into(), self.convert_to_market_id(s));
         }
 
-        let response: ProBitResponse<Vec<ProBitOrder>> = self
-            .private_request("GET", "/open_order", None)
-            .await?;
+        let response: ProBitResponse<Vec<ProBitOrder>> =
+            self.private_request("GET", "/open_order", None).await?;
 
         let data = response.data.unwrap_or_default();
         let orders: Vec<Order> = data

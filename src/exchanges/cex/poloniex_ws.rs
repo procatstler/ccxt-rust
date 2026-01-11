@@ -20,8 +20,8 @@ use crate::client::{ExchangeConfig, WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Fee, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    TakerOrMaker, Ticker, Timeframe, Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage,
-    WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent,
+    TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent,
+    WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -160,28 +160,40 @@ impl PoloniexWs {
     }
 
     /// 호가창 메시지 파싱
-    fn parse_order_book(data: &PoloniexOrderBookData, symbol: &str, is_snapshot: bool) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+    fn parse_order_book(
+        data: &PoloniexOrderBookData,
+        symbol: &str,
+        is_snapshot: bool,
+    ) -> WsOrderBookEvent {
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let timestamp = data.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -196,6 +208,7 @@ impl PoloniexWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -258,10 +271,7 @@ impl PoloniexWs {
     }
 
     /// 인증 서명 생성 (HMAC-SHA256 + Base64)
-    fn generate_auth_signature(
-        api_secret: &str,
-        timestamp: i64,
-    ) -> CcxtResult<String> {
+    fn generate_auth_signature(api_secret: &str, timestamp: i64) -> CcxtResult<String> {
         let message = format!("GET\n/ws\nsignTimestamp={timestamp}");
         let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
             CcxtError::AuthenticationError {
@@ -299,6 +309,7 @@ impl PoloniexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -326,7 +337,10 @@ impl PoloniexWs {
 
         // 구독 저장
         {
-            self.subscriptions.write().await.insert(channel.to_string(), channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(channel.to_string(), channel.to_string());
         }
 
         // 메시지 핸들러
@@ -338,17 +352,17 @@ impl PoloniexWs {
                         if let Some(ws_msg) = Self::process_private_message(&msg) {
                             let _ = event_tx_clone.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Connected => {
                         let _ = event_tx_clone.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = event_tx_clone.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Error(e) => {
                         let _ = event_tx_clone.send(WsMessage::Error(e));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -363,7 +377,13 @@ impl PoloniexWs {
             if let Some(event) = &response.event {
                 if event == "subscribe" {
                     return Some(WsMessage::Subscribed {
-                        channel: response.channel.clone().unwrap_or_default().into_iter().next().unwrap_or_default(),
+                        channel: response
+                            .channel
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .next()
+                            .unwrap_or_default(),
                         symbol: None,
                     });
                 }
@@ -375,14 +395,20 @@ impl PoloniexWs {
 
                 // Balance updates
                 if channel_name == "balances" {
-                    if let Ok(balance_data) = serde_json::from_value::<Vec<PoloniexBalanceData>>(data.clone()) {
-                        return Some(WsMessage::Balance(Self::parse_balance_update(&balance_data)));
+                    if let Ok(balance_data) =
+                        serde_json::from_value::<Vec<PoloniexBalanceData>>(data.clone())
+                    {
+                        return Some(WsMessage::Balance(Self::parse_balance_update(
+                            &balance_data,
+                        )));
                     }
                 }
 
                 // Order updates
                 if channel_name == "orders" {
-                    if let Ok(order_data) = serde_json::from_value::<Vec<PoloniexOrderData>>(data.clone()) {
+                    if let Ok(order_data) =
+                        serde_json::from_value::<Vec<PoloniexOrderData>>(data.clone())
+                    {
                         if let Some(order) = order_data.first() {
                             return Some(WsMessage::Order(Self::parse_order_update(order)));
                         }
@@ -391,7 +417,9 @@ impl PoloniexWs {
 
                 // Trade updates (my trades)
                 if channel_name == "trades" {
-                    if let Ok(trade_data) = serde_json::from_value::<Vec<PoloniexMyTradeData>>(data.clone()) {
+                    if let Ok(trade_data) =
+                        serde_json::from_value::<Vec<PoloniexMyTradeData>>(data.clone())
+                    {
                         if let Some(trade) = trade_data.first() {
                             return Some(WsMessage::MyTrade(Self::parse_my_trade(trade)));
                         }
@@ -409,8 +437,16 @@ impl PoloniexWs {
 
         for item in data {
             let currency = item.currency.clone().unwrap_or_default();
-            let free = item.available.as_ref().and_then(|v| Decimal::from_str(v).ok()).unwrap_or_default();
-            let used = item.hold.as_ref().and_then(|v| Decimal::from_str(v).ok()).unwrap_or_default();
+            let free = item
+                .available
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok())
+                .unwrap_or_default();
+            let used = item
+                .hold
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok())
+                .unwrap_or_default();
             let balance = Balance::new(free, used);
             balances.add(currency, balance);
         }
@@ -420,7 +456,9 @@ impl PoloniexWs {
 
     /// 주문 업데이트 파싱
     fn parse_order_update(data: &PoloniexOrderData) -> WsOrderEvent {
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
@@ -447,7 +485,9 @@ impl PoloniexWs {
             _ => OrderStatus::Open,
         };
 
-        let timestamp = data.create_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .create_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order = Order {
             id: data.id.clone().unwrap_or_default(),
@@ -457,13 +497,27 @@ impl PoloniexWs {
             side,
             status,
             price: data.price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            average: data.avg_price.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            amount: data.quantity.as_ref().and_then(|v| Decimal::from_str(v).ok()).unwrap_or_default(),
-            filled: data.filled_quantity.as_ref().and_then(|v| Decimal::from_str(v).ok()).unwrap_or_default(),
-            remaining: data.quantity.as_ref()
+            average: data
+                .avg_price
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
+            amount: data
+                .quantity
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok())
+                .unwrap_or_default(),
+            filled: data
+                .filled_quantity
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok())
+                .unwrap_or_default(),
+            remaining: data
+                .quantity
+                .as_ref()
                 .and_then(|q| Decimal::from_str(q).ok())
                 .and_then(|qty| {
-                    data.filled_quantity.as_ref()
+                    data.filled_quantity
+                        .as_ref()
                         .and_then(|f| Decimal::from_str(f).ok())
                         .map(|filled| qty - filled)
                 }),
@@ -494,13 +548,25 @@ impl PoloniexWs {
 
     /// 내 체결 파싱
     fn parse_my_trade(data: &PoloniexMyTradeData) -> WsMyTradeEvent {
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::to_unified_symbol(s))
             .unwrap_or_default();
 
-        let timestamp = data.create_time.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price: Decimal = data.price.as_ref().and_then(|v| Decimal::from_str(v).ok()).unwrap_or_default();
-        let amount: Decimal = data.quantity.as_ref().and_then(|v| Decimal::from_str(v).ok()).unwrap_or_default();
+        let timestamp = data
+            .create_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let price: Decimal = data
+            .price
+            .as_ref()
+            .and_then(|v| Decimal::from_str(v).ok())
+            .unwrap_or_default();
+        let amount: Decimal = data
+            .quantity
+            .as_ref()
+            .and_then(|v| Decimal::from_str(v).ok())
+            .unwrap_or_default();
 
         let trades = vec![Trade {
             id: data.id.clone().unwrap_or_default(),
@@ -522,11 +588,15 @@ impl PoloniexWs {
             price,
             amount,
             cost: Some(price * amount),
-            fee: data.fee_amount.as_ref().and_then(|v| Decimal::from_str(v).ok()).map(|cost| Fee {
-                currency: data.fee_currency.clone(),
-                cost: Some(cost),
-                rate: None,
-            }),
+            fee: data
+                .fee_amount
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok())
+                .map(|cost| Fee {
+                    currency: data.fee_currency.clone(),
+                    cost: Some(cost),
+                    rate: None,
+                }),
             fees: Vec::new(),
             info: serde_json::to_value(data).unwrap_or_default(),
         }];
@@ -541,7 +611,13 @@ impl PoloniexWs {
             if let Some(event) = &response.event {
                 if event == "subscribe" {
                     return Some(WsMessage::Subscribed {
-                        channel: response.channel.clone().unwrap_or_default().into_iter().next().unwrap_or_default(),
+                        channel: response
+                            .channel
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .next()
+                            .unwrap_or_default(),
                         symbol: response.symbols.clone().and_then(|s| s.into_iter().next()),
                     });
                 }
@@ -553,32 +629,46 @@ impl PoloniexWs {
 
                 // Ticker
                 if channel_name == "ticker" {
-                    if let Ok(ticker_data) = serde_json::from_value::<PoloniexTickerData>(data.clone()) {
+                    if let Ok(ticker_data) =
+                        serde_json::from_value::<PoloniexTickerData>(data.clone())
+                    {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                     }
                 }
 
                 // OrderBook
                 if channel_name == "book_lv2" {
-                    if let Ok(ob_data) = serde_json::from_value::<PoloniexOrderBookData>(data.clone()) {
-                        let symbol = ob_data.symbol.as_ref()
+                    if let Ok(ob_data) =
+                        serde_json::from_value::<PoloniexOrderBookData>(data.clone())
+                    {
+                        let symbol = ob_data
+                            .symbol
+                            .as_ref()
                             .map(|s| Self::to_unified_symbol(s))
                             .unwrap_or_default();
                         let is_snapshot = response.event.as_deref() == Some("snapshot");
-                        return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol, is_snapshot)));
+                        return Some(WsMessage::OrderBook(Self::parse_order_book(
+                            &ob_data,
+                            &symbol,
+                            is_snapshot,
+                        )));
                     }
                 }
 
                 // Trades
                 if channel_name == "trades" {
-                    if let Ok(trade_data) = serde_json::from_value::<PoloniexTradeData>(data.clone()) {
+                    if let Ok(trade_data) =
+                        serde_json::from_value::<PoloniexTradeData>(data.clone())
+                    {
                         return Some(WsMessage::Trade(Self::parse_trade(&trade_data)));
                     }
                 }
 
                 // Candles
                 if channel_name.starts_with("candles_") {
-                    if let Ok(candle_data) = serde_json::from_value::<PoloniexCandleData>(data.clone()) {
+                    if let Ok(candle_data) =
+                        serde_json::from_value::<PoloniexCandleData>(data.clone())
+                    {
                         if let Some(tf) = timeframe {
                             if let Some(event) = Self::parse_candle(&candle_data, tf) {
                                 return Some(WsMessage::Ohlcv(event));
@@ -593,7 +683,12 @@ impl PoloniexWs {
     }
 
     /// 구독 시작 및 이벤트 스트림 반환
-    async fn subscribe_stream(&mut self, channel: &str, symbols: Vec<String>, timeframe: Option<Timeframe>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &mut self,
+        channel: &str,
+        symbols: Vec<String>,
+        timeframe: Option<Timeframe>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.event_tx = Some(event_tx.clone());
 
@@ -604,6 +699,7 @@ impl PoloniexWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -616,8 +712,8 @@ impl PoloniexWs {
             symbols,
         };
 
-        let subscribe_json = serde_json::to_string(&subscribe_msg)
-            .map_err(|e| CcxtError::ParseError {
+        let subscribe_json =
+            serde_json::to_string(&subscribe_msg).map_err(|e| CcxtError::ParseError {
                 data_type: "PoloniexSubscribeMessage".to_string(),
                 message: e.to_string(),
             })?;
@@ -629,7 +725,10 @@ impl PoloniexWs {
         // 구독 저장
         {
             let key = format!("{channel}:{}", subscribe_msg.symbols.join(","));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 메시지 핸들러
@@ -651,7 +750,7 @@ impl PoloniexWs {
                     WsEvent::Error(e) => {
                         let _ = event_tx_clone.send(WsMessage::Error(e));
                     },
-                    _ => {}
+                    _ => {},
                 }
             }
         });
@@ -671,27 +770,39 @@ impl WsExchange for PoloniexWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let poloniex_symbol = Self::format_symbol(symbol);
         let mut ws = Self::new();
-        ws.subscribe_stream("ticker", vec![poloniex_symbol], None).await
+        ws.subscribe_stream("ticker", vec![poloniex_symbol], None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let poloniex_symbol = Self::format_symbol(symbol);
         let mut ws = Self::new();
-        ws.subscribe_stream("book_lv2", vec![poloniex_symbol], None).await
+        ws.subscribe_stream("book_lv2", vec![poloniex_symbol], None)
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let poloniex_symbol = Self::format_symbol(symbol);
         let mut ws = Self::new();
-        ws.subscribe_stream("trades", vec![poloniex_symbol], None).await
+        ws.subscribe_stream("trades", vec![poloniex_symbol], None)
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let poloniex_symbol = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
         let channel = format!("candles_{}", interval.to_lowercase());
         let mut ws = Self::new();
-        ws.subscribe_stream(&channel, vec![poloniex_symbol], Some(timeframe)).await
+        ws.subscribe_stream(&channel, vec![poloniex_symbol], Some(timeframe))
+            .await
     }
 
     async fn watch_balance(&self) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -699,17 +810,26 @@ impl WsExchange for PoloniexWs {
         client.subscribe_private_stream("balances").await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("orders").await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
         client.subscribe_private_stream("trades").await
     }
 
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
             feature: "watchPositions".into(),
         })
@@ -724,6 +844,7 @@ impl WsExchange for PoloniexWs {
                 max_reconnect_attempts: 10,
                 ping_interval_secs: 30,
                 connect_timeout_secs: 30,
+                ..Default::default()
             });
             self.ws_client = Some(ws_client);
         }
@@ -913,10 +1034,7 @@ mod tests {
 
     #[test]
     fn test_generate_auth_signature() {
-        let signature = PoloniexWs::generate_auth_signature(
-            "test_secret",
-            1704067200000,
-        ).unwrap();
+        let signature = PoloniexWs::generate_auth_signature("test_secret", 1704067200000).unwrap();
         assert!(!signature.is_empty());
         // HMAC-SHA256 + Base64 produces consistent length output
         assert!(signature.len() > 20);

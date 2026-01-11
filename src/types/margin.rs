@@ -86,8 +86,8 @@ impl BorrowInterest {
     /// Set timestamp
     pub fn with_timestamp(mut self, timestamp: i64) -> Self {
         self.timestamp = Some(timestamp);
-        self.datetime = chrono::DateTime::from_timestamp_millis(timestamp)
-            .map(|dt| dt.to_rfc3339());
+        self.datetime =
+            chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339());
         self
     }
 }
@@ -171,8 +171,8 @@ impl MarginLoan {
     /// Set timestamp
     pub fn with_timestamp(mut self, timestamp: i64) -> Self {
         self.timestamp = Some(timestamp);
-        self.datetime = chrono::DateTime::from_timestamp_millis(timestamp)
-            .map(|dt| dt.to_rfc3339());
+        self.datetime =
+            chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339());
         self
     }
 
@@ -447,13 +447,7 @@ mod tests {
 
     #[test]
     fn test_isolated_borrow_rate() {
-        let rate = IsolatedBorrowRate::new(
-            "BTC/USDT",
-            "BTC",
-            dec!(0.00003),
-            "USDT",
-            dec!(0.00005),
-        );
+        let rate = IsolatedBorrowRate::new("BTC/USDT", "BTC", dec!(0.00003), "USDT", dec!(0.00005));
 
         assert_eq!(rate.symbol, "BTC/USDT");
         assert_eq!(rate.base_rate, dec!(0.00003));
@@ -467,7 +461,10 @@ mod tests {
             .with_amount(dec!(1000));
 
         assert_eq!(modification.symbol, "BTC/USDT:USDT");
-        assert_eq!(modification.modification_type, Some(MarginModificationType::Add));
+        assert_eq!(
+            modification.modification_type,
+            Some(MarginModificationType::Add)
+        );
         assert_eq!(modification.amount, Some(dec!(1000)));
     }
 }

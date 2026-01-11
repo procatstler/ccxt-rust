@@ -7,10 +7,10 @@
 //! - [StarkNet Accounts](https://docs.starknet.io/documentation/architecture_and_concepts/Accounts/)
 //! - [Paradex Authentication](https://docs.paradex.trade/developers/authentication)
 
-use crate::errors::CcxtResult;
-use super::account::{StarkNetAccount, derive_starknet_private_key};
+use super::account::{derive_starknet_private_key, StarkNetAccount};
 use super::curve::{sign_hash, StarkNetSignature};
-use super::typed_data::{StarkNetTypedData, StarkNetDomain, StarkNetTypedDataField};
+use super::typed_data::{StarkNetDomain, StarkNetTypedData, StarkNetTypedDataField};
+use crate::errors::CcxtResult;
 use starknet_types_core::felt::Felt;
 use std::collections::HashMap;
 
@@ -60,11 +60,7 @@ impl StarkNetWallet {
     }
 
     /// 주소와 함께 지갑 생성 (외부에서 주소를 알고 있는 경우)
-    pub fn with_address(
-        private_key: Felt,
-        address: Felt,
-        domain: impl Into<String>,
-    ) -> Self {
+    pub fn with_address(private_key: Felt, address: Felt, domain: impl Into<String>) -> Self {
         let account = StarkNetAccount::with_address(private_key, address);
         Self {
             account,
@@ -113,11 +109,7 @@ impl StarkNetWallet {
     /// # Returns
     ///
     /// (r, s) 서명 튜플
-    pub fn sign_order(
-        &self,
-        order: &ParadexOrder,
-        chain_id: &str,
-    ) -> CcxtResult<(String, String)> {
+    pub fn sign_order(&self, order: &ParadexOrder, chain_id: &str) -> CcxtResult<(String, String)> {
         let typed_data = order.to_typed_data(&self.domain, chain_id)?;
         let signature = self.sign_typed_data(&typed_data)?;
         Ok(signature.to_hex())
@@ -211,8 +203,7 @@ impl ParadexOrder {
 
     /// SNIP-12 타입 데이터로 변환
     fn to_typed_data(&self, domain_name: &str, chain_id: &str) -> CcxtResult<StarkNetTypedData> {
-        let domain = StarkNetDomain::new(domain_name, "1")
-            .with_chain_id(chain_id);
+        let domain = StarkNetDomain::new(domain_name, "1").with_chain_id(chain_id);
 
         let mut types = HashMap::new();
         types.insert(
@@ -246,8 +237,7 @@ fn create_cancel_typed_data(
     order_ids: &[String],
     chain_id: &str,
 ) -> CcxtResult<StarkNetTypedData> {
-    let domain = StarkNetDomain::new(domain_name, "1")
-        .with_chain_id(chain_id);
+    let domain = StarkNetDomain::new(domain_name, "1").with_chain_id(chain_id);
 
     let mut types = HashMap::new();
     types.insert(
@@ -278,8 +268,7 @@ fn create_auth_typed_data(
     timestamp: u64,
     chain_id: &str,
 ) -> CcxtResult<StarkNetTypedData> {
-    let domain = StarkNetDomain::new(domain_name, "1")
-        .with_chain_id(chain_id);
+    let domain = StarkNetDomain::new(domain_name, "1").with_chain_id(chain_id);
 
     let mut types = HashMap::new();
     types.insert(
@@ -355,8 +344,7 @@ mod tests {
         let private_key = Felt::from(12345u64);
         let wallet = StarkNetWallet::new(private_key, "paradex");
 
-        let order = ParadexOrder::new("ETH-USD", "Buy", "Limit", "1.0")
-            .with_price("2000.0");
+        let order = ParadexOrder::new("ETH-USD", "Buy", "Limit", "1.0").with_price("2000.0");
 
         let (r, s) = wallet.sign_order(&order, "SN_MAIN").unwrap();
 
@@ -369,7 +357,9 @@ mod tests {
         let private_key = Felt::from(12345u64);
         let wallet = StarkNetWallet::new(private_key, "paradex");
 
-        let (r, s) = wallet.sign_auth_message("Login to Paradex", 1234567890, "SN_MAIN").unwrap();
+        let (r, s) = wallet
+            .sign_auth_message("Login to Paradex", 1234567890, "SN_MAIN")
+            .unwrap();
 
         assert!(r.starts_with("0x"));
         assert!(s.starts_with("0x"));

@@ -16,10 +16,10 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
     OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Trade, Transaction,
-    TransactionStatus, TransactionType, Fee, OHLCV,
+    TransactionStatus, TransactionType, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -139,23 +139,32 @@ impl Coinmate {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
-        let uid = self.config.uid().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "UID required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
+        let uid = self
+            .config
+            .uid()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "UID required".into(),
+            })?;
 
         let nonce = Utc::now().timestamp_millis().to_string();
 
         // Create signature: nonce + uid + apiKey
         let auth = format!("{nonce}{uid}{api_key}");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(auth.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes()).to_uppercase();
 
@@ -167,9 +176,14 @@ impl Coinmate {
         body_params.insert("signature".into(), signature);
 
         let mut headers = HashMap::new();
-        headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+        headers.insert(
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
 
-        self.private_client.post_form(path, &body_params, Some(headers)).await
+        self.private_client
+            .post_form(path, &body_params, Some(headers))
+            .await
     }
 
     /// Parse ticker response
@@ -180,8 +194,7 @@ impl Coinmate {
             symbol: market.symbol.clone(),
             timestamp,
             datetime: timestamp.and_then(|t| {
-                chrono::DateTime::<Utc>::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
+                chrono::DateTime::<Utc>::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())
             }),
             high: data.high,
             low: data.low,
@@ -227,12 +240,16 @@ impl Coinmate {
             _ => OrderSide::Buy,
         };
 
-        let amount = data.original_amount.as_ref()
+        let amount = data
+            .original_amount
+            .as_ref()
             .or(data.amount.as_ref())
             .and_then(|a| a.parse().ok())
             .unwrap_or_default();
 
-        let remaining = data.remaining_amount.as_ref()
+        let remaining = data
+            .remaining_amount
+            .as_ref()
             .or(data.amount.as_ref())
             .and_then(|a| a.parse().ok())
             .unwrap_or_default();
@@ -241,10 +258,9 @@ impl Coinmate {
             id: data.id.as_ref().map(|i| i.to_string()).unwrap_or_default(),
             client_order_id: data.client_order_id.clone(),
             timestamp: data.timestamp,
-            datetime: data.timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             last_trade_timestamp: None,
             last_update_timestamp: None,
             status,
@@ -273,30 +289,42 @@ impl Coinmate {
 
     /// Parse trade response
     fn parse_trade(&self, data: &CoinmateTrade, market: &Market) -> Trade {
-        let timestamp = data.timestamp
-            .or(data.created_timestamp)
-            .map(|t| if t < 10000000000 { t * 1000 } else { t });
+        let timestamp = data.timestamp.or(data.created_timestamp).map(|t| {
+            if t < 10000000000 {
+                t * 1000
+            } else {
+                t
+            }
+        });
 
-        let side = data.trade_type.as_ref()
+        let side = data
+            .trade_type
+            .as_ref()
             .or(data.order_type.as_ref())
             .map(|s| s.to_lowercase())
             .unwrap_or_default();
 
-        let price: Decimal = data.price.as_ref()
+        let price: Decimal = data
+            .price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
 
-        let amount: Decimal = data.amount.as_ref()
+        let amount: Decimal = data
+            .amount
+            .as_ref()
             .and_then(|a| a.parse().ok())
             .unwrap_or_default();
 
-        let fee = data.fee.as_ref().and_then(|f| f.parse::<Decimal>().ok()).map(|cost| {
-            Fee {
+        let fee = data
+            .fee
+            .as_ref()
+            .and_then(|f| f.parse::<Decimal>().ok())
+            .map(|cost| Fee {
                 cost: Some(cost),
                 currency: Some(market.quote.clone()),
                 rate: None,
-            }
-        });
+            });
 
         let taker_or_maker = data.fee_type.as_ref().map(|ft| {
             if ft == "MAKER" {
@@ -307,13 +335,15 @@ impl Coinmate {
         });
 
         Trade {
-            id: data.transaction_id.as_ref().map(|i| i.to_string()).unwrap_or_default(),
+            id: data
+                .transaction_id
+                .as_ref()
+                .map(|i| i.to_string())
+                .unwrap_or_default(),
             order: data.order_id.as_ref().map(|i| i.to_string()),
             timestamp,
-            datetime: timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             symbol: market.symbol.clone(),
             trade_type: None,
             side: if !side.is_empty() { Some(side) } else { None },
@@ -332,12 +362,9 @@ impl Coinmate {
         let mut result = Balances::new();
 
         for (currency, balance) in data {
-            let free: Option<Decimal> = balance.available.as_ref()
-                .and_then(|f| f.parse().ok());
-            let used: Option<Decimal> = balance.reserved.as_ref()
-                .and_then(|u| u.parse().ok());
-            let total: Option<Decimal> = balance.balance.as_ref()
-                .and_then(|t| t.parse().ok());
+            let free: Option<Decimal> = balance.available.as_ref().and_then(|f| f.parse().ok());
+            let used: Option<Decimal> = balance.reserved.as_ref().and_then(|u| u.parse().ok());
+            let total: Option<Decimal> = balance.balance.as_ref().and_then(|t| t.parse().ok());
 
             let bal = Balance {
                 free,
@@ -355,7 +382,9 @@ impl Coinmate {
     fn parse_transaction(&self, data: &CoinmateTransaction) -> Transaction {
         let status = match data.transfer_status.as_deref() {
             Some("COMPLETED") | Some("OK") => TransactionStatus::Ok,
-            Some("WAITING") | Some("SENT") | Some("CREATED") | Some("NEW") => TransactionStatus::Pending,
+            Some("WAITING") | Some("SENT") | Some("CREATED") | Some("NEW") => {
+                TransactionStatus::Pending
+            },
             Some("CANCELED") => TransactionStatus::Canceled,
             _ => TransactionStatus::Pending,
         };
@@ -366,29 +395,33 @@ impl Coinmate {
             _ => TransactionType::Deposit,
         };
 
-        let fee = data.fee.as_ref().and_then(|f| f.parse::<Decimal>().ok()).map(|cost| {
-            Fee {
+        let fee = data
+            .fee
+            .as_ref()
+            .and_then(|f| f.parse::<Decimal>().ok())
+            .map(|cost| Fee {
                 cost: Some(cost),
                 currency: data.amount_currency.clone(),
                 rate: None,
-            }
-        });
+            });
 
         Transaction {
-            id: data.transaction_id
+            id: data
+                .transaction_id
                 .map(|i| i.to_string())
                 .or_else(|| data.id.clone())
                 .unwrap_or_default(),
             timestamp: data.timestamp,
-            datetime: data.timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             updated: None,
             tx_type,
             currency: data.amount_currency.clone().unwrap_or_default(),
             network: data.wallet_type.clone(),
-            amount: data.amount.as_ref()
+            amount: data
+                .amount
+                .as_ref()
                 .and_then(|a| a.parse().ok())
                 .unwrap_or_default(),
             status,
@@ -468,9 +501,8 @@ impl Exchange for Coinmate {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: CoinmateApiResponse<Vec<CoinmateMarket>> = self
-            .public_get("/tradingPairs", None)
-            .await?;
+        let response: CoinmateApiResponse<Vec<CoinmateMarket>> =
+            self.public_get("/tradingPairs", None).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -561,9 +593,8 @@ impl Exchange for Coinmate {
         let mut params = HashMap::new();
         params.insert("currencyPair".into(), market.id.clone());
 
-        let response: CoinmateApiResponse<CoinmateTicker> = self
-            .public_get("/ticker", Some(params))
-            .await?;
+        let response: CoinmateApiResponse<CoinmateTicker> =
+            self.public_get("/ticker", Some(params)).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -581,9 +612,8 @@ impl Exchange for Coinmate {
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
         self.load_markets(false).await?;
 
-        let response: CoinmateApiResponse<HashMap<String, CoinmateTicker>> = self
-            .public_get("/tickerAll", None)
-            .await?;
+        let response: CoinmateApiResponse<HashMap<String, CoinmateTicker>> =
+            self.public_get("/tickerAll", None).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -629,9 +659,8 @@ impl Exchange for Coinmate {
         params.insert("currencyPair".into(), market.id.clone());
         params.insert("groupByPriceLimit".into(), "False".into());
 
-        let response: CoinmateApiResponse<CoinmateOrderBook> = self
-            .public_get("/orderBook", Some(params))
-            .await?;
+        let response: CoinmateApiResponse<CoinmateOrderBook> =
+            self.public_get("/orderBook", Some(params)).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -643,19 +672,23 @@ impl Exchange for Coinmate {
             message: "No order book data".into(),
         })?;
 
-        let mut bids: Vec<OrderBookEntry> = data.bids.iter().map(|b| {
-            OrderBookEntry {
+        let mut bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .map(|b| OrderBookEntry {
                 price: b.price.unwrap_or_default(),
                 amount: b.amount.unwrap_or_default(),
-            }
-        }).collect();
+            })
+            .collect();
 
-        let mut asks: Vec<OrderBookEntry> = data.asks.iter().map(|a| {
-            OrderBookEntry {
+        let mut asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .map(|a| OrderBookEntry {
                 price: a.price.unwrap_or_default(),
                 amount: a.amount.unwrap_or_default(),
-            }
-        }).collect();
+            })
+            .collect();
 
         // Apply limit if specified
         if let Some(l) = limit {
@@ -667,13 +700,13 @@ impl Exchange for Coinmate {
         Ok(OrderBook {
             symbol: symbol.to_string(),
             timestamp: data.timestamp,
-            datetime: data.timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: data
+                .timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -694,9 +727,8 @@ impl Exchange for Coinmate {
         params.insert("currencyPair".into(), market.id.clone());
         params.insert("minutesIntoHistory".into(), "10".into());
 
-        let response: CoinmateApiResponse<Vec<CoinmateTrade>> = self
-            .public_get("/transactions", Some(params))
-            .await?;
+        let response: CoinmateApiResponse<Vec<CoinmateTrade>> =
+            self.public_get("/transactions", Some(params)).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -708,9 +740,7 @@ impl Exchange for Coinmate {
             message: "No trade data".into(),
         })?;
 
-        let mut trades: Vec<Trade> = data.iter()
-            .map(|t| self.parse_trade(t, market))
-            .collect();
+        let mut trades: Vec<Trade> = data.iter().map(|t| self.parse_trade(t, market)).collect();
 
         if let Some(l) = limit {
             trades.truncate(l as usize);
@@ -732,9 +762,8 @@ impl Exchange for Coinmate {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: CoinmateApiResponse<HashMap<String, CoinmateBalance>> = self
-            .private_post("/balances", HashMap::new())
-            .await?;
+        let response: CoinmateApiResponse<HashMap<String, CoinmateBalance>> =
+            self.private_post("/balances", HashMap::new()).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -775,7 +804,7 @@ impl Exchange for Coinmate {
                 params.insert("amount".into(), amount.to_string());
                 params.insert("price".into(), price_val.to_string());
                 "/buyLimit"
-            }
+            },
             (OrderSide::Sell, OrderType::Limit) => {
                 let price_val = price.ok_or_else(|| CcxtError::ArgumentsRequired {
                     message: "Limit order requires price".into(),
@@ -783,25 +812,23 @@ impl Exchange for Coinmate {
                 params.insert("amount".into(), amount.to_string());
                 params.insert("price".into(), price_val.to_string());
                 "/sellLimit"
-            }
+            },
             (OrderSide::Buy, OrderType::Market) => {
                 params.insert("total".into(), amount.to_string());
                 "/buyInstant"
-            }
+            },
             (OrderSide::Sell, OrderType::Market) => {
                 params.insert("amount".into(), amount.to_string());
                 "/sellInstant"
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type: {order_type:?}"),
                 });
-            }
+            },
         };
 
-        let response: CoinmateApiResponse<String> = self
-            .private_post(method, params)
-            .await?;
+        let response: CoinmateApiResponse<String> = self.private_post(method, params).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -848,9 +875,8 @@ impl Exchange for Coinmate {
         let mut params = HashMap::new();
         params.insert("orderId".into(), id.to_string());
 
-        let response: CoinmateApiResponse<CoinmateCancelResponse> = self
-            .private_post("/cancelOrderWithInfo", params)
-            .await?;
+        let response: CoinmateApiResponse<CoinmateCancelResponse> =
+            self.private_post("/cancelOrderWithInfo", params).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -878,8 +904,7 @@ impl Exchange for Coinmate {
             average: None,
             amount: Decimal::ZERO,
             filled: Decimal::ZERO,
-            remaining: data.remaining_amount.as_ref()
-                .and_then(|a| a.parse().ok()),
+            remaining: data.remaining_amount.as_ref().and_then(|a| a.parse().ok()),
             stop_price: None,
             trigger_price: None,
             take_profit_price: None,
@@ -898,9 +923,8 @@ impl Exchange for Coinmate {
         let mut params = HashMap::new();
         params.insert("orderId".into(), id.to_string());
 
-        let response: CoinmateApiResponse<CoinmateOrder> = self
-            .private_post("/orderById", params)
-            .await?;
+        let response: CoinmateApiResponse<CoinmateOrder> =
+            self.private_post("/orderById", params).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -914,7 +938,9 @@ impl Exchange for Coinmate {
 
         // Determine symbol from currency pair
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
-        let symbol = data.currency_pair.as_ref()
+        let symbol = data
+            .currency_pair
+            .as_ref()
             .and_then(|id| markets_by_id.get(id))
             .map(|s| s.as_str())
             .unwrap_or("");
@@ -934,15 +960,14 @@ impl Exchange for Coinmate {
 
         if let Some(s) = symbol {
             let markets = self.markets.read().unwrap().clone();
-            let market = markets.get(s).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: s.into(),
-            })?;
+            let market = markets
+                .get(s)
+                .ok_or_else(|| CcxtError::BadSymbol { symbol: s.into() })?;
             params.insert("currencyPair".into(), market.id.clone());
         }
 
-        let response: CoinmateApiResponse<Vec<CoinmateOrder>> = self
-            .private_post("/openOrders", params)
-            .await?;
+        let response: CoinmateApiResponse<Vec<CoinmateOrder>> =
+            self.private_post("/openOrders", params).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -956,13 +981,18 @@ impl Exchange for Coinmate {
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
 
-        let orders: Vec<Order> = data.iter().map(|o| {
-            let sym = o.currency_pair.as_ref()
-                .and_then(|id| markets_by_id.get(id))
-                .map(|s| s.as_str())
-                .unwrap_or("");
-            self.parse_order(o, sym)
-        }).collect();
+        let orders: Vec<Order> = data
+            .iter()
+            .map(|o| {
+                let sym = o
+                    .currency_pair
+                    .as_ref()
+                    .and_then(|id| markets_by_id.get(id))
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
+                self.parse_order(o, sym)
+            })
+            .collect();
 
         Ok(orders)
     }
@@ -980,9 +1010,9 @@ impl Exchange for Coinmate {
 
         if let Some(s) = symbol {
             let markets = self.markets.read().unwrap().clone();
-            let market = markets.get(s).ok_or_else(|| CcxtError::BadSymbol {
-                symbol: s.into(),
-            })?;
+            let market = markets
+                .get(s)
+                .ok_or_else(|| CcxtError::BadSymbol { symbol: s.into() })?;
             params.insert("currencyPair".into(), market.id.clone());
         }
 
@@ -990,9 +1020,8 @@ impl Exchange for Coinmate {
             params.insert("timestampFrom".into(), ts.to_string());
         }
 
-        let response: CoinmateApiResponse<Vec<CoinmateTrade>> = self
-            .private_post("/tradeHistory", params)
-            .await?;
+        let response: CoinmateApiResponse<Vec<CoinmateTrade>> =
+            self.private_post("/tradeHistory", params).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -1007,12 +1036,15 @@ impl Exchange for Coinmate {
         let markets = self.markets.read().unwrap().clone();
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
 
-        let trades: Vec<Trade> = data.iter().filter_map(|t| {
-            let market_id = t.currency_pair.as_ref()?;
-            let symbol = markets_by_id.get(market_id)?;
-            let market = markets.get(symbol)?;
-            Some(self.parse_trade(t, market))
-        }).collect();
+        let trades: Vec<Trade> = data
+            .iter()
+            .filter_map(|t| {
+                let market_id = t.currency_pair.as_ref()?;
+                let symbol = markets_by_id.get(market_id)?;
+                let market = markets.get(symbol)?;
+                Some(self.parse_trade(t, market))
+            })
+            .collect();
 
         Ok(trades)
     }
@@ -1046,12 +1078,11 @@ impl Exchange for Coinmate {
             _ => {
                 params.insert("currency".into(), code.to_string());
                 "/withdrawVirtualCurrency"
-            }
+            },
         };
 
-        let response: CoinmateApiResponse<CoinmateWithdrawResponse> = self
-            .private_post(method, params)
-            .await?;
+        let response: CoinmateApiResponse<CoinmateWithdrawResponse> =
+            self.private_post(method, params).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -1094,9 +1125,8 @@ impl Exchange for Coinmate {
         let mut params = HashMap::new();
         params.insert("currencyPair".into(), market.id.clone());
 
-        let response: CoinmateApiResponse<CoinmateFee> = self
-            .private_post("/traderFees", params)
-            .await?;
+        let response: CoinmateApiResponse<CoinmateFee> =
+            self.private_post("/traderFees", params).await?;
 
         if response.error {
             return Err(CcxtError::ExchangeError {
@@ -1108,12 +1138,16 @@ impl Exchange for Coinmate {
             message: "No fee data".into(),
         })?;
 
-        let maker = data.maker.as_ref()
+        let maker = data
+            .maker
+            .as_ref()
             .and_then(|m| m.parse::<Decimal>().ok())
             .map(|m| m / Decimal::from(100))
             .unwrap_or_default();
 
-        let taker = data.taker.as_ref()
+        let taker = data
+            .taker
+            .as_ref()
             .and_then(|t| t.parse::<Decimal>().ok())
             .map(|t| t / Decimal::from(100))
             .unwrap_or_default();
@@ -1178,7 +1212,10 @@ impl Exchange for Coinmate {
                 .collect::<Vec<_>>()
                 .join("&");
 
-            headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+            headers.insert(
+                "Content-Type".into(),
+                "application/x-www-form-urlencoded".into(),
+            );
             body = Some(body_str);
         }
 

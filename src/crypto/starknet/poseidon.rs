@@ -8,7 +8,10 @@
 
 #![allow(dead_code)]
 
-use starknet_crypto::{poseidon_hash as stark_poseidon_hash, poseidon_hash_many as stark_poseidon_hash_many, pedersen_hash as stark_pedersen_hash};
+use starknet_crypto::{
+    pedersen_hash as stark_pedersen_hash, poseidon_hash as stark_poseidon_hash,
+    poseidon_hash_many as stark_poseidon_hash_many,
+};
 use starknet_types_core::felt::Felt;
 
 /// Poseidon 해시 (2개 입력)
@@ -127,11 +130,7 @@ mod tests {
 
     #[test]
     fn test_poseidon_hash_many() {
-        let values = vec![
-            Felt::from(1u64),
-            Felt::from(2u64),
-            Felt::from(3u64),
-        ];
+        let values = vec![Felt::from(1u64), Felt::from(2u64), Felt::from(3u64)];
         let result = poseidon_hash_many(&values);
 
         // 결과가 유효한 Felt여야 함

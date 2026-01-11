@@ -70,6 +70,7 @@ mod bullish;
 mod bullish_ws;
 mod bybit;
 mod bybit_ws;
+#[allow(clippy::module_inception)]
 mod cex;
 mod cex_ws;
 mod coinbase;

@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -122,25 +122,35 @@ impl Tokocrypto {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
         let mut request_params = params.unwrap_or_default();
         request_params.insert("timestamp".into(), timestamp);
 
-        let query_string: String = request_params.iter()
+        let query_string: String = request_params
+            .iter()
             .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("&");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(query_string.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -148,24 +158,31 @@ impl Tokocrypto {
 
         let mut headers = HashMap::new();
         headers.insert("X-MBX-APIKEY".into(), api_key.to_string());
-        headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+        headers.insert(
+            "Content-Type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
 
         if method == "GET" {
-            let full_query: String = request_params.iter()
+            let full_query: String = request_params
+                .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join("&");
             let full_path = format!("{path}?{full_query}");
             self.client.get(&full_path, None, Some(headers)).await
         } else {
-            self.client.post_form(path, &request_params, Some(headers)).await
+            self.client
+                .post_form(path, &request_params, Some(headers))
+                .await
         }
     }
 
     /// Get market ID from symbol
     fn get_market_id(&self, symbol: &str) -> CcxtResult<String> {
         let markets = self.markets.read().unwrap();
-        markets.get(symbol)
+        markets
+            .get(symbol)
             .map(|m| m.id.clone())
             .ok_or_else(|| CcxtError::BadSymbol {
                 symbol: symbol.to_string(),
@@ -315,18 +332,21 @@ impl Exchange for Tokocrypto {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: TokocryptoTicker = self.public_get("/market/ticker/24hr", Some(params)).await?;
+        let response: TokocryptoTicker =
+            self.public_get("/market/ticker/24hr", Some(params)).await?;
 
-        let timestamp = response.close_time.or_else(|| Some(Utc::now().timestamp_millis()));
+        let timestamp = response
+            .close_time
+            .or_else(|| Some(Utc::now().timestamp_millis()));
 
         Ok(Ticker {
             symbol: symbol.to_string(),
             timestamp,
-            datetime: timestamp.map(|t|
+            datetime: timestamp.map(|t| {
                 chrono::DateTime::from_timestamp_millis(t)
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default()
-            ),
+            }),
             high: response.high_price,
             low: response.low_price,
             bid: response.bid_price,
@@ -381,18 +401,24 @@ impl Exchange for Tokocrypto {
         Ok(OrderBook {
             symbol: symbol.to_string(),
             timestamp,
-            datetime: timestamp.map(|t|
+            datetime: timestamp.map(|t| {
                 chrono::DateTime::from_timestamp_millis(t)
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default()
-            ),
+            }),
             nonce: response.last_update_id,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.get_market_id(symbol)?;
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -400,9 +426,11 @@ impl Exchange for Tokocrypto {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: Vec<TokocryptoTrade> = self.public_get("/market/trades", Some(params)).await?;
+        let response: Vec<TokocryptoTrade> =
+            self.public_get("/market/trades", Some(params)).await?;
 
-        let trades: Vec<Trade> = response.iter()
+        let trades: Vec<Trade> = response
+            .iter()
             .map(|t| {
                 let timestamp = t.time;
                 let side = if t.is_buyer_maker { "sell" } else { "buy" };
@@ -441,7 +469,9 @@ impl Exchange for Tokocrypto {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.get_market_id(symbol)?;
-        let tf = self.timeframes.get(&timeframe)
+        let tf = self
+            .timeframes
+            .get(&timeframe)
             .ok_or_else(|| CcxtError::NotSupported {
                 feature: format!("Timeframe {timeframe:?} not supported"),
             })?;
@@ -456,9 +486,11 @@ impl Exchange for Tokocrypto {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self.public_get("/market/klines", Some(params)).await?;
+        let response: Vec<Vec<serde_json::Value>> =
+            self.public_get("/market/klines", Some(params)).await?;
 
-        let ohlcv: Vec<OHLCV> = response.iter()
+        let ohlcv: Vec<OHLCV> = response
+            .iter()
             .filter_map(|arr| {
                 if arr.len() < 6 {
                     return None;
@@ -478,7 +510,8 @@ impl Exchange for Tokocrypto {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: TokocryptoBalanceResponse = self.private_request("GET", "/account/spot", None).await?;
+        let response: TokocryptoBalanceResponse =
+            self.private_request("GET", "/account/spot", None).await?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -518,17 +551,25 @@ impl Exchange for Tokocrypto {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY".into(),
-            OrderSide::Sell => "SELL".into(),
-        });
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT".into(),
-            OrderType::Market => "MARKET".into(),
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type {order_type:?} not supported"),
-            }),
-        });
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY".into(),
+                OrderSide::Sell => "SELL".into(),
+            },
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT".into(),
+                OrderType::Market => "MARKET".into(),
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type {order_type:?} not supported"),
+                    })
+                },
+            },
+        );
         params.insert("quantity".into(), amount.to_string());
 
         if order_type == OrderType::Limit {
@@ -539,19 +580,23 @@ impl Exchange for Tokocrypto {
             params.insert("timeInForce".into(), "GTC".into());
         }
 
-        let response: TokocryptoOrder = self.private_request("POST", "/orders", Some(params)).await?;
+        let response: TokocryptoOrder = self
+            .private_request("POST", "/orders", Some(params))
+            .await?;
 
-        let timestamp = response.transact_time.or_else(|| Some(Utc::now().timestamp_millis()));
+        let timestamp = response
+            .transact_time
+            .or_else(|| Some(Utc::now().timestamp_millis()));
 
         Ok(Order {
             id: response.order_id.to_string(),
             client_order_id: response.client_order_id.clone(),
             timestamp,
-            datetime: timestamp.map(|t|
+            datetime: timestamp.map(|t| {
                 chrono::DateTime::from_timestamp_millis(t)
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default()
-            ),
+            }),
             last_trade_timestamp: None,
             last_update_timestamp: None,
             status: self.parse_order_status(&response.status),
@@ -563,7 +608,9 @@ impl Exchange for Tokocrypto {
             average: None,
             amount: response.orig_qty.unwrap_or(amount),
             filled: response.executed_qty.unwrap_or_default(),
-            remaining: response.orig_qty.map(|orig| orig - response.executed_qty.as_ref().copied().unwrap_or_default()),
+            remaining: response
+                .orig_qty
+                .map(|orig| orig - response.executed_qty.as_ref().copied().unwrap_or_default()),
             cost: response.cumulative_quote_qty,
             trades: Vec::new(),
             fee: None,
@@ -585,19 +632,23 @@ impl Exchange for Tokocrypto {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: TokocryptoOrder = self.private_request("POST", "/orders/cancel", Some(params)).await?;
+        let response: TokocryptoOrder = self
+            .private_request("POST", "/orders/cancel", Some(params))
+            .await?;
 
-        let timestamp = response.transact_time.or_else(|| Some(Utc::now().timestamp_millis()));
+        let timestamp = response
+            .transact_time
+            .or_else(|| Some(Utc::now().timestamp_millis()));
 
         Ok(Order {
             id: response.order_id.to_string(),
             client_order_id: response.client_order_id.clone(),
             timestamp,
-            datetime: timestamp.map(|t|
+            datetime: timestamp.map(|t| {
                 chrono::DateTime::from_timestamp_millis(t)
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default()
-            ),
+            }),
             last_trade_timestamp: None,
             last_update_timestamp: None,
             status: OrderStatus::Canceled,
@@ -609,7 +660,9 @@ impl Exchange for Tokocrypto {
             average: None,
             amount: response.orig_qty.unwrap_or_default(),
             filled: response.executed_qty.unwrap_or_default(),
-            remaining: response.orig_qty.map(|orig| orig - response.executed_qty.as_ref().copied().unwrap_or_default()),
+            remaining: response
+                .orig_qty
+                .map(|orig| orig - response.executed_qty.as_ref().copied().unwrap_or_default()),
             cost: response.cumulative_quote_qty,
             trades: Vec::new(),
             fee: None,
@@ -631,22 +684,25 @@ impl Exchange for Tokocrypto {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: TokocryptoOrder = self.private_request("GET", "/orders/detail", Some(params)).await?;
+        let response: TokocryptoOrder = self
+            .private_request("GET", "/orders/detail", Some(params))
+            .await?;
 
         let timestamp = response.time;
         let status = self.parse_order_status(&response.status);
 
-        let (order_type, side) = self.parse_order_type_and_side(&response.order_type, &response.side);
+        let (order_type, side) =
+            self.parse_order_type_and_side(&response.order_type, &response.side);
 
         Ok(Order {
             id: response.order_id.to_string(),
             client_order_id: response.client_order_id.clone(),
             timestamp,
-            datetime: timestamp.map(|t|
+            datetime: timestamp.map(|t| {
                 chrono::DateTime::from_timestamp_millis(t)
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default()
-            ),
+            }),
             last_trade_timestamp: None,
             last_update_timestamp: response.update_time,
             status,
@@ -658,7 +714,9 @@ impl Exchange for Tokocrypto {
             average: None,
             amount: response.orig_qty.unwrap_or_default(),
             filled: response.executed_qty.unwrap_or_default(),
-            remaining: response.orig_qty.map(|orig| orig - response.executed_qty.as_ref().copied().unwrap_or_default()),
+            remaining: response
+                .orig_qty
+                .map(|orig| orig - response.executed_qty.as_ref().copied().unwrap_or_default()),
             cost: response.cumulative_quote_qty,
             trades: Vec::new(),
             fee: None,
@@ -688,9 +746,12 @@ impl Exchange for Tokocrypto {
             String::new()
         };
 
-        let response: Vec<TokocryptoOrder> = self.private_request("GET", "/orders/open", Some(params)).await?;
+        let response: Vec<TokocryptoOrder> = self
+            .private_request("GET", "/orders/open", Some(params))
+            .await?;
 
-        let orders: Vec<Order> = response.iter()
+        let orders: Vec<Order> = response
+            .iter()
             .map(|o| {
                 let timestamp = o.time;
                 let status = self.parse_order_status(&o.status);
@@ -700,11 +761,11 @@ impl Exchange for Tokocrypto {
                     id: o.order_id.to_string(),
                     client_order_id: o.client_order_id.clone(),
                     timestamp,
-                    datetime: timestamp.map(|t|
+                    datetime: timestamp.map(|t| {
                         chrono::DateTime::from_timestamp_millis(t)
                             .map(|dt| dt.to_rfc3339())
                             .unwrap_or_default()
-                    ),
+                    }),
                     last_trade_timestamp: None,
                     last_update_timestamp: o.update_time,
                     status,
@@ -720,7 +781,9 @@ impl Exchange for Tokocrypto {
                     average: None,
                     amount: o.orig_qty.unwrap_or_default(),
                     filled: o.executed_qty.unwrap_or_default(),
-                    remaining: o.orig_qty.map(|orig| orig - o.executed_qty.as_ref().copied().unwrap_or_default()),
+                    remaining: o
+                        .orig_qty
+                        .map(|orig| orig - o.executed_qty.as_ref().copied().unwrap_or_default()),
                     cost: o.cumulative_quote_qty,
                     trades: Vec::new(),
                     fee: None,
@@ -921,7 +984,13 @@ mod tests {
     fn test_timeframes() {
         let config = ExchangeConfig::new();
         let exchange = Tokocrypto::new(config).unwrap();
-        assert_eq!(exchange.timeframes().get(&Timeframe::Minute1), Some(&"1m".to_string()));
-        assert_eq!(exchange.timeframes().get(&Timeframe::Hour1), Some(&"1h".to_string()));
+        assert_eq!(
+            exchange.timeframes().get(&Timeframe::Minute1),
+            Some(&"1m".to_string())
+        );
+        assert_eq!(
+            exchange.timeframes().get(&Timeframe::Hour1),
+            Some(&"1h".to_string())
+        );
     }
 }

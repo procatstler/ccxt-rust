@@ -17,10 +17,10 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, TimeInForce, Trade,
-    Transaction, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, Transaction,
+    OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -87,12 +87,13 @@ impl BinanceUs {
         api_urls.insert("sapi".into(), format!("{}/sapi/v1", Self::BASE_URL));
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/a9667919-b632-4d52-a832-df89f8a35e8c".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/a9667919-b632-4d52-a832-df89f8a35e8c"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.binance.us".into()),
-            doc: vec![
-                "https://github.com/binance-us/binance-official-api-docs".into(),
-            ],
+            doc: vec!["https://github.com/binance-us/binance-official-api-docs".into()],
             fees: Some("https://www.binance.us/en/fee/schedule".into()),
         };
 
@@ -157,12 +158,18 @@ impl BinanceUs {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -175,8 +182,8 @@ impl BinanceUs {
             .collect::<Vec<_>>()
             .join("&");
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(query.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -190,9 +197,14 @@ impl BinanceUs {
         match method {
             "GET" => self.private_client.get(&url, None, Some(headers)).await,
             "POST" => {
-                headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
-                self.private_client.post(&format!("{path}?{signed_query}"), None, Some(headers)).await
-            }
+                headers.insert(
+                    "Content-Type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
+                self.private_client
+                    .post(&format!("{path}?{signed_query}"), None, Some(headers))
+                    .await
+            },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -207,7 +219,9 @@ impl BinanceUs {
 
     /// 티커 응답 파싱
     fn parse_ticker(&self, data: &BinanceUsTicker, symbol: &str) -> Ticker {
-        let timestamp = data.close_time.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .close_time
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         Ticker {
             symbol: symbol.to_string(),
@@ -265,18 +279,24 @@ impl BinanceUs {
             _ => OrderSide::Buy,
         };
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
         let price: Option<Decimal> = data.price.as_ref().and_then(|p| p.parse().ok());
         let amount: Decimal = data.orig_qty.parse().unwrap_or_default();
         let filled: Decimal = data.executed_qty.parse().unwrap_or_default();
         let remaining = Some(amount - filled);
-        let cost = data.cummulative_quote_qty.as_ref().and_then(|c| c.parse().ok());
+        let cost = data
+            .cummulative_quote_qty
+            .as_ref()
+            .and_then(|c| c.parse().ok());
         let average = if filled > Decimal::ZERO {
             cost.map(|c| c / filled)
         } else {
@@ -388,13 +408,15 @@ impl BinanceUs {
             _ => crate::types::TransactionStatus::Pending,
         };
 
-        let fee = data.transaction_fee.parse::<Decimal>().ok().map(|cost| {
-            crate::types::Fee {
+        let fee = data
+            .transaction_fee
+            .parse::<Decimal>()
+            .ok()
+            .map(|cost| crate::types::Fee {
                 cost: Some(cost),
                 currency: Some(data.coin.clone()),
                 rate: None,
-            }
-        });
+            });
 
         Transaction {
             id: data.id.clone(),
@@ -481,9 +503,7 @@ impl Exchange for BinanceUs {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BinanceUsExchangeInfo = self
-            .public_get("/api/v3/exchangeInfo", None)
-            .await?;
+        let response: BinanceUsExchangeInfo = self.public_get("/api/v3/exchangeInfo", None).await?;
 
         let mut markets = Vec::new();
 
@@ -509,7 +529,7 @@ impl Exchange for BinanceUs {
                 active: true,
                 market_type: MarketType::Spot,
                 spot: true,
-                margin: false,  // Binance US doesn't support margin
+                margin: false, // Binance US doesn't support margin
                 swap: false,
                 future: false,
                 option: false,
@@ -551,17 +571,14 @@ impl Exchange for BinanceUs {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: BinanceUsTicker = self
-            .public_get("/api/v3/ticker/24hr", Some(params))
-            .await?;
+        let response: BinanceUsTicker =
+            self.public_get("/api/v3/ticker/24hr", Some(params)).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: Vec<BinanceUsTicker> = self
-            .public_get("/api/v3/ticker/24hr", None)
-            .await?;
+        let response: Vec<BinanceUsTicker> = self.public_get("/api/v3/ticker/24hr", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
 
@@ -591,9 +608,7 @@ impl Exchange for BinanceUs {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: BinanceUsOrderBook = self
-            .public_get("/api/v3/depth", Some(params))
-            .await?;
+        let response: BinanceUsOrderBook = self.public_get("/api/v3/depth", Some(params)).await?;
 
         let bids: Vec<OrderBookEntry> = response
             .bids
@@ -620,6 +635,7 @@ impl Exchange for BinanceUs {
             nonce: Some(response.last_update_id),
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -636,9 +652,7 @@ impl Exchange for BinanceUs {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<BinanceUsTrade> = self
-            .public_get("/api/v3/trades", Some(params))
-            .await?;
+        let response: Vec<BinanceUsTrade> = self.public_get("/api/v3/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .iter()
@@ -686,9 +700,12 @@ impl Exchange for BinanceUs {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -700,9 +717,8 @@ impl Exchange for BinanceUs {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: Vec<Vec<serde_json::Value>> = self
-            .public_get("/api/v3/klines", Some(params))
-            .await?;
+        let response: Vec<Vec<serde_json::Value>> =
+            self.public_get("/api/v3/klines", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
@@ -746,18 +762,28 @@ impl Exchange for BinanceUs {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY",
-            OrderSide::Sell => "SELL",
-        }.into());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT",
-            OrderType::Market => "MARKET",
-            OrderType::LimitMaker => "LIMIT_MAKER",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY",
+                OrderSide::Sell => "SELL",
+            }
+            .into(),
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT",
+                OrderType::Market => "MARKET",
+                OrderType::LimitMaker => "LIMIT_MAKER",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("quantity".into(), amount.to_string());
 
         if order_type == OrderType::Limit || order_type == OrderType::LimitMaker {
@@ -796,9 +822,7 @@ impl Exchange for BinanceUs {
         params.insert("symbol".into(), market_id);
         params.insert("orderId".into(), id.to_string());
 
-        let response: BinanceUsOrder = self
-            .private_request("GET", "/api/v3/order", params)
-            .await?;
+        let response: BinanceUsOrder = self.private_request("GET", "/api/v3/order", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -953,7 +977,12 @@ impl Exchange for BinanceUs {
 
         let orders: Vec<Order> = response
             .iter()
-            .filter(|o| o.status == "FILLED" || o.status == "CANCELED" || o.status == "EXPIRED" || o.status == "REJECTED")
+            .filter(|o| {
+                o.status == "FILLED"
+                    || o.status == "CANCELED"
+                    || o.status == "EXPIRED"
+                    || o.status == "REJECTED"
+            })
             .map(|o| self.parse_order(o, symbol))
             .collect();
 
@@ -982,10 +1011,8 @@ impl Exchange for BinanceUs {
             .private_request("GET", "/sapi/v1/capital/deposit/hisrec", params)
             .await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|d| self.parse_deposit(d))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|d| self.parse_deposit(d)).collect();
 
         Ok(transactions)
     }
@@ -1012,10 +1039,8 @@ impl Exchange for BinanceUs {
             .private_request("GET", "/sapi/v1/capital/withdraw/history", params)
             .await?;
 
-        let transactions: Vec<Transaction> = response
-            .iter()
-            .map(|w| self.parse_withdrawal(w))
-            .collect();
+        let transactions: Vec<Transaction> =
+            response.iter().map(|w| self.parse_withdrawal(w)).collect();
 
         Ok(transactions)
     }
@@ -1036,9 +1061,11 @@ impl Exchange for BinanceUs {
             .private_request("GET", "/sapi/v1/capital/deposit/address", params)
             .await?;
 
-        Ok(crate::types::DepositAddress::new(response.coin, response.address)
-            .with_network(response.network)
-            .with_tag(response.tag))
+        Ok(
+            crate::types::DepositAddress::new(response.coin, response.address)
+                .with_network(response.network)
+                .with_tag(response.tag),
+        )
     }
 
     async fn withdraw(
@@ -1341,7 +1368,7 @@ mod tests {
         assert_eq!(binance_us.id(), ExchangeId::BinanceUs);
         assert_eq!(binance_us.name(), "Binance US");
         assert!(binance_us.has().spot);
-        assert!(!binance_us.has().margin);  // Binance US doesn't support margin
-        assert!(!binance_us.has().swap);    // No derivatives
+        assert!(!binance_us.has().margin); // Binance US doesn't support margin
+        assert!(!binance_us.has().swap); // No derivatives
     }
 }

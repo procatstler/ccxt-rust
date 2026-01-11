@@ -30,10 +30,10 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe,
-    Trade, OHLCV, WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOhlcvEvent,
-    WsOrderBookEvent, WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, Position, PositionSide, TakerOrMaker, Ticker, Timeframe, Trade, WsBalanceEvent,
+    WsExchange, WsMessage, WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent, WsOrderEvent,
+    WsPositionEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 use super::woo::Woo;
@@ -103,18 +103,22 @@ impl WooWs {
 
     /// Generate HMAC-SHA256 signature for authentication
     fn generate_signature(&self, timestamp: i64) -> CcxtResult<String> {
-        let secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for private channels".to_string(),
-        })?;
+        let secret = self
+            .api_secret
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required for private channels".to_string(),
+            })?;
 
         // WOO signature format: |timestamp|
         let message = format!("|{timestamp}|");
 
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
                 message: "Failed to create HMAC".to_string(),
-            })?;
+            }
+        })?;
 
         mac.update(message.as_bytes());
         let signature = mac.finalize().into_bytes();
@@ -124,9 +128,12 @@ impl WooWs {
 
     /// Get private WebSocket URL
     fn get_private_ws_url(&self) -> CcxtResult<String> {
-        let app_id = self.application_id.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Application ID required for private channels".to_string(),
-        })?;
+        let app_id =
+            self.application_id
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Application ID required for private channels".to_string(),
+                })?;
         Ok(format!("{WS_PRIVATE_URL}/{app_id}"))
     }
 
@@ -178,7 +185,9 @@ impl WooWs {
 
     /// 티커 메시지 파싱
     fn parse_ticker(data: &WooTickerData, symbol: &str) -> WsTickerEvent {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.to_string(),
@@ -191,9 +200,15 @@ impl WooWs {
             high: data.high.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             low: data.low.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             bid: data.bid.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            bid_volume: data.bid_size.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            bid_volume: data
+                .bid_size
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             ask: data.ask.as_ref().and_then(|v| Decimal::from_str(v).ok()),
-            ask_volume: data.ask_size.as_ref().and_then(|v| Decimal::from_str(v).ok()),
+            ask_volume: data
+                .ask_size
+                .as_ref()
+                .and_then(|v| Decimal::from_str(v).ok()),
             vwap: None,
             open: data.open.as_ref().and_then(|v| Decimal::from_str(v).ok()),
             close: data.close.as_ref().and_then(|v| Decimal::from_str(v).ok()),
@@ -217,21 +232,31 @@ impl WooWs {
 
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &WooOrderBookData, symbol: &str) -> WsOrderBookEvent {
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            Some(OrderBookEntry {
-                price: Decimal::from_str(&b.price).ok()?,
-                amount: Decimal::from_str(&b.quantity).ok()?,
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                Some(OrderBookEntry {
+                    price: Decimal::from_str(&b.price).ok()?,
+                    amount: Decimal::from_str(&b.quantity).ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            Some(OrderBookEntry {
-                price: Decimal::from_str(&a.price).ok()?,
-                amount: Decimal::from_str(&a.quantity).ok()?,
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                Some(OrderBookEntry {
+                    price: Decimal::from_str(&a.price).ok()?,
+                    amount: Decimal::from_str(&a.quantity).ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let order_book = OrderBook {
             symbol: symbol.to_string(),
@@ -244,6 +269,7 @@ impl WooWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -255,7 +281,9 @@ impl WooWs {
 
     /// 체결 메시지 파싱
     fn parse_trade(data: &WooTradeData, symbol: &str) -> WsTradeEvent {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let price = Decimal::from_str(&data.price).unwrap_or_default();
         let amount = Decimal::from_str(&data.size).unwrap_or_default();
 
@@ -287,7 +315,11 @@ impl WooWs {
     }
 
     /// OHLCV 메시지 파싱
-    fn parse_ohlcv(data: &WooOhlcvData, symbol: &str, timeframe: Timeframe) -> Option<WsOhlcvEvent> {
+    fn parse_ohlcv(
+        data: &WooOhlcvData,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> Option<WsOhlcvEvent> {
         let timestamp = data.start_timestamp?;
 
         let ohlcv = OHLCV::new(
@@ -310,7 +342,9 @@ impl WooWs {
 
     /// Parse balance update from private stream
     fn parse_balance_update(data: &WooBalanceData) -> WsBalanceEvent {
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let mut currencies = HashMap::new();
 
         for holding in &data.holding {
@@ -347,7 +381,9 @@ impl WooWs {
     fn parse_execution_report(data: &WooExecutionReport) -> Vec<WsMessage> {
         let mut messages = Vec::new();
         let symbol = Self::to_unified_symbol(&data.symbol);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         // Parse order status
         let status = match data.status.as_deref() {
@@ -377,16 +413,21 @@ impl WooWs {
             _ => OrderSide::Buy,
         };
 
-        let price = data.price.as_ref()
-            .and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.quantity.as_ref()
+        let price = data.price.as_ref().and_then(|p| Decimal::from_str(p).ok());
+        let amount = data
+            .quantity
+            .as_ref()
             .and_then(|q| Decimal::from_str(q).ok())
             .unwrap_or_default();
-        let filled = data.executed_quantity.as_ref()
+        let filled = data
+            .executed_quantity
+            .as_ref()
             .and_then(|q| Decimal::from_str(q).ok())
             .unwrap_or_default();
         let remaining = amount - filled;
-        let average = data.average_executed_price.as_ref()
+        let average = data
+            .average_executed_price
+            .as_ref()
             .and_then(|p| Decimal::from_str(p).ok());
         let cost = average.map(|avg| avg * filled);
 
@@ -436,8 +477,14 @@ impl WooWs {
 
         // If this is a fill, also emit a MyTrade event
         if data.executed_quantity.is_some() && filled > Decimal::ZERO {
-            if let Some(exec_price) = data.executed_price.as_ref().and_then(|p| Decimal::from_str(p).ok()) {
-                let exec_qty = data.last_executed_quantity.as_ref()
+            if let Some(exec_price) = data
+                .executed_price
+                .as_ref()
+                .and_then(|p| Decimal::from_str(p).ok())
+            {
+                let exec_qty = data
+                    .last_executed_quantity
+                    .as_ref()
                     .and_then(|q| Decimal::from_str(q).ok())
                     .unwrap_or(filled);
 
@@ -452,8 +499,18 @@ impl WooWs {
                     }),
                     symbol: symbol.clone(),
                     trade_type: None,
-                    side: Some(if side == OrderSide::Buy { "buy".to_string() } else { "sell".to_string() }),
-                    taker_or_maker: data.maker.map(|m| if m { TakerOrMaker::Maker } else { TakerOrMaker::Taker }),
+                    side: Some(if side == OrderSide::Buy {
+                        "buy".to_string()
+                    } else {
+                        "sell".to_string()
+                    }),
+                    taker_or_maker: data.maker.map(|m| {
+                        if m {
+                            TakerOrMaker::Maker
+                        } else {
+                            TakerOrMaker::Taker
+                        }
+                    }),
                     price: exec_price,
                     amount: exec_qty,
                     cost: Some(exec_price * exec_qty),
@@ -474,65 +531,83 @@ impl WooWs {
 
     /// Parse position update from private stream
     fn parse_position_update(data: &WooPositionData) -> WsPositionEvent {
-        let positions: Vec<Position> = data.positions.iter().map(|p| {
-            let symbol = Self::to_unified_symbol(&p.symbol);
-            let contracts = Decimal::from_str(&p.position_qty).ok();
-            let entry_price = p.average_open_price.as_ref().and_then(|ep| Decimal::from_str(ep).ok());
-            let mark_price = p.mark_price.as_ref().and_then(|mp| Decimal::from_str(mp).ok());
-            let unrealized_pnl = p.unrealized_pnl.as_ref().and_then(|pnl| Decimal::from_str(pnl).ok());
-            let liquidation_price = p.est_liq_price.as_ref().and_then(|lp| Decimal::from_str(lp).ok());
+        let positions: Vec<Position> = data
+            .positions
+            .iter()
+            .map(|p| {
+                let symbol = Self::to_unified_symbol(&p.symbol);
+                let contracts = Decimal::from_str(&p.position_qty).ok();
+                let entry_price = p
+                    .average_open_price
+                    .as_ref()
+                    .and_then(|ep| Decimal::from_str(ep).ok());
+                let mark_price = p
+                    .mark_price
+                    .as_ref()
+                    .and_then(|mp| Decimal::from_str(mp).ok());
+                let unrealized_pnl = p
+                    .unrealized_pnl
+                    .as_ref()
+                    .and_then(|pnl| Decimal::from_str(pnl).ok());
+                let liquidation_price = p
+                    .est_liq_price
+                    .as_ref()
+                    .and_then(|lp| Decimal::from_str(lp).ok());
 
-            let side = contracts.and_then(|c| {
-                if c > Decimal::ZERO {
-                    Some(PositionSide::Long)
-                } else if c < Decimal::ZERO {
-                    Some(PositionSide::Short)
-                } else {
-                    None
+                let side = contracts.and_then(|c| {
+                    if c > Decimal::ZERO {
+                        Some(PositionSide::Long)
+                    } else if c < Decimal::ZERO {
+                        Some(PositionSide::Short)
+                    } else {
+                        None
+                    }
+                });
+
+                let margin_mode = match p.margin_mode.as_deref() {
+                    Some("CROSS") => Some(MarginMode::Cross),
+                    Some("ISOLATED") => Some(MarginMode::Isolated),
+                    _ => None,
+                };
+
+                Position {
+                    id: None,
+                    symbol,
+                    timestamp: p.timestamp,
+                    datetime: p.timestamp.map(|ts| {
+                        chrono::DateTime::from_timestamp_millis(ts)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    }),
+                    hedged: Some(false),
+                    side,
+                    contracts: contracts.map(|c| c.abs()),
+                    contract_size: Some(Decimal::ONE),
+                    entry_price,
+                    mark_price,
+                    notional: None,
+                    leverage: p
+                        .leverage
+                        .and_then(|l| Decimal::from_str(&l.to_string()).ok()),
+                    collateral: None,
+                    initial_margin: None,
+                    maintenance_margin: None,
+                    initial_margin_percentage: None,
+                    maintenance_margin_percentage: None,
+                    unrealized_pnl,
+                    liquidation_price,
+                    margin_mode,
+                    margin_ratio: None,
+                    percentage: None,
+                    info: serde_json::to_value(p).unwrap_or_default(),
+                    realized_pnl: None,
+                    last_update_timestamp: p.timestamp,
+                    last_price: mark_price,
+                    stop_loss_price: None,
+                    take_profit_price: None,
                 }
-            });
-
-            let margin_mode = match p.margin_mode.as_deref() {
-                Some("CROSS") => Some(MarginMode::Cross),
-                Some("ISOLATED") => Some(MarginMode::Isolated),
-                _ => None,
-            };
-
-            Position {
-                id: None,
-                symbol,
-                timestamp: p.timestamp,
-                datetime: p.timestamp.map(|ts| {
-                    chrono::DateTime::from_timestamp_millis(ts)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                }),
-                hedged: Some(false),
-                side,
-                contracts: contracts.map(|c| c.abs()),
-                contract_size: Some(Decimal::ONE),
-                entry_price,
-                mark_price,
-                notional: None,
-                leverage: p.leverage.and_then(|l| Decimal::from_str(&l.to_string()).ok()),
-                collateral: None,
-                initial_margin: None,
-                maintenance_margin: None,
-                initial_margin_percentage: None,
-                maintenance_margin_percentage: None,
-                unrealized_pnl,
-                liquidation_price,
-                margin_mode,
-                margin_ratio: None,
-                percentage: None,
-                info: serde_json::to_value(p).unwrap_or_default(),
-                realized_pnl: None,
-                last_update_timestamp: p.timestamp,
-                last_price: mark_price,
-                stop_loss_price: None,
-                take_profit_price: None,
-            }
-        }).collect();
+            })
+            .collect();
 
         WsPositionEvent { positions }
     }
@@ -575,31 +650,41 @@ impl WooWs {
                     match channel {
                         "ticker" => {
                             if let Ok(ticker_data) = serde_json::from_value::<WooTickerData>(data) {
-                                return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data, &symbol)));
+                                return Some(WsMessage::Ticker(Self::parse_ticker(
+                                    &ticker_data,
+                                    &symbol,
+                                )));
                             }
-                        }
+                        },
                         "orderbook" | "orderbookupdate" => {
                             if let Ok(ob_data) = serde_json::from_value::<WooOrderBookData>(data) {
-                                return Some(WsMessage::OrderBook(Self::parse_order_book(&ob_data, &symbol)));
+                                return Some(WsMessage::OrderBook(Self::parse_order_book(
+                                    &ob_data, &symbol,
+                                )));
                             }
-                        }
+                        },
                         "trade" => {
                             if let Ok(trade_data) = serde_json::from_value::<WooTradeData>(data) {
-                                return Some(WsMessage::Trade(Self::parse_trade(&trade_data, &symbol)));
+                                return Some(WsMessage::Trade(Self::parse_trade(
+                                    &trade_data,
+                                    &symbol,
+                                )));
                             }
-                        }
+                        },
                         ch if ch.starts_with("kline_") => {
                             // Extract timeframe from channel (e.g., "kline_1m")
                             let interval = ch.strip_prefix("kline_").unwrap_or("1m");
                             let timeframe = Self::parse_timeframe(interval);
 
                             if let Ok(ohlcv_data) = serde_json::from_value::<WooOhlcvData>(data) {
-                                if let Some(event) = Self::parse_ohlcv(&ohlcv_data, &symbol, timeframe) {
+                                if let Some(event) =
+                                    Self::parse_ohlcv(&ohlcv_data, &symbol, timeframe)
+                                {
                                     return Some(WsMessage::Ohlcv(event));
                                 }
                             }
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
             }
@@ -618,7 +703,9 @@ impl WooWs {
                 if response.success.unwrap_or(false) {
                     messages.push(WsMessage::Authenticated);
                 } else {
-                    let error_msg = response.message.unwrap_or_else(|| "Authentication failed".to_string());
+                    let error_msg = response
+                        .message
+                        .unwrap_or_else(|| "Authentication failed".to_string());
                     messages.push(WsMessage::Error(error_msg));
                 }
                 return messages;
@@ -640,21 +727,28 @@ impl WooWs {
                 if let Some(data) = response.data {
                     match topic.as_str() {
                         "balance" => {
-                            if let Ok(balance_data) = serde_json::from_value::<WooBalanceData>(data) {
-                                messages.push(WsMessage::Balance(Self::parse_balance_update(&balance_data)));
+                            if let Ok(balance_data) = serde_json::from_value::<WooBalanceData>(data)
+                            {
+                                messages.push(WsMessage::Balance(Self::parse_balance_update(
+                                    &balance_data,
+                                )));
                             }
-                        }
+                        },
                         "executionreport" => {
-                            if let Ok(exec_data) = serde_json::from_value::<WooExecutionReport>(data) {
+                            if let Ok(exec_data) =
+                                serde_json::from_value::<WooExecutionReport>(data)
+                            {
                                 messages.extend(Self::parse_execution_report(&exec_data));
                             }
-                        }
+                        },
                         "position" => {
                             if let Ok(pos_data) = serde_json::from_value::<WooPositionData>(data) {
-                                messages.push(WsMessage::Position(Self::parse_position_update(&pos_data)));
+                                messages.push(WsMessage::Position(Self::parse_position_update(
+                                    &pos_data,
+                                )));
                             }
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
             }
@@ -672,9 +766,12 @@ impl WooWs {
         *self.event_tx.write().await = Some(event_tx.clone());
 
         let ws_url = self.get_private_ws_url()?;
-        let api_key = self.api_key.clone().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required for private channels".to_string(),
-        })?;
+        let api_key = self
+            .api_key
+            .clone()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required for private channels".to_string(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
         let signature = self.generate_signature(timestamp)?;
@@ -686,6 +783,7 @@ impl WooWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -713,7 +811,10 @@ impl WooWs {
         *self.ws_client.write().await = Some(ws_client);
 
         // Store subscription
-        self.subscriptions.write().await.insert(topic.to_string(), topic.to_string());
+        self.subscriptions
+            .write()
+            .await
+            .insert(topic.to_string(), topic.to_string());
 
         // Spawn event processing task
         let tx = event_tx.clone();
@@ -722,20 +823,20 @@ impl WooWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         let messages = Self::process_private_message(&msg);
                         for ws_msg in messages {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(e) => {
                         let _ = tx.send(WsMessage::Error(e));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -744,7 +845,10 @@ impl WooWs {
     }
 
     /// 채널 구독 및 이벤트 스트림 반환
-    async fn subscribe_stream(&self, topic: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn subscribe_stream(
+        &self,
+        topic: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         *self.event_tx.write().await = Some(event_tx.clone());
 
@@ -755,6 +859,7 @@ impl WooWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -771,7 +876,10 @@ impl WooWs {
         *self.ws_client.write().await = Some(ws_client);
 
         // 구독 저장
-        self.subscriptions.write().await.insert(topic.to_string(), topic.to_string());
+        self.subscriptions
+            .write()
+            .await
+            .insert(topic.to_string(), topic.to_string());
 
         // 이벤트 처리 태스크
         let tx = event_tx.clone();
@@ -780,19 +888,19 @@ impl WooWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(e) => {
                         let _ = tx.send(WsMessage::Error(e));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -813,7 +921,11 @@ impl WsExchange for WooWs {
         Ok(rx)
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let woo_symbol = Self::format_symbol(symbol);
         let _topic = format!("{woo_symbol}@orderbook");
 
@@ -829,7 +941,11 @@ impl WsExchange for WooWs {
         Ok(rx)
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let woo_symbol = Self::format_symbol(symbol);
         let interval = Self::format_interval(timeframe);
         let _topic = format!("{woo_symbol}@kline_{interval}");
@@ -846,7 +962,10 @@ impl WsExchange for WooWs {
     ///
     /// # Requirements
     /// - API credentials must be set via `with_credentials()` or `set_credentials()`
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.subscribe_private_stream("executionreport").await
     }
 
@@ -857,7 +976,10 @@ impl WsExchange for WooWs {
     ///
     /// # Requirements
     /// - API credentials must be set via `with_credentials()` or `set_credentials()`
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.subscribe_private_stream("executionreport").await
     }
 
@@ -892,7 +1014,10 @@ impl WsExchange for WooWs {
     ///
     /// # Requirements
     /// - API credentials must be set via `with_credentials()` or `set_credentials()`
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         self.subscribe_private_stream("position").await
     }
 
@@ -911,6 +1036,7 @@ impl WsExchange for WooWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -923,19 +1049,19 @@ impl WsExchange for WooWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         if let Some(ws_msg) = Self::process_message(&msg) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(e) => {
                         let _ = tx.send(WsMessage::Error(e));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -1283,7 +1409,10 @@ mod tests {
             assert_eq!(event.order.side, OrderSide::Buy);
             assert_eq!(event.order.status, OrderStatus::Open);
             assert_eq!(event.order.order_type, OrderType::Limit);
-            assert_eq!(event.order.price, Some(Decimal::from_str("50000.0").unwrap()));
+            assert_eq!(
+                event.order.price,
+                Some(Decimal::from_str("50000.0").unwrap())
+            );
         } else {
             panic!("Expected Order message");
         }
@@ -1327,15 +1456,15 @@ mod tests {
                     assert_eq!(event.order.status, OrderStatus::Closed);
                     assert_eq!(event.order.filled, Decimal::from_str("1.0").unwrap());
                     has_order = true;
-                }
+                },
                 WsMessage::MyTrade(event) => {
                     assert_eq!(event.symbol, "ETH/USDT");
                     assert_eq!(event.trades.len(), 1);
                     assert_eq!(event.trades[0].id, "trade-123");
                     assert_eq!(event.trades[0].taker_or_maker, Some(TakerOrMaker::Taker));
                     has_trade = true;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -1346,19 +1475,17 @@ mod tests {
     #[test]
     fn test_parse_position_update() {
         let data = WooPositionData {
-            positions: vec![
-                WooPositionItem {
-                    symbol: "PERP_BTC_USDT".to_string(),
-                    position_qty: "0.5".to_string(),
-                    average_open_price: Some("50000.0".to_string()),
-                    mark_price: Some("51000.0".to_string()),
-                    unrealized_pnl: Some("500.0".to_string()),
-                    est_liq_price: Some("45000.0".to_string()),
-                    margin_mode: Some("CROSS".to_string()),
-                    leverage: Some(10),
-                    timestamp: Some(1710125266669),
-                },
-            ],
+            positions: vec![WooPositionItem {
+                symbol: "PERP_BTC_USDT".to_string(),
+                position_qty: "0.5".to_string(),
+                average_open_price: Some("50000.0".to_string()),
+                mark_price: Some("51000.0".to_string()),
+                unrealized_pnl: Some("500.0".to_string()),
+                est_liq_price: Some("45000.0".to_string()),
+                margin_mode: Some("CROSS".to_string()),
+                leverage: Some(10),
+                timestamp: Some(1710125266669),
+            }],
         };
 
         let event = WooWs::parse_position_update(&data);
@@ -1370,26 +1497,27 @@ mod tests {
         assert_eq!(pos.contracts, Some(Decimal::from_str("0.5").unwrap()));
         assert_eq!(pos.entry_price, Some(Decimal::from_str("50000.0").unwrap()));
         assert_eq!(pos.mark_price, Some(Decimal::from_str("51000.0").unwrap()));
-        assert_eq!(pos.unrealized_pnl, Some(Decimal::from_str("500.0").unwrap()));
+        assert_eq!(
+            pos.unrealized_pnl,
+            Some(Decimal::from_str("500.0").unwrap())
+        );
         assert_eq!(pos.margin_mode, Some(MarginMode::Cross));
     }
 
     #[test]
     fn test_parse_position_short() {
         let data = WooPositionData {
-            positions: vec![
-                WooPositionItem {
-                    symbol: "PERP_ETH_USDT".to_string(),
-                    position_qty: "-2.0".to_string(),
-                    average_open_price: Some("3500.0".to_string()),
-                    mark_price: Some("3400.0".to_string()),
-                    unrealized_pnl: Some("200.0".to_string()),
-                    est_liq_price: None,
-                    margin_mode: Some("ISOLATED".to_string()),
-                    leverage: Some(5),
-                    timestamp: Some(1710125266669),
-                },
-            ],
+            positions: vec![WooPositionItem {
+                symbol: "PERP_ETH_USDT".to_string(),
+                position_qty: "-2.0".to_string(),
+                average_open_price: Some("3500.0".to_string()),
+                mark_price: Some("3400.0".to_string()),
+                unrealized_pnl: Some("200.0".to_string()),
+                est_liq_price: None,
+                margin_mode: Some("ISOLATED".to_string()),
+                leverage: Some(5),
+                timestamp: Some(1710125266669),
+            }],
         };
 
         let event = WooWs::parse_position_update(&data);

@@ -2,6 +2,13 @@
 //!
 //! 이 모듈은 DEX(탈중앙화 거래소) 인증 및 서명을 위한 암호화 기능을 제공합니다.
 //!
+//! **Note**: This module requires the `dex` feature to be enabled.
+//!
+//! ```toml
+//! [dependencies]
+//! ccxt-rust = { version = "0.1", features = ["dex"] }
+//! ```
+//!
 //! # 모듈 구조
 //!
 //! - `common`: 공통 트레이트 및 유틸리티
@@ -52,43 +59,52 @@
 //! ```
 
 pub mod common;
-pub mod evm;
-pub mod starknet;
+#[cfg(feature = "dex")]
 pub mod cosmos;
+#[cfg(feature = "dex")]
+pub mod evm;
+#[cfg(feature = "dex")]
+pub mod starknet;
 
 // Re-exports: Common
 pub use common::{Signature, Signer, TypedDataHasher};
 
-// Re-exports: EVM
+// Re-exports: EVM (requires "dex" feature)
+#[cfg(feature = "dex")]
 pub use evm::{
-    keccak256, keccak256_hash,
-    Eip712Domain, Eip712TypedData, TypedDataField,
-    EvmWallet,
+    keccak256, keccak256_hash, Eip712Domain, Eip712TypedData, EvmWallet, TypedDataField,
 };
 
-// Re-exports: StarkNet
+// Re-exports: StarkNet (requires "dex" feature)
+#[cfg(feature = "dex")]
 pub use starknet::{
-    poseidon_hash, poseidon_hash_many, pedersen_hash,
-    sign_hash as starknet_sign_hash, verify_signature as starknet_verify_signature,
-    get_public_key as starknet_get_public_key,
-    StarkNetSignature,
-    StarkNetDomain, StarkNetTypedData, StarkNetTypedDataField, encode_typed_data_hash,
-    StarkNetAccount, derive_starknet_private_key, compute_starknet_address,
-    StarkNetWallet, ParadexOrder,
+    compute_starknet_address, derive_starknet_private_key, encode_typed_data_hash,
+    get_public_key as starknet_get_public_key, pedersen_hash, poseidon_hash, poseidon_hash_many,
+    sign_hash as starknet_sign_hash, verify_signature as starknet_verify_signature, ParadexOrder,
+    StarkNetAccount, StarkNetDomain, StarkNetSignature, StarkNetTypedData, StarkNetTypedDataField,
+    StarkNetWallet,
 };
 
-// Re-exports: Cosmos
+// Re-exports: Cosmos (requires "dex" feature)
+#[cfg(feature = "dex")]
 pub use cosmos::{
     // Keys
     derive_private_key as cosmos_derive_private_key,
-    mnemonic_to_seed, private_key_to_public_key as cosmos_public_key,
-    CosmosKeyPair,
+    mnemonic_to_seed,
+    private_key_to_public_key as cosmos_public_key,
     // Address
     public_key_to_address as cosmos_address,
-    ChainConfig, DYDX_MAINNET, DYDX_TESTNET, COSMOS_HUB, OSMOSIS, INJECTIVE,
+    sign_amino,
     // Signer
-    sign_bytes as cosmos_sign_bytes, sign_amino,
+    sign_bytes as cosmos_sign_bytes,
+    ChainConfig,
+    CosmosKeyPair,
     CosmosSignature,
     // Wallet
     CosmosWallet,
+    COSMOS_HUB,
+    DYDX_MAINNET,
+    DYDX_TESTNET,
+    INJECTIVE,
+    OSMOSIS,
 };

@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -119,27 +119,43 @@ impl Foxbit {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
         let body_params = params.unwrap_or_default();
         let body_string = if !body_params.is_empty() {
-            serde_json::to_string(&body_params)
-                .map_err(|e| CcxtError::ExchangeError { message: format!("Failed to serialize params: {e}") })?
+            serde_json::to_string(&body_params).map_err(|e| CcxtError::ExchangeError {
+                message: format!("Failed to serialize params: {e}"),
+            })?
         } else {
             String::new()
         };
 
-        let message = format!("{}{}{}{}", timestamp, method.to_uppercase(), path, body_string);
+        let message = format!(
+            "{}{}{}{}",
+            timestamp,
+            method.to_uppercase(),
+            path,
+            body_string
+        );
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(message.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -244,7 +260,11 @@ impl Exchange for Foxbit {
 
         let mut markets = Vec::new();
         for market_data in response.data {
-            let symbol = format!("{}/{}", market_data.base.to_uppercase(), market_data.quote.to_uppercase());
+            let symbol = format!(
+                "{}/{}",
+                market_data.base.to_uppercase(),
+                market_data.quote.to_uppercase()
+            );
             let market = Market {
                 id: market_data.symbol.clone(),
                 lowercase_id: Some(market_data.symbol.to_lowercase()),
@@ -370,12 +390,18 @@ impl Exchange for Foxbit {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&data.bids),
             asks: parse_entries(&data.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.market_id(symbol).ok_or_else(|| CcxtError::BadSymbol {
             symbol: symbol.to_string(),
         })?;
@@ -387,7 +413,9 @@ impl Exchange for Foxbit {
 
         let response: FoxbitTradesResponse = self.public_get(&path, None).await?;
 
-        let trades: Vec<Trade> = response.data.iter()
+        let trades: Vec<Trade> = response
+            .data
+            .iter()
             .map(|t| {
                 let timestamp = t.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
                 Trade {
@@ -427,9 +455,12 @@ impl Exchange for Foxbit {
             symbol: symbol.to_string(),
         })?;
 
-        let tf = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::NotSupported {
-            feature: format!("Timeframe {timeframe:?}"),
-        })?;
+        let tf = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::NotSupported {
+                feature: format!("Timeframe {timeframe:?}"),
+            })?;
 
         let mut path = format!("/markets/{market_id}/candles?interval={tf}");
         if let Some(s) = since {
@@ -441,7 +472,9 @@ impl Exchange for Foxbit {
 
         let response: FoxbitCandlesResponse = self.public_get(&path, None).await?;
 
-        let ohlcv: Vec<OHLCV> = response.data.iter()
+        let ohlcv: Vec<OHLCV> = response
+            .data
+            .iter()
             .filter_map(|c| {
                 Some(OHLCV {
                     timestamp: c.timestamp?,
@@ -458,7 +491,8 @@ impl Exchange for Foxbit {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: FoxbitBalanceResponse = self.private_request("GET", "/accounts", None).await?;
+        let response: FoxbitBalanceResponse =
+            self.private_request("GET", "/accounts", None).await?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -497,15 +531,21 @@ impl Exchange for Foxbit {
 
         let mut params = HashMap::new();
         params.insert("market_symbol".into(), market_id.clone());
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "BUY".into(),
-            OrderSide::Sell => "SELL".into(),
-        });
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "LIMIT".into(),
-            OrderType::Market => "MARKET".into(),
-            _ => "LIMIT".into(),
-        });
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "BUY".into(),
+                OrderSide::Sell => "SELL".into(),
+            },
+        );
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "LIMIT".into(),
+                OrderType::Market => "MARKET".into(),
+                _ => "LIMIT".into(),
+            },
+        );
         params.insert("quantity".into(), amount.to_string());
 
         if order_type == OrderType::Limit {
@@ -515,7 +555,9 @@ impl Exchange for Foxbit {
             params.insert("price".into(), p.to_string());
         }
 
-        let response: FoxbitOrderResponse = self.private_request("POST", "/orders", Some(params)).await?;
+        let response: FoxbitOrderResponse = self
+            .private_request("POST", "/orders", Some(params))
+            .await?;
         let data = response.data;
 
         let timestamp = Utc::now().timestamp_millis();
@@ -592,7 +634,9 @@ impl Exchange for Foxbit {
         let response: FoxbitOrderResponse = self.private_request("GET", &path, None).await?;
         let data = response.data;
 
-        let timestamp = data.created_at.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .created_at
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         let side = match data.side.as_deref() {
             Some("BUY") => OrderSide::Buy,
             Some("SELL") => OrderSide::Sell,
@@ -625,9 +669,10 @@ impl Exchange for Foxbit {
             average: data.avg_price,
             amount: data.quantity.unwrap_or_default(),
             filled: data.quantity_executed.unwrap_or_default(),
-            remaining: data.quantity.as_ref().and_then(|q|
-                data.quantity_executed.as_ref().map(|e| q - e)
-            ),
+            remaining: data
+                .quantity
+                .as_ref()
+                .and_then(|q| data.quantity_executed.as_ref().map(|e| q - e)),
             cost: None,
             trades: Vec::new(),
             fee: None,
@@ -659,9 +704,13 @@ impl Exchange for Foxbit {
 
         let response: FoxbitOrdersResponse = self.private_request("GET", &path, None).await?;
 
-        let orders: Vec<Order> = response.data.iter()
+        let orders: Vec<Order> = response
+            .data
+            .iter()
             .map(|o| {
-                let timestamp = o.created_at.unwrap_or_else(|| Utc::now().timestamp_millis());
+                let timestamp = o
+                    .created_at
+                    .unwrap_or_else(|| Utc::now().timestamp_millis());
                 let side = match o.side.as_deref() {
                     Some("BUY") => OrderSide::Buy,
                     Some("SELL") => OrderSide::Sell,
@@ -694,9 +743,10 @@ impl Exchange for Foxbit {
                     average: o.avg_price,
                     amount: o.quantity.unwrap_or_default(),
                     filled: o.quantity_executed.unwrap_or_default(),
-                    remaining: o.quantity.as_ref().and_then(|q|
-                        o.quantity_executed.as_ref().map(|e| q - e)
-                    ),
+                    remaining: o
+                        .quantity
+                        .as_ref()
+                        .and_then(|q| o.quantity_executed.as_ref().map(|e| q - e)),
                     cost: None,
                     trades: Vec::new(),
                     fee: None,

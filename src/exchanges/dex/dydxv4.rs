@@ -26,16 +26,65 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::crypto::cosmos::{CosmosWallet, DYDX_MAINNET, DYDX_TESTNET};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balances, Balance, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 use super::dydxv4_order::{
-    DydxOrder, DydxOrderSide, DydxTimeInForce, DydxMarketInfo, DydxTransactionBuilder,
-    DydxNodeClient, OrderId, SubaccountId, GoodTilOneof, ConditionType,
-    order_flags, generate_client_id, SHORT_BLOCK_WINDOW,
+    generate_client_id, order_flags, ConditionType, DydxMarketInfo, DydxNodeClient, DydxOrder,
+    DydxOrderSide, DydxTimeInForce, DydxTransactionBuilder, GoodTilOneof, LongTermOrderParams,
+    OrderId, ShortTermOrderParams, SubaccountId, SHORT_BLOCK_WINDOW,
 };
+
+// ============================================================================
+// Builder Pattern - API Order Parameters
+// ============================================================================
+
+/// Long-term 주문 API 파라미터 (Builder 패턴)
+///
+/// `create_long_term_order` 함수의 파라미터를 구조화하여 Clippy too_many_arguments 해결
+#[derive(Clone, Debug)]
+pub struct LongTermApiOrderParams<'a> {
+    /// 거래 심볼 (예: "BTC/USD:USD")
+    pub symbol: &'a str,
+    /// 주문 유형 (Market, Limit)
+    pub order_type: OrderType,
+    /// 주문 방향 (Buy, Sell)
+    pub side: OrderSide,
+    /// 주문 수량
+    pub amount: Decimal,
+    /// 가격 (Limit 주문시 필수)
+    pub price: Option<Decimal>,
+    /// 만료 시간 (Unix timestamp in seconds)
+    pub good_til_time: u32,
+    /// 주문 유효 조건 (GTC, IOC, FOK, PostOnly)
+    pub time_in_force: Option<TimeInForce>,
+    /// 포지션 축소 전용 여부
+    pub reduce_only: bool,
+}
+
+/// 조건부 주문 API 파라미터 (Builder 패턴)
+///
+/// `create_conditional_order`, `create_stop_loss_order`, `create_take_profit_order` 함수의
+/// 파라미터를 구조화하여 Clippy too_many_arguments 해결
+#[derive(Clone, Debug)]
+pub struct ConditionalOrderParams<'a> {
+    /// 거래 심볼 (예: "BTC/USD:USD")
+    pub symbol: &'a str,
+    /// 주문 방향 (Buy, Sell)
+    pub side: OrderSide,
+    /// 주문 수량
+    pub amount: Decimal,
+    /// 트리거 가격 (이 가격에 도달하면 주문 실행)
+    pub trigger_price: Decimal,
+    /// 지정가 (None이면 시장가로 실행)
+    pub limit_price: Option<Decimal>,
+    /// 만료 시간 (Unix timestamp in seconds)
+    pub good_til_time: u32,
+    /// 포지션 축소 전용 여부
+    pub reduce_only: bool,
+}
 
 /// dYdX v4 거래소
 ///
@@ -102,7 +151,11 @@ impl DydxV4 {
         testnet: bool,
         index: u32,
     ) -> CcxtResult<Self> {
-        let chain_config = if testnet { &DYDX_TESTNET } else { &DYDX_MAINNET };
+        let chain_config = if testnet {
+            &DYDX_TESTNET
+        } else {
+            &DYDX_MAINNET
+        };
         let wallet = CosmosWallet::from_mnemonic(mnemonic, chain_config, index)?;
         let address = wallet.address().to_string();
         Self::with_options(config, testnet, Some(address), Some(wallet))
@@ -120,7 +173,11 @@ impl DydxV4 {
         private_key_hex: &str,
         testnet: bool,
     ) -> CcxtResult<Self> {
-        let chain_config = if testnet { &DYDX_TESTNET } else { &DYDX_MAINNET };
+        let chain_config = if testnet {
+            &DYDX_TESTNET
+        } else {
+            &DYDX_MAINNET
+        };
         let wallet = CosmosWallet::from_private_key_hex(private_key_hex, chain_config)?;
         let address = wallet.address().to_string();
         Self::with_options(config, testnet, Some(address), Some(wallet))
@@ -177,9 +234,7 @@ impl DydxV4 {
             logo: Some("https://dydx.exchange/favicon.ico".into()),
             api: api_urls,
             www: Some("https://dydx.exchange".into()),
-            doc: vec![
-                "https://docs.dydx.xyz/".into(),
-            ],
+            doc: vec!["https://docs.dydx.xyz/".into()],
             fees: Some("https://dydx.exchange/trading-rewards".into()),
         };
 
@@ -254,10 +309,7 @@ impl DydxV4 {
     }
 
     /// Indexer API GET 요청
-    async fn indexer_get<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> CcxtResult<T> {
+    async fn indexer_get<T: serde::de::DeserializeOwned>(&self, path: &str) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
         self.client.get(path, None, None).await
     }
@@ -282,9 +334,11 @@ impl DydxV4 {
 
     /// 주소 필요 검사
     fn require_address(&self) -> CcxtResult<&str> {
-        self.address.as_deref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "dYdX v4 requires wallet address for this operation".into(),
-        })
+        self.address
+            .as_deref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "dYdX v4 requires wallet address for this operation".into(),
+            })
     }
 }
 
@@ -458,9 +512,12 @@ impl Exchange for DydxV4 {
         let path = format!("/perpetualMarkets?ticker={market_id}");
         let response: DydxV4PerpetualMarketsResponse = self.indexer_get(&path).await?;
 
-        let info = response.markets.get(&market_id).ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })?;
+        let info = response
+            .markets
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis();
 
@@ -468,7 +525,11 @@ impl Exchange for DydxV4 {
             symbol: symbol.to_string(),
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
-            high: info.price_change_24h.as_ref().and(info.oracle_price.as_ref()).and_then(|s| s.parse().ok()),
+            high: info
+                .price_change_24h
+                .as_ref()
+                .and(info.oracle_price.as_ref())
+                .and_then(|s| s.parse().ok()),
             low: None,
             bid: None,
             bid_volume: None,
@@ -515,12 +576,18 @@ impl Exchange for DydxV4 {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.symbol_to_market_id(symbol);
         let mut path = format!("/trades/perpetualMarket/{market_id}");
 
@@ -530,9 +597,13 @@ impl Exchange for DydxV4 {
 
         let response: DydxV4TradesResponse = self.indexer_get(&path).await?;
 
-        let trades: Vec<Trade> = response.trades.iter()
+        let trades: Vec<Trade> = response
+            .trades
+            .iter()
             .filter_map(|t| {
-                let timestamp = t.created_at.as_ref()
+                let timestamp = t
+                    .created_at
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -574,10 +645,12 @@ impl Exchange for DydxV4 {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.symbol_to_market_id(symbol);
-        let resolution = self.timeframes.get(&timeframe)
-            .ok_or_else(|| CcxtError::NotSupported {
-                feature: format!("Timeframe {timeframe:?}"),
-            })?;
+        let resolution =
+            self.timeframes
+                .get(&timeframe)
+                .ok_or_else(|| CcxtError::NotSupported {
+                    feature: format!("Timeframe {timeframe:?}"),
+                })?;
 
         let mut path = format!("/candles/perpetualMarkets/{market_id}?resolution={resolution}");
 
@@ -587,9 +660,13 @@ impl Exchange for DydxV4 {
 
         let response: DydxV4CandlesResponse = self.indexer_get(&path).await?;
 
-        let ohlcv: Vec<OHLCV> = response.candles.iter()
+        let ohlcv: Vec<OHLCV> = response
+            .candles
+            .iter()
             .filter_map(|c| {
-                let timestamp = c.started_at.as_ref()
+                let timestamp = c
+                    .started_at
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())?;
 
@@ -597,7 +674,9 @@ impl Exchange for DydxV4 {
                 let high: Decimal = c.high.parse().ok()?;
                 let low: Decimal = c.low.parse().ok()?;
                 let close: Decimal = c.close.parse().ok()?;
-                let volume: Decimal = c.base_token_volume.as_ref()
+                let volume: Decimal = c
+                    .base_token_volume
+                    .as_ref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(Decimal::ZERO);
 
@@ -617,7 +696,10 @@ impl Exchange for DydxV4 {
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let address = self.require_address()?;
-        let path = format!("/addresses/{}/subaccountNumber/{}", address, self.subaccount_number);
+        let path = format!(
+            "/addresses/{}/subaccountNumber/{}",
+            address, self.subaccount_number
+        );
         let response: DydxV4SubaccountResponse = self.indexer_get(&path).await?;
 
         let mut balances = Balances::default();
@@ -626,30 +708,47 @@ impl Exchange for DydxV4 {
         balances.datetime = Some(Utc::now().to_rfc3339());
 
         // USDC 잔고 (equity)
-        if let Some(equity) = response.subaccount.equity.as_ref().and_then(|s| s.parse::<Decimal>().ok()) {
-            let free_collateral = response.subaccount.free_collateral
+        if let Some(equity) = response
+            .subaccount
+            .equity
+            .as_ref()
+            .and_then(|s| s.parse::<Decimal>().ok())
+        {
+            let free_collateral = response
+                .subaccount
+                .free_collateral
                 .as_ref()
                 .and_then(|s| s.parse::<Decimal>().ok())
                 .unwrap_or(Decimal::ZERO);
 
-            balances.currencies.insert("USDC".to_string(), Balance {
-                free: Some(free_collateral),
-                used: Some(equity - free_collateral),
-                total: Some(equity),
-                debt: None,
-            });
+            balances.currencies.insert(
+                "USDC".to_string(),
+                Balance {
+                    free: Some(free_collateral),
+                    used: Some(equity - free_collateral),
+                    total: Some(equity),
+                    debt: None,
+                },
+            );
         }
 
         // Asset positions (추가 자산)
         if let Some(positions) = &response.subaccount.asset_positions {
             for (asset, position) in positions {
-                if let Some(size) = position.size.as_ref().and_then(|s| s.parse::<Decimal>().ok()) {
-                    balances.currencies.insert(asset.clone(), Balance {
-                        free: Some(size),
-                        used: Some(Decimal::ZERO),
-                        total: Some(size),
-                        debt: None,
-                    });
+                if let Some(size) = position
+                    .size
+                    .as_ref()
+                    .and_then(|s| s.parse::<Decimal>().ok())
+                {
+                    balances.currencies.insert(
+                        asset.clone(),
+                        Balance {
+                            free: Some(size),
+                            used: Some(Decimal::ZERO),
+                            total: Some(size),
+                            debt: None,
+                        },
+                    );
                 }
             }
         }
@@ -688,9 +787,12 @@ impl Exchange for DydxV4 {
         let response: DydxV4Order = self.indexer_get(&path).await?;
 
         let orders = self.parse_orders(&[response])?;
-        orders.into_iter().next().ok_or_else(|| CcxtError::OrderNotFound {
-            order_id: id.to_string(),
-        })
+        orders
+            .into_iter()
+            .next()
+            .ok_or_else(|| CcxtError::OrderNotFound {
+                order_id: id.to_string(),
+            })
     }
 
     async fn create_order(
@@ -703,24 +805,37 @@ impl Exchange for DydxV4 {
     ) -> CcxtResult<Order> {
         // 지갑 및 관련 컴포넌트 필수
         let wallet = self.require_wallet()?;
-        let node_client = self.node_client.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Node client not initialized".into(),
-        })?;
-        let tx_builder = self.tx_builder.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Transaction builder not initialized".into(),
-        })?;
+        let node_client =
+            self.node_client
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Node client not initialized".into(),
+                })?;
+        let tx_builder =
+            self.tx_builder
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Transaction builder not initialized".into(),
+                })?;
 
         // 마켓 정보 가져오기
         let market_info = self.get_or_fetch_market_info(symbol).await?;
 
         // 계정 정보 조회
         let account = node_client.get_account(wallet.address()).await?;
-        let account_number: u64 = account.account_number.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse account number".into(),
-        })?;
-        let sequence: u64 = account.sequence.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse sequence".into(),
-        })?;
+        let account_number: u64 =
+            account
+                .account_number
+                .parse()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to parse account number".into(),
+                })?;
+        let sequence: u64 = account
+            .sequence
+            .parse()
+            .map_err(|_| CcxtError::ExchangeError {
+                message: "Failed to parse sequence".into(),
+            })?;
 
         // 현재 블록 높이 조회 (short-term order용)
         let current_block = node_client.get_latest_block_height().await?;
@@ -746,9 +861,9 @@ impl Exchange for DydxV4 {
                 // 매수: 매우 높은 가격, 매도: 매우 낮은 가격
                 match side {
                     OrderSide::Buy => Decimal::from(1_000_000_000u64), // 높은 가격
-                    OrderSide::Sell => Decimal::from(1u64), // 낮은 가격
+                    OrderSide::Sell => Decimal::from(1u64),            // 낮은 가격
                 }
-            }
+            },
             _ => price.ok_or_else(|| CcxtError::BadRequest {
                 message: "Price is required for limit orders".into(),
             })?,
@@ -758,19 +873,19 @@ impl Exchange for DydxV4 {
         let quantums = market_info.size_to_quantums(amount);
         let subticks = market_info.price_to_subticks(order_price);
 
-        // dYdX 주문 생성 (short-term)
-        let dydx_order = DydxOrder::new_short_term(
-            wallet.address(),
-            self.subaccount_number,
+        // dYdX 주문 생성 (short-term, Builder 패턴)
+        let dydx_order = DydxOrder::from_short_term_params(ShortTermOrderParams {
+            owner: wallet.address(),
+            subaccount_number: self.subaccount_number,
             client_id,
-            market_info.clob_pair_id,
-            dydx_side,
+            clob_pair_id: market_info.clob_pair_id,
+            side: dydx_side,
             quantums,
             subticks,
             good_til_block,
             time_in_force,
-            false, // reduce_only
-        );
+            reduce_only: false,
+        });
 
         // 트랜잭션 빌드 및 서명
         let tx_bytes = tx_builder.build_place_order_tx(
@@ -828,12 +943,18 @@ impl Exchange for DydxV4 {
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order> {
         // 지갑 및 관련 컴포넌트 필수
         let wallet = self.require_wallet()?;
-        let node_client = self.node_client.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Node client not initialized".into(),
-        })?;
-        let tx_builder = self.tx_builder.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Transaction builder not initialized".into(),
-        })?;
+        let node_client =
+            self.node_client
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Node client not initialized".into(),
+                })?;
+        let tx_builder =
+            self.tx_builder
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Transaction builder not initialized".into(),
+                })?;
 
         // 기존 주문 정보 조회
         let existing_order = self.fetch_order(id, symbol).await?;
@@ -843,12 +964,19 @@ impl Exchange for DydxV4 {
 
         // 계정 정보 조회
         let account = node_client.get_account(wallet.address()).await?;
-        let account_number: u64 = account.account_number.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse account number".into(),
-        })?;
-        let sequence: u64 = account.sequence.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse sequence".into(),
-        })?;
+        let account_number: u64 =
+            account
+                .account_number
+                .parse()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to parse account number".into(),
+                })?;
+        let sequence: u64 = account
+            .sequence
+            .parse()
+            .map_err(|_| CcxtError::ExchangeError {
+                message: "Failed to parse sequence".into(),
+            })?;
 
         // 현재 블록 높이 조회
         let current_block = node_client.get_latest_block_height().await?;
@@ -911,12 +1039,16 @@ impl DydxV4 {
         let path = format!("/perpetualMarkets?ticker={market_id}");
         let response: DydxV4PerpetualMarketsResponse = self.indexer_get(&path).await?;
 
-        let market_info = response.markets.get(&market_id).ok_or_else(|| CcxtError::BadSymbol {
-            symbol: symbol.to_string(),
-        })?;
+        let market_info = response
+            .markets
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
         // DydxMarketInfo로 변환
-        let clob_pair_id = market_info.clob_pair_id
+        let clob_pair_id = market_info
+            .clob_pair_id
             .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
@@ -948,13 +1080,17 @@ impl DydxV4 {
 
         for o in orders {
             let symbol = self.market_id_to_symbol(&o.ticker);
-            let timestamp = o.created_at.as_ref()
+            let timestamp = o
+                .created_at
+                .as_ref()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.timestamp_millis());
 
             let price = o.price.parse().ok();
             let amount: Decimal = o.size.parse().unwrap_or(Decimal::ZERO);
-            let filled: Decimal = o.total_filled.as_ref()
+            let filled: Decimal = o
+                .total_filled
+                .as_ref()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(Decimal::ZERO);
             let remaining = amount - filled;
@@ -978,14 +1114,15 @@ impl DydxV4 {
                 _ => OrderType::Limit,
             };
 
-            let time_in_force = o.time_in_force.as_ref().and_then(|tif| {
-                match tif.to_uppercase().as_str() {
-                    "GTC" | "GTT" => Some(TimeInForce::GTC),
-                    "IOC" => Some(TimeInForce::IOC),
-                    "FOK" => Some(TimeInForce::FOK),
-                    _ => None,
-                }
-            });
+            let time_in_force =
+                o.time_in_force
+                    .as_ref()
+                    .and_then(|tif| match tif.to_uppercase().as_str() {
+                        "GTC" | "GTT" => Some(TimeInForce::GTC),
+                        "IOC" => Some(TimeInForce::IOC),
+                        "FOK" => Some(TimeInForce::FOK),
+                        _ => None,
+                    });
 
             let side = match o.side.to_uppercase().as_str() {
                 "BUY" => OrderSide::Buy,
@@ -1002,7 +1139,9 @@ impl DydxV4 {
                         .unwrap_or_default()
                 }),
                 last_trade_timestamp: None,
-                last_update_timestamp: o.updated_at.as_ref()
+                last_update_timestamp: o
+                    .updated_at
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis()),
                 symbol,
@@ -1051,7 +1190,11 @@ impl DydxV4 {
     }
 
     /// 체결 내역 조회
-    pub async fn fetch_my_fills(&self, symbol: Option<&str>, limit: Option<u32>) -> CcxtResult<Vec<DydxV4Fill>> {
+    pub async fn fetch_my_fills(
+        &self,
+        symbol: Option<&str>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<DydxV4Fill>> {
         let address = self.require_address()?;
         let mut path = format!(
             "/fills?address={}&subaccountNumber={}",
@@ -1084,7 +1227,11 @@ impl DydxV4 {
     }
 
     /// Funding payments 조회
-    pub async fn fetch_funding_payments(&self, symbol: Option<&str>, limit: Option<u32>) -> CcxtResult<Vec<DydxV4FundingPayment>> {
+    pub async fn fetch_funding_payments(
+        &self,
+        symbol: Option<&str>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<DydxV4FundingPayment>> {
         let address = self.require_address()?;
         let mut path = format!(
             "/fundingPayments?address={}&subaccountNumber={}",
@@ -1105,7 +1252,11 @@ impl DydxV4 {
     }
 
     /// Historical funding rate 조회
-    pub async fn fetch_funding_rate_history(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<Vec<DydxV4HistoricalFunding>> {
+    pub async fn fetch_funding_rate_history(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<DydxV4HistoricalFunding>> {
         let market_id = self.symbol_to_market_id(symbol);
         let mut path = format!("/historicalFunding/{market_id}");
 
@@ -1140,83 +1291,87 @@ impl DydxV4 {
     /// # Returns
     ///
     /// 생성된 주문 정보
-    pub async fn create_long_term_order(
+    pub async fn create_long_term_order_with_params(
         &self,
-        symbol: &str,
-        order_type: OrderType,
-        side: OrderSide,
-        amount: Decimal,
-        price: Option<Decimal>,
-        good_til_time: u32,
-        time_in_force: Option<TimeInForce>,
-        reduce_only: bool,
+        params: LongTermApiOrderParams<'_>,
     ) -> CcxtResult<Order> {
         // 지갑 및 관련 컴포넌트 필수
         let wallet = self.require_wallet()?;
-        let node_client = self.node_client.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Node client not initialized".into(),
-        })?;
-        let tx_builder = self.tx_builder.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Transaction builder not initialized".into(),
-        })?;
+        let node_client =
+            self.node_client
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Node client not initialized".into(),
+                })?;
+        let tx_builder =
+            self.tx_builder
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Transaction builder not initialized".into(),
+                })?;
 
         // 마켓 정보 가져오기
-        let market_info = self.get_or_fetch_market_info(symbol).await?;
+        let market_info = self.get_or_fetch_market_info(params.symbol).await?;
 
         // 계정 정보 조회
         let account = node_client.get_account(wallet.address()).await?;
-        let account_number: u64 = account.account_number.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse account number".into(),
-        })?;
-        let sequence: u64 = account.sequence.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse sequence".into(),
-        })?;
+        let account_number: u64 =
+            account
+                .account_number
+                .parse()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to parse account number".into(),
+                })?;
+        let sequence: u64 = account
+            .sequence
+            .parse()
+            .map_err(|_| CcxtError::ExchangeError {
+                message: "Failed to parse sequence".into(),
+            })?;
 
         // 클라이언트 ID 생성
         let client_id = generate_client_id();
 
         // 주문 방향 변환
-        let dydx_side: DydxOrderSide = side.into();
+        let dydx_side: DydxOrderSide = params.side.into();
 
         // TimeInForce 변환
-        let dydx_time_in_force = match time_in_force {
+        let dydx_time_in_force = match params.time_in_force {
             Some(tif) => tif.into(),
-            None => match order_type {
+            None => match params.order_type {
                 OrderType::Market => DydxTimeInForce::Ioc,
                 _ => DydxTimeInForce::Unspecified, // GTC
             },
         };
 
         // 가격 처리
-        let order_price = match order_type {
-            OrderType::Market => {
-                match side {
-                    OrderSide::Buy => Decimal::from(1_000_000_000u64),
-                    OrderSide::Sell => Decimal::from(1u64),
-                }
-            }
-            _ => price.ok_or_else(|| CcxtError::BadRequest {
+        let order_price = match params.order_type {
+            OrderType::Market => match params.side {
+                OrderSide::Buy => Decimal::from(1_000_000_000u64),
+                OrderSide::Sell => Decimal::from(1u64),
+            },
+            _ => params.price.ok_or_else(|| CcxtError::BadRequest {
                 message: "Price is required for limit orders".into(),
             })?,
         };
 
         // Quantums 및 Subticks 변환
-        let quantums = market_info.size_to_quantums(amount);
+        let quantums = market_info.size_to_quantums(params.amount);
         let subticks = market_info.price_to_subticks(order_price);
 
-        // dYdX Long-term 주문 생성
-        let dydx_order = DydxOrder::new_long_term(
-            wallet.address(),
-            self.subaccount_number,
+        // dYdX Long-term 주문 생성 (Builder 패턴)
+        let dydx_order = DydxOrder::from_long_term_params(LongTermOrderParams {
+            owner: wallet.address(),
+            subaccount_number: self.subaccount_number,
             client_id,
-            market_info.clob_pair_id,
-            dydx_side,
+            clob_pair_id: market_info.clob_pair_id,
+            side: dydx_side,
             quantums,
             subticks,
-            good_til_time,
-            dydx_time_in_force,
-            reduce_only,
-        );
+            good_til_block_time: params.good_til_time,
+            time_in_force: dydx_time_in_force,
+            reduce_only: params.reduce_only,
+        });
 
         // 트랜잭션 빌드 및 서명
         let tx_bytes = tx_builder.build_place_order_tx(
@@ -1232,7 +1387,7 @@ impl DydxV4 {
 
         // 주문 응답 생성
         let timestamp = Utc::now().timestamp_millis();
-        let tif = time_in_force.unwrap_or(TimeInForce::GTC);
+        let tif = params.time_in_force.unwrap_or(TimeInForce::GTC);
 
         let order = Order {
             id: result.hash.clone(),
@@ -1241,19 +1396,19 @@ impl DydxV4 {
             datetime: Some(Utc::now().to_rfc3339()),
             last_trade_timestamp: None,
             last_update_timestamp: None,
-            symbol: symbol.to_string(),
-            order_type,
+            symbol: params.symbol.to_string(),
+            order_type: params.order_type,
             time_in_force: Some(tif),
             post_only: Some(matches!(dydx_time_in_force, DydxTimeInForce::PostOnly)),
-            reduce_only: Some(reduce_only),
-            side,
-            price,
+            reduce_only: Some(params.reduce_only),
+            side: params.side,
+            price: params.price,
             trigger_price: None,
-            amount,
-            cost: price.map(|p| p * amount),
+            amount: params.amount,
+            cost: params.price.map(|p| p * params.amount),
             average: None,
             filled: Decimal::ZERO,
-            remaining: Some(amount),
+            remaining: Some(params.amount),
             status: OrderStatus::Open,
             fee: None,
             fees: Vec::new(),
@@ -1265,13 +1420,36 @@ impl DydxV4 {
                 "tx_hash": result.hash,
                 "client_id": client_id,
                 "order_flags": order_flags::LONG_TERM,
-                "good_til_block_time": good_til_time,
-                "quantums": quantums,
-                "subticks": subticks,
             }),
         };
 
         Ok(order)
+    }
+
+    /// Long-term 주문 생성 (기존 API 호환)
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_long_term_order(
+        &self,
+        symbol: &str,
+        order_type: OrderType,
+        side: OrderSide,
+        amount: Decimal,
+        price: Option<Decimal>,
+        good_til_time: u32,
+        time_in_force: Option<TimeInForce>,
+        reduce_only: bool,
+    ) -> CcxtResult<Order> {
+        self.create_long_term_order_with_params(LongTermApiOrderParams {
+            symbol,
+            order_type,
+            side,
+            amount,
+            price,
+            good_til_time,
+            time_in_force,
+            reduce_only,
+        })
+        .await
     }
 
     /// Long-term 주문 취소
@@ -1291,12 +1469,18 @@ impl DydxV4 {
     ) -> CcxtResult<Order> {
         // 지갑 및 관련 컴포넌트 필수
         let wallet = self.require_wallet()?;
-        let node_client = self.node_client.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Node client not initialized".into(),
-        })?;
-        let tx_builder = self.tx_builder.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Transaction builder not initialized".into(),
-        })?;
+        let node_client =
+            self.node_client
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Node client not initialized".into(),
+                })?;
+        let tx_builder =
+            self.tx_builder
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Transaction builder not initialized".into(),
+                })?;
 
         // 기존 주문 정보 조회
         let existing_order = self.fetch_order(id, symbol).await?;
@@ -1306,12 +1490,19 @@ impl DydxV4 {
 
         // 계정 정보 조회
         let account = node_client.get_account(wallet.address()).await?;
-        let account_number: u64 = account.account_number.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse account number".into(),
-        })?;
-        let sequence: u64 = account.sequence.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse sequence".into(),
-        })?;
+        let account_number: u64 =
+            account
+                .account_number
+                .parse()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to parse account number".into(),
+                })?;
+        let sequence: u64 = account
+            .sequence
+            .parse()
+            .map_err(|_| CcxtError::ExchangeError {
+                message: "Failed to parse sequence".into(),
+            })?;
 
         // OrderId 생성 (Long-term 플래그 사용)
         let order_id = OrderId::new(
@@ -1384,7 +1575,8 @@ impl DydxV4 {
             good_til_time,
             time_in_force,
             false, // reduce_only
-        ).await
+        )
+        .await
     }
 
     // ============================================================================
@@ -1402,6 +1594,16 @@ impl DydxV4 {
     /// * `limit_price` - 지정가 (None이면 시장가로 실행)
     /// * `good_til_time` - 만료 시간
     /// * `reduce_only` - 포지션 축소 전용
+    pub async fn create_stop_loss_order_with_params(
+        &self,
+        params: ConditionalOrderParams<'_>,
+    ) -> CcxtResult<Order> {
+        self.create_conditional_order_with_params(params, ConditionType::StopLoss)
+            .await
+    }
+
+    /// 조건부 주문 생성 (Stop Loss, 기존 API 호환)
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_stop_loss_order(
         &self,
         symbol: &str,
@@ -1412,19 +1614,28 @@ impl DydxV4 {
         good_til_time: u32,
         reduce_only: bool,
     ) -> CcxtResult<Order> {
-        self.create_conditional_order(
+        self.create_stop_loss_order_with_params(ConditionalOrderParams {
             symbol,
             side,
             amount,
             trigger_price,
             limit_price,
             good_til_time,
-            ConditionType::StopLoss,
             reduce_only,
-        ).await
+        })
+        .await
     }
 
-    /// 조건부 주문 생성 (Take Profit)
+    /// 조건부 주문 생성 (Take Profit, Builder 패턴)
+    pub async fn create_take_profit_order_with_params(
+        &self,
+        params: ConditionalOrderParams<'_>,
+    ) -> CcxtResult<Order> {
+        self.create_conditional_order_with_params(params, ConditionType::TakeProfit)
+            .await
+    }
+
+    /// 조건부 주문 생성 (Take Profit, 기존 API 호환)
     ///
     /// # Arguments
     ///
@@ -1435,6 +1646,7 @@ impl DydxV4 {
     /// * `limit_price` - 지정가 (None이면 시장가로 실행)
     /// * `good_til_time` - 만료 시간
     /// * `reduce_only` - 포지션 축소 전용
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_take_profit_order(
         &self,
         symbol: &str,
@@ -1445,76 +1657,81 @@ impl DydxV4 {
         good_til_time: u32,
         reduce_only: bool,
     ) -> CcxtResult<Order> {
-        self.create_conditional_order(
+        self.create_take_profit_order_with_params(ConditionalOrderParams {
             symbol,
             side,
             amount,
             trigger_price,
             limit_price,
             good_til_time,
-            ConditionType::TakeProfit,
             reduce_only,
-        ).await
+        })
+        .await
     }
 
-    /// 조건부 주문 생성 (내부 구현)
-    async fn create_conditional_order(
+    /// 조건부 주문 생성 (Builder 패턴 내부 구현)
+    async fn create_conditional_order_with_params(
         &self,
-        symbol: &str,
-        side: OrderSide,
-        amount: Decimal,
-        trigger_price: Decimal,
-        limit_price: Option<Decimal>,
-        good_til_time: u32,
+        params: ConditionalOrderParams<'_>,
         condition_type: ConditionType,
-        reduce_only: bool,
     ) -> CcxtResult<Order> {
         // 지갑 및 관련 컴포넌트 필수
         let wallet = self.require_wallet()?;
-        let node_client = self.node_client.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Node client not initialized".into(),
-        })?;
-        let tx_builder = self.tx_builder.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Transaction builder not initialized".into(),
-        })?;
+        let node_client =
+            self.node_client
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Node client not initialized".into(),
+                })?;
+        let tx_builder =
+            self.tx_builder
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Transaction builder not initialized".into(),
+                })?;
 
         // 마켓 정보 가져오기
-        let market_info = self.get_or_fetch_market_info(symbol).await?;
+        let market_info = self.get_or_fetch_market_info(params.symbol).await?;
 
         // 계정 정보 조회
         let account = node_client.get_account(wallet.address()).await?;
-        let account_number: u64 = account.account_number.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse account number".into(),
-        })?;
-        let sequence: u64 = account.sequence.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse sequence".into(),
-        })?;
+        let account_number: u64 =
+            account
+                .account_number
+                .parse()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to parse account number".into(),
+                })?;
+        let sequence: u64 = account
+            .sequence
+            .parse()
+            .map_err(|_| CcxtError::ExchangeError {
+                message: "Failed to parse sequence".into(),
+            })?;
 
         // 클라이언트 ID 생성
         let client_id = generate_client_id();
 
         // 주문 방향 변환
-        let dydx_side: DydxOrderSide = side.into();
+        let dydx_side: DydxOrderSide = params.side.into();
 
         // 가격 처리 (limit_price가 없으면 시장가 스타일)
-        let order_price = limit_price.unwrap_or_else(|| {
-            match side {
-                OrderSide::Buy => Decimal::from(1_000_000_000u64),
-                OrderSide::Sell => Decimal::from(1u64),
-            }
+        let order_price = params.limit_price.unwrap_or_else(|| match params.side {
+            OrderSide::Buy => Decimal::from(1_000_000_000u64),
+            OrderSide::Sell => Decimal::from(1u64),
         });
 
         // TimeInForce
-        let time_in_force = if limit_price.is_some() {
+        let time_in_force = if params.limit_price.is_some() {
             DydxTimeInForce::Unspecified // GTC for limit
         } else {
             DydxTimeInForce::Ioc // IOC for market-like
         };
 
         // Quantums 및 Subticks 변환
-        let quantums = market_info.size_to_quantums(amount);
+        let quantums = market_info.size_to_quantums(params.amount);
         let subticks = market_info.price_to_subticks(order_price);
-        let trigger_subticks = market_info.price_to_subticks(trigger_price);
+        let trigger_subticks = market_info.price_to_subticks(params.trigger_price);
 
         // dYdX Conditional 주문 생성
         let dydx_order = DydxOrder {
@@ -1527,9 +1744,9 @@ impl DydxV4 {
             side: dydx_side,
             quantums,
             subticks,
-            good_til_oneof: GoodTilOneof::GoodTilBlockTime(good_til_time),
+            good_til_oneof: GoodTilOneof::GoodTilBlockTime(params.good_til_time),
             time_in_force,
-            reduce_only,
+            reduce_only: params.reduce_only,
             client_metadata: 0,
             condition_type,
             conditional_order_trigger_subticks: trigger_subticks,
@@ -1550,11 +1767,19 @@ impl DydxV4 {
         // 주문 유형 결정
         let order_type = match condition_type {
             ConditionType::StopLoss => {
-                if limit_price.is_some() { OrderType::StopLimit } else { OrderType::StopMarket }
-            }
+                if params.limit_price.is_some() {
+                    OrderType::StopLimit
+                } else {
+                    OrderType::StopMarket
+                }
+            },
             ConditionType::TakeProfit => {
-                if limit_price.is_some() { OrderType::TakeProfitLimit } else { OrderType::TakeProfitMarket }
-            }
+                if params.limit_price.is_some() {
+                    OrderType::TakeProfitLimit
+                } else {
+                    OrderType::TakeProfitMarket
+                }
+            },
             _ => OrderType::Limit,
         };
 
@@ -1567,32 +1792,44 @@ impl DydxV4 {
             datetime: Some(Utc::now().to_rfc3339()),
             last_trade_timestamp: None,
             last_update_timestamp: None,
-            symbol: symbol.to_string(),
+            symbol: params.symbol.to_string(),
             order_type,
-            time_in_force: Some(if limit_price.is_some() { TimeInForce::GTC } else { TimeInForce::IOC }),
+            time_in_force: Some(if params.limit_price.is_some() {
+                TimeInForce::GTC
+            } else {
+                TimeInForce::IOC
+            }),
             post_only: Some(false),
-            reduce_only: Some(reduce_only),
-            side,
-            price: limit_price,
-            trigger_price: Some(trigger_price),
-            amount,
-            cost: limit_price.map(|p| p * amount),
+            reduce_only: Some(params.reduce_only),
+            side: params.side,
+            price: params.limit_price,
+            trigger_price: Some(params.trigger_price),
+            amount: params.amount,
+            cost: params.limit_price.map(|p| p * params.amount),
             average: None,
             filled: Decimal::ZERO,
-            remaining: Some(amount),
+            remaining: Some(params.amount),
             status: OrderStatus::Open,
             fee: None,
             fees: Vec::new(),
             trades: Vec::new(),
-            stop_price: Some(trigger_price),
-            take_profit_price: if condition_type == ConditionType::TakeProfit { Some(trigger_price) } else { None },
-            stop_loss_price: if condition_type == ConditionType::StopLoss { Some(trigger_price) } else { None },
+            stop_price: Some(params.trigger_price),
+            take_profit_price: if condition_type == ConditionType::TakeProfit {
+                Some(params.trigger_price)
+            } else {
+                None
+            },
+            stop_loss_price: if condition_type == ConditionType::StopLoss {
+                Some(params.trigger_price)
+            } else {
+                None
+            },
             info: serde_json::json!({
                 "tx_hash": result.hash,
                 "client_id": client_id,
                 "order_flags": order_flags::CONDITIONAL,
                 "condition_type": format!("{:?}", condition_type),
-                "good_til_block_time": good_til_time,
+                "good_til_block_time": params.good_til_time,
                 "trigger_subticks": trigger_subticks,
                 "quantums": quantums,
                 "subticks": subticks,
@@ -1619,12 +1856,18 @@ impl DydxV4 {
     ) -> CcxtResult<Order> {
         // 지갑 및 관련 컴포넌트 필수
         let wallet = self.require_wallet()?;
-        let node_client = self.node_client.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Node client not initialized".into(),
-        })?;
-        let tx_builder = self.tx_builder.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Transaction builder not initialized".into(),
-        })?;
+        let node_client =
+            self.node_client
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Node client not initialized".into(),
+                })?;
+        let tx_builder =
+            self.tx_builder
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Transaction builder not initialized".into(),
+                })?;
 
         // 기존 주문 정보 조회
         let existing_order = self.fetch_order(id, symbol).await?;
@@ -1634,12 +1877,19 @@ impl DydxV4 {
 
         // 계정 정보 조회
         let account = node_client.get_account(wallet.address()).await?;
-        let account_number: u64 = account.account_number.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse account number".into(),
-        })?;
-        let sequence: u64 = account.sequence.parse().map_err(|_| CcxtError::ExchangeError {
-            message: "Failed to parse sequence".into(),
-        })?;
+        let account_number: u64 =
+            account
+                .account_number
+                .parse()
+                .map_err(|_| CcxtError::ExchangeError {
+                    message: "Failed to parse account number".into(),
+                })?;
+        let sequence: u64 = account
+            .sequence
+            .parse()
+            .map_err(|_| CcxtError::ExchangeError {
+                message: "Failed to parse sequence".into(),
+            })?;
 
         // OrderId 생성 (Conditional 플래그 사용)
         let order_id = OrderId::new(
@@ -1976,9 +2226,18 @@ mod tests {
     fn test_timeframes() {
         let config = ExchangeConfig::new();
         let exchange = DydxV4::new(config).unwrap();
-        assert_eq!(exchange.timeframes().get(&Timeframe::Minute1), Some(&"1MIN".to_string()));
-        assert_eq!(exchange.timeframes().get(&Timeframe::Hour1), Some(&"1HOUR".to_string()));
-        assert_eq!(exchange.timeframes().get(&Timeframe::Day1), Some(&"1DAY".to_string()));
+        assert_eq!(
+            exchange.timeframes().get(&Timeframe::Minute1),
+            Some(&"1MIN".to_string())
+        );
+        assert_eq!(
+            exchange.timeframes().get(&Timeframe::Hour1),
+            Some(&"1HOUR".to_string())
+        );
+        assert_eq!(
+            exchange.timeframes().get(&Timeframe::Day1),
+            Some(&"1DAY".to_string())
+        );
     }
 
     #[test]
@@ -1988,7 +2247,8 @@ mod tests {
             config,
             "dydx1abc123...",
             true, // testnet
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(exchange.testnet);
         assert_eq!(exchange.address, Some("dydx1abc123...".to_string()));

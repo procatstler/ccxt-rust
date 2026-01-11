@@ -24,9 +24,9 @@ use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
-    WsOrderEvent, WsTickerEvent, WsTradeEvent, WsOrderBookEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent, WsOrderEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://api.probit.com/api/exchange/v1/ws";
@@ -113,12 +113,18 @@ impl ProbitWs {
 
     /// Get access token using Basic Auth (ProBit uses OAuth2-style authentication)
     async fn get_access_token(&self) -> CcxtResult<String> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required".into(),
+                })?;
 
         // Check if we already have a valid token
         if let Some(token) = self.access_token.read().await.as_ref() {
@@ -182,7 +188,11 @@ impl ProbitWs {
     }
 
     /// Subscribe to private streams
-    async fn subscribe_private_stream(&self, ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>, channel: &str) -> CcxtResult<()> {
+    async fn subscribe_private_stream(
+        &self,
+        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        channel: &str,
+    ) -> CcxtResult<()> {
         let subscribe_msg = json!({
             "type": "subscribe",
             "channel": channel
@@ -207,20 +217,22 @@ impl ProbitWs {
                 // Order update
                 if let Some(order_data_arr) = data["data"].as_array() {
                     for order_data in order_data_arr {
-                        if let Ok(order_update) = serde_json::from_value::<ProbitOrderUpdateData>(order_data.clone()) {
+                        if let Ok(order_update) =
+                            serde_json::from_value::<ProbitOrderUpdateData>(order_data.clone())
+                        {
                             return self.parse_order(&order_update);
                         }
                     }
                 }
                 None
-            }
+            },
             "balance" => {
                 // Balance update
                 if let Some(balance_data_arr) = data["data"].as_array() {
                     return self.parse_balance(balance_data_arr, data);
                 }
                 None
-            }
+            },
             _ => None,
         }
     }
@@ -249,16 +261,27 @@ impl ProbitWs {
             _ => OrderType::Limit,
         };
 
-        let price = data.limit_price.as_ref().and_then(|p| Decimal::from_str(p).ok());
-        let amount = data.quantity.as_ref().and_then(|q| Decimal::from_str(q).ok());
-        let filled = data.filled_quantity.as_ref().and_then(|f| Decimal::from_str(f).ok());
+        let price = data
+            .limit_price
+            .as_ref()
+            .and_then(|p| Decimal::from_str(p).ok());
+        let amount = data
+            .quantity
+            .as_ref()
+            .and_then(|q| Decimal::from_str(q).ok());
+        let filled = data
+            .filled_quantity
+            .as_ref()
+            .and_then(|f| Decimal::from_str(f).ok());
         let remaining = match (amount, filled) {
             (Some(a), Some(f)) => Some(a - f),
             _ => None,
         };
 
         let timestamp = data.time.as_ref().and_then(|t| {
-            chrono::DateTime::parse_from_rfc3339(t).ok().map(|dt| dt.timestamp_millis())
+            chrono::DateTime::parse_from_rfc3339(t)
+                .ok()
+                .map(|dt| dt.timestamp_millis())
         });
 
         let order = Order {
@@ -282,7 +305,10 @@ impl ProbitWs {
             trigger_price: None,
             take_profit_price: None,
             stop_loss_price: None,
-            cost: data.filled_cost.as_ref().and_then(|c| Decimal::from_str(c).ok()),
+            cost: data
+                .filled_cost
+                .as_ref()
+                .and_then(|c| Decimal::from_str(c).ok()),
             reduce_only: None,
             post_only: None,
             trades: vec![],
@@ -299,22 +325,30 @@ impl ProbitWs {
         let mut currencies: HashMap<String, Balance> = HashMap::new();
 
         for bal in balances_arr {
-            if let Ok(balance_data) = serde_json::from_value::<ProbitBalanceUpdateData>(bal.clone()) {
+            if let Ok(balance_data) = serde_json::from_value::<ProbitBalanceUpdateData>(bal.clone())
+            {
                 if let Some(currency) = &balance_data.currency_id {
-                    let total = balance_data.total.as_ref()
+                    let total = balance_data
+                        .total
+                        .as_ref()
                         .and_then(|t| Decimal::from_str(t).ok())
                         .unwrap_or_default();
-                    let available = balance_data.available.as_ref()
+                    let available = balance_data
+                        .available
+                        .as_ref()
                         .and_then(|a| Decimal::from_str(a).ok())
                         .unwrap_or_default();
                     let used = total - available;
 
-                    currencies.insert(currency.to_uppercase(), Balance {
-                        free: Some(available),
-                        used: Some(used),
-                        total: Some(total),
-                        debt: None,
-                    });
+                    currencies.insert(
+                        currency.to_uppercase(),
+                        Balance {
+                            free: Some(available),
+                            used: Some(used),
+                            total: Some(total),
+                            debt: None,
+                        },
+                    );
                 }
             }
         }
@@ -374,17 +408,22 @@ impl ProbitWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -437,11 +476,26 @@ impl ProbitWs {
 
             let ticker = Ticker {
                 symbol: symbol.clone(),
-                high: ticker_data.get("high").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                low: ticker_data.get("low").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                last: ticker_data.get("last").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                base_volume: ticker_data.get("base_volume").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                quote_volume: ticker_data.get("quote_volume").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
+                high: ticker_data
+                    .get("high")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                low: ticker_data
+                    .get("low")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                last: ticker_data
+                    .get("last")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                base_volume: ticker_data
+                    .get("base_volume")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                quote_volume: ticker_data
+                    .get("quote_volume")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
                 timestamp,
                 ..Default::default()
             };
@@ -479,16 +533,23 @@ impl ProbitWs {
                         .ok()
                 });
 
-                let price = trade_data.get("price").and_then(|v| v.as_str())
+                let price = trade_data
+                    .get("price")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
-                let amount = trade_data.get("quantity").and_then(|v| v.as_str())
+                let amount = trade_data
+                    .get("quantity")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or_default();
 
                 let trade = Trade::new(
-                    trade_data.get("id").and_then(|v| v.as_str())
-                        .map(String::from).unwrap_or_default(),
+                    trade_data
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                        .unwrap_or_default(),
                     symbol.clone(),
                     price,
                     amount,
@@ -526,7 +587,8 @@ impl ProbitWs {
         let key = format!("orderbook:{symbol}");
 
         // Get orderbook data from any of the possible keys
-        let order_book_data = data.get("order_books")
+        let order_book_data = data
+            .get("order_books")
             .or_else(|| data.get("order_books_l2"))
             .or_else(|| data.get("order_books_l1"))
             .or_else(|| data.get("order_books_l3"))
@@ -540,12 +602,21 @@ impl ProbitWs {
 
             for entry in entries {
                 let side = entry.get("side").and_then(|v| v.as_str()).unwrap_or("");
-                let price: Decimal = entry.get("price").and_then(|v| v.as_str())
-                    .and_then(|s| s.parse().ok()).unwrap_or_default();
-                let quantity: Decimal = entry.get("quantity").and_then(|v| v.as_str())
-                    .and_then(|s| s.parse().ok()).unwrap_or_default();
+                let price: Decimal = entry
+                    .get("price")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
+                let quantity: Decimal = entry
+                    .get("quantity")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
 
-                let ob_entry = OrderBookEntry { price, amount: quantity };
+                let ob_entry = OrderBookEntry {
+                    price,
+                    amount: quantity,
+                };
 
                 if side == "buy" {
                     bids.push(ob_entry);
@@ -563,6 +634,7 @@ impl ProbitWs {
                     symbol: symbol.clone(),
                     bids,
                     asks,
+                    checksum: None,
                     timestamp: None,
                     datetime: None,
                     nonce: None,
@@ -580,6 +652,7 @@ impl ProbitWs {
                         symbol: symbol.clone(),
                         bids,
                         asks,
+                        checksum: None,
                         timestamp: None,
                         datetime: None,
                         nonce: None,
@@ -605,7 +678,11 @@ impl ProbitWs {
     }
 
     /// Apply delta updates to orderbook side
-    fn apply_deltas(book_side: &mut Vec<OrderBookEntry>, updates: &Vec<OrderBookEntry>, is_bid: bool) {
+    fn apply_deltas(
+        book_side: &mut Vec<OrderBookEntry>,
+        updates: &Vec<OrderBookEntry>,
+        is_bid: bool,
+    ) {
         for update in updates {
             // Find existing entry at this price
             let pos = book_side.iter().position(|e| e.price == update.price);
@@ -694,7 +771,10 @@ impl WsExchange for ProbitWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -810,25 +890,30 @@ impl WsExchange for ProbitWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
             });
         }
 
-        let (mut ws_stream, _) = connect_async(WS_URL)
-            .await
-            .map_err(|e| CcxtError::NetworkError {
-                url: WS_URL.to_string(),
-                message: format!("Failed to connect: {e}"),
-            })?;
+        let (mut ws_stream, _) =
+            connect_async(WS_URL)
+                .await
+                .map_err(|e| CcxtError::NetworkError {
+                    url: WS_URL.to_string(),
+                    message: format!("Failed to connect: {e}"),
+                })?;
 
         // Authenticate
         self.ws_auth(&mut ws_stream).await?;
 
         // Subscribe to open orders
-        self.subscribe_private_stream(&mut ws_stream, "open_order").await?;
+        self.subscribe_private_stream(&mut ws_stream, "open_order")
+            .await?;
 
         let (tx, rx) = mpsc::unbounded_channel();
         let subscriptions = self.subscriptions.clone();
@@ -861,29 +946,37 @@ impl WsExchange for ProbitWs {
         Ok(rx)
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
             });
         }
 
-        let (mut ws_stream, _) = connect_async(WS_URL)
-            .await
-            .map_err(|e| CcxtError::NetworkError {
-                url: WS_URL.to_string(),
-                message: format!("Failed to connect: {e}"),
-            })?;
+        let (mut ws_stream, _) =
+            connect_async(WS_URL)
+                .await
+                .map_err(|e| CcxtError::NetworkError {
+                    url: WS_URL.to_string(),
+                    message: format!("Failed to connect: {e}"),
+                })?;
 
         // Authenticate
         self.ws_auth(&mut ws_stream).await?;
 
         // Subscribe to order history for trade information
-        self.subscribe_private_stream(&mut ws_stream, "order_history").await?;
+        self.subscribe_private_stream(&mut ws_stream, "order_history")
+            .await?;
 
         let (tx, rx) = mpsc::unbounded_channel();
         let subscriptions = self.subscriptions.clone();
-        subscriptions.write().await.insert("my_trades".to_string(), tx);
+        subscriptions
+            .write()
+            .await
+            .insert("my_trades".to_string(), tx);
 
         let subs = subscriptions.clone();
         let self_clone = ProbitWs {
@@ -919,22 +1012,27 @@ impl WsExchange for ProbitWs {
             });
         }
 
-        let (mut ws_stream, _) = connect_async(WS_URL)
-            .await
-            .map_err(|e| CcxtError::NetworkError {
-                url: WS_URL.to_string(),
-                message: format!("Failed to connect: {e}"),
-            })?;
+        let (mut ws_stream, _) =
+            connect_async(WS_URL)
+                .await
+                .map_err(|e| CcxtError::NetworkError {
+                    url: WS_URL.to_string(),
+                    message: format!("Failed to connect: {e}"),
+                })?;
 
         // Authenticate
         self.ws_auth(&mut ws_stream).await?;
 
         // Subscribe to balance updates
-        self.subscribe_private_stream(&mut ws_stream, "balance").await?;
+        self.subscribe_private_stream(&mut ws_stream, "balance")
+            .await?;
 
         let (tx, rx) = mpsc::unbounded_channel();
         let subscriptions = self.subscriptions.clone();
-        subscriptions.write().await.insert("balance".to_string(), tx);
+        subscriptions
+            .write()
+            .await
+            .insert("balance".to_string(), tx);
 
         let subs = subscriptions.clone();
         let self_clone = ProbitWs {
@@ -1038,10 +1136,16 @@ mod tests {
             assert_eq!(event.order.symbol, "BTC/USDT");
             assert_eq!(event.order.side, OrderSide::Buy);
             assert_eq!(event.order.order_type, OrderType::Limit);
-            assert_eq!(event.order.price, Some(Decimal::from_str("50000.00").unwrap()));
+            assert_eq!(
+                event.order.price,
+                Some(Decimal::from_str("50000.00").unwrap())
+            );
             assert_eq!(event.order.amount, Decimal::from_str("1.5").unwrap());
             assert_eq!(event.order.filled, Decimal::from_str("0.5").unwrap());
-            assert_eq!(event.order.remaining, Some(Decimal::from_str("1.0").unwrap()));
+            assert_eq!(
+                event.order.remaining,
+                Some(Decimal::from_str("1.0").unwrap())
+            );
             assert_eq!(event.order.status, OrderStatus::Open);
         } else {
             panic!("Expected Order event");
@@ -1062,7 +1166,7 @@ mod tests {
                 "currency_id": "USDT",
                 "total": "1000.0",
                 "available": "800.0"
-            })
+            }),
         ];
         let parsed = serde_json::json!({});
 
@@ -1081,7 +1185,10 @@ mod tests {
             let usdt_balance = event.balances.currencies.get("USDT").unwrap();
             assert_eq!(usdt_balance.free, Some(Decimal::from_str("800.0").unwrap()));
             assert_eq!(usdt_balance.used, Some(Decimal::from_str("200.0").unwrap()));
-            assert_eq!(usdt_balance.total, Some(Decimal::from_str("1000.0").unwrap()));
+            assert_eq!(
+                usdt_balance.total,
+                Some(Decimal::from_str("1000.0").unwrap())
+            );
         } else {
             panic!("Expected Balance event");
         }

@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, Ticker, Trade, Transaction, TransactionStatus, TransactionType,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, Ticker, Trade, Transaction, TransactionStatus, TransactionType,
 };
 
 /// Blockchain.com 거래소
@@ -83,7 +83,10 @@ impl BlockchainCom {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/975e3054-3399-4363-bcee-ec3c6d63d4e8".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/975e3054-3399-4363-bcee-ec3c6d63d4e8"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://blockchain.com".into()),
             doc: vec!["https://api.blockchain.com/v3".into()],
@@ -133,9 +136,12 @@ impl BlockchainCom {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "X-API-Token required".into(),
-        })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "X-API-Token required".into(),
+            })?;
 
         let mut headers = HashMap::new();
         headers.insert("X-API-Token".into(), secret.to_string());
@@ -159,7 +165,7 @@ impl BlockchainCom {
                     path.to_string()
                 };
                 self.private_client.get(&url, None, Some(headers)).await
-            }
+            },
             "POST" => {
                 headers.insert("Content-Type".into(), "application/json".into());
                 let body = if !params.is_empty() {
@@ -168,7 +174,7 @@ impl BlockchainCom {
                     None
                 };
                 self.private_client.post(path, body, Some(headers)).await
-            }
+            },
             "DELETE" => {
                 let url = if !params.is_empty() {
                     let query: String = params
@@ -187,7 +193,7 @@ impl BlockchainCom {
                     path.to_string()
                 };
                 self.private_client.delete(&url, None, Some(headers)).await
-            }
+            },
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
             }),
@@ -282,8 +288,16 @@ impl BlockchainCom {
         };
 
         let average: Option<Decimal> = data.avg_px.as_ref().and_then(|a| a.parse().ok());
-        let filled: Decimal = data.cum_qty.as_ref().and_then(|f| f.parse().ok()).unwrap_or_default();
-        let remaining: Decimal = data.leaves_qty.as_ref().and_then(|r| r.parse().ok()).unwrap_or_default();
+        let filled: Decimal = data
+            .cum_qty
+            .as_ref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
+        let remaining: Decimal = data
+            .leaves_qty
+            .as_ref()
+            .and_then(|r| r.parse().ok())
+            .unwrap_or_default();
         let amount = filled + remaining;
 
         let cost = average.and_then(|avg| {
@@ -397,13 +411,14 @@ impl BlockchainCom {
         let amount: Decimal = data.amount.parse().unwrap_or_default();
 
         let fee = if tx_type == TransactionType::Withdrawal {
-            data.fee.as_ref().and_then(|f| f.parse::<Decimal>().ok()).map(|cost| {
-                crate::types::Fee {
+            data.fee
+                .as_ref()
+                .and_then(|f| f.parse::<Decimal>().ok())
+                .map(|cost| crate::types::Fee {
                     cost: Some(cost),
                     currency: Some(data.currency.clone()),
                     rate: None,
-                }
-            })
+                })
         } else {
             None
         };
@@ -489,7 +504,8 @@ impl Exchange for BlockchainCom {
 
     fn timeframes(&self) -> &HashMap<crate::types::Timeframe, String> {
         // OHLCV not supported, return empty static map
-        static EMPTY: std::sync::OnceLock<HashMap<crate::types::Timeframe, String>> = std::sync::OnceLock::new();
+        static EMPTY: std::sync::OnceLock<HashMap<crate::types::Timeframe, String>> =
+            std::sync::OnceLock::new();
         EMPTY.get_or_init(HashMap::new)
     }
 
@@ -563,7 +579,10 @@ impl Exchange for BlockchainCom {
             let active = info.status == "open";
 
             // Calculate precisions (not used in current implementation, but available for future use)
-            let min_price_increment: Decimal = info.min_price_increment.parse().unwrap_or(Decimal::new(1, 8));
+            let min_price_increment: Decimal = info
+                .min_price_increment
+                .parse()
+                .unwrap_or(Decimal::new(1, 8));
             let min_price_scale = self.parse_precision(&info.min_price_increment_scale.to_string());
             let _price_precision = min_price_increment * min_price_scale;
 
@@ -703,14 +722,16 @@ impl Exchange for BlockchainCom {
 
         let mut bids = Vec::new();
         for bid in response.bids {
-            if let (Ok(price), Ok(amount)) = (bid.px.parse::<Decimal>(), bid.qty.parse::<Decimal>()) {
+            if let (Ok(price), Ok(amount)) = (bid.px.parse::<Decimal>(), bid.qty.parse::<Decimal>())
+            {
                 bids.push(OrderBookEntry { price, amount });
             }
         }
 
         let mut asks = Vec::new();
         for ask in response.asks {
-            if let (Ok(price), Ok(amount)) = (ask.px.parse::<Decimal>(), ask.qty.parse::<Decimal>()) {
+            if let (Ok(price), Ok(amount)) = (ask.px.parse::<Decimal>(), ask.qty.parse::<Decimal>())
+            {
                 asks.push(OrderBookEntry { price, amount });
             }
         }
@@ -719,13 +740,19 @@ impl Exchange for BlockchainCom {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp: None,
             datetime: None,
             nonce: None,
         })
     }
 
-    async fn fetch_trades(&self, _symbol: &str, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        _symbol: &str,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         Err(CcxtError::NotSupported {
             feature: "fetch_trades not supported by Blockchain.com".into(),
         })
@@ -739,7 +766,9 @@ impl Exchange for BlockchainCom {
             primary: Vec<BlockchainComBalance>,
         }
 
-        let response: BalanceResponse = self.private_request("GET", "/accounts", HashMap::new()).await?;
+        let response: BalanceResponse = self
+            .private_request("GET", "/accounts", HashMap::new())
+            .await?;
 
         Ok(self.parse_balance(&response.primary))
     }
@@ -777,13 +806,19 @@ impl Exchange for BlockchainCom {
             OrderSide::Sell => "SELL",
         };
 
-        let client_order_id = format!("{}", Utc::now().timestamp_nanos_opt().unwrap_or(0) % 1_000_000_000_000_000);
+        let client_order_id = format!(
+            "{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0) % 1_000_000_000_000_000
+        );
 
         let mut params = HashMap::new();
         params.insert("ordType".into(), serde_json::Value::String(ord_type.into()));
         params.insert("symbol".into(), serde_json::Value::String(market_id));
         params.insert("side".into(), serde_json::Value::String(side_str.into()));
-        params.insert("orderQty".into(), serde_json::Value::String(amount.to_string()));
+        params.insert(
+            "orderQty".into(),
+            serde_json::Value::String(amount.to_string()),
+        );
         params.insert("clOrdId".into(), serde_json::Value::String(client_order_id));
 
         if ord_type == "LIMIT" || ord_type == "STOPLIMIT" {
@@ -803,7 +838,9 @@ impl Exchange for BlockchainCom {
 
     async fn cancel_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let path = format!("/orders/{id}");
-        let response: serde_json::Value = self.private_request("DELETE", &path, HashMap::new()).await?;
+        let response: serde_json::Value = self
+            .private_request("DELETE", &path, HashMap::new())
+            .await?;
 
         Ok(Order {
             id: id.to_string(),
@@ -817,18 +854,30 @@ impl Exchange for BlockchainCom {
         self.load_markets(false).await?;
 
         let path = format!("/orders/{id}");
-        let response: BlockchainComOrder = self.private_request("GET", &path, HashMap::new()).await?;
+        let response: BlockchainComOrder =
+            self.private_request("GET", &path, HashMap::new()).await?;
 
         Ok(self.parse_order(&response, None))
     }
 
-    async fn fetch_orders(&self, _symbol: Option<&str>, _since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_orders(
+        &self,
+        _symbol: Option<&str>,
+        _since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         Err(CcxtError::NotSupported {
-            feature: "fetch_orders not supported, use fetch_open_orders or fetch_closed_orders".into(),
+            feature: "fetch_orders not supported, use fetch_open_orders or fetch_closed_orders"
+                .into(),
         })
     }
 
-    async fn fetch_open_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_open_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         self.load_markets(false).await?;
 
         let mut params = HashMap::new();
@@ -852,12 +901,18 @@ impl Exchange for BlockchainCom {
             params.insert("symbol".into(), serde_json::Value::String(market_id));
         }
 
-        let response: Vec<BlockchainComOrder> = self.private_request("GET", "/orders", params).await?;
+        let response: Vec<BlockchainComOrder> =
+            self.private_request("GET", "/orders", params).await?;
 
         Ok(response.iter().map(|o| self.parse_order(o, None)).collect())
     }
 
-    async fn fetch_closed_orders(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Order>> {
+    async fn fetch_closed_orders(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Order>> {
         self.load_markets(false).await?;
 
         let mut params = HashMap::new();
@@ -881,12 +936,18 @@ impl Exchange for BlockchainCom {
             params.insert("symbol".into(), serde_json::Value::String(market_id));
         }
 
-        let response: Vec<BlockchainComOrder> = self.private_request("GET", "/orders", params).await?;
+        let response: Vec<BlockchainComOrder> =
+            self.private_request("GET", "/orders", params).await?;
 
         Ok(response.iter().map(|o| self.parse_order(o, None)).collect())
     }
 
-    async fn fetch_my_trades(&self, symbol: Option<&str>, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_my_trades(
+        &self,
+        symbol: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         self.load_markets(false).await?;
 
         let mut params = HashMap::new();
@@ -907,7 +968,8 @@ impl Exchange for BlockchainCom {
             params.insert("symbol".into(), serde_json::Value::String(market_id));
         }
 
-        let response: Vec<BlockchainComTrade> = self.private_request("GET", "/fills", params).await?;
+        let response: Vec<BlockchainComTrade> =
+            self.private_request("GET", "/fills", params).await?;
 
         Ok(response.iter().map(|t| self.parse_trade(t, None)).collect())
     }
@@ -924,7 +986,12 @@ impl Exchange for BlockchainCom {
         })
     }
 
-    async fn fetch_deposits(&self, _code: Option<&str>, since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Transaction>> {
+    async fn fetch_deposits(
+        &self,
+        _code: Option<&str>,
+        since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Transaction>> {
         self.load_markets(false).await?;
 
         let mut params = HashMap::new();
@@ -932,12 +999,18 @@ impl Exchange for BlockchainCom {
             params.insert("from".into(), serde_json::Value::Number(s.into()));
         }
 
-        let response: Vec<BlockchainComTransaction> = self.private_request("GET", "/deposits", params).await?;
+        let response: Vec<BlockchainComTransaction> =
+            self.private_request("GET", "/deposits", params).await?;
 
         Ok(response.iter().map(|t| self.parse_transaction(t)).collect())
     }
 
-    async fn fetch_withdrawals(&self, _code: Option<&str>, since: Option<i64>, _limit: Option<u32>) -> CcxtResult<Vec<Transaction>> {
+    async fn fetch_withdrawals(
+        &self,
+        _code: Option<&str>,
+        since: Option<i64>,
+        _limit: Option<u32>,
+    ) -> CcxtResult<Vec<Transaction>> {
         self.load_markets(false).await?;
 
         let mut params = HashMap::new();
@@ -945,7 +1018,8 @@ impl Exchange for BlockchainCom {
             params.insert("from".into(), serde_json::Value::Number(s.into()));
         }
 
-        let response: Vec<BlockchainComTransaction> = self.private_request("GET", "/withdrawals", params).await?;
+        let response: Vec<BlockchainComTransaction> =
+            self.private_request("GET", "/withdrawals", params).await?;
 
         Ok(response.iter().map(|t| self.parse_transaction(t)).collect())
     }

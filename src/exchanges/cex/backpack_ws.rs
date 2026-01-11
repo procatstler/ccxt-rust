@@ -18,8 +18,8 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://ws.backpack.exchange";
@@ -76,14 +76,18 @@ impl BackpackWs {
     fn parse_ticker(&self, data: &Value) -> WsTickerEvent {
         let symbol_id = data["s"].as_str().unwrap_or("");
         let symbol = Self::to_unified_symbol(symbol_id);
-        let timestamp = data["E"].as_i64().unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data["E"]
+            .as_i64()
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             high: data["h"].as_str().and_then(|s| Decimal::from_str(s).ok()),
             low: data["l"].as_str().and_then(|s| Decimal::from_str(s).ok()),
             bid: data["b"].as_str().and_then(|s| Decimal::from_str(s).ok()),
@@ -111,14 +115,17 @@ impl BackpackWs {
     fn parse_trade(&self, data: &Value) -> WsTradeEvent {
         let symbol_id = data["s"].as_str().unwrap_or("");
         let symbol = Self::to_unified_symbol(symbol_id);
-        let timestamp = data["E"].as_i64()
+        let timestamp = data["E"]
+            .as_i64()
             .or_else(|| data["T"].as_i64())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let price = data["p"].as_str()
+        let price = data["p"]
+            .as_str()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
-        let amount = data["q"].as_str()
+        let amount = data["q"]
+            .as_str()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
         let side = if data["m"].as_bool().unwrap_or(false) {
@@ -127,7 +134,8 @@ impl BackpackWs {
             "buy".to_string()
         };
 
-        let id = data["t"].as_i64()
+        let id = data["t"]
+            .as_i64()
             .map(|i| i.to_string())
             .or_else(|| data["t"].as_str().map(|s| s.to_string()))
             .unwrap_or_default();
@@ -136,8 +144,7 @@ impl BackpackWs {
             id,
             order: None,
             timestamp: Some(timestamp),
-            datetime: chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp_millis(timestamp).map(|dt| dt.to_rfc3339()),
             symbol: symbol.clone(),
             trade_type: None,
             side: Some(side),
@@ -164,7 +171,8 @@ impl BackpackWs {
             symbol.to_string()
         };
 
-        let timestamp = data["E"].as_i64()
+        let timestamp = data["E"]
+            .as_i64()
             .or_else(|| data["u"].as_i64())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
@@ -175,10 +183,12 @@ impl BackpackWs {
             for bid in bid_arr {
                 if let Some(arr) = bid.as_array() {
                     if arr.len() >= 2 {
-                        let price = arr[0].as_str()
+                        let price = arr[0]
+                            .as_str()
                             .and_then(|s| Decimal::from_str(s).ok())
                             .unwrap_or_default();
-                        let amount = arr[1].as_str()
+                        let amount = arr[1]
+                            .as_str()
                             .and_then(|s| Decimal::from_str(s).ok())
                             .unwrap_or_default();
                         if amount > Decimal::ZERO {
@@ -193,10 +203,12 @@ impl BackpackWs {
             for ask in ask_arr {
                 if let Some(arr) = ask.as_array() {
                     if arr.len() >= 2 {
-                        let price = arr[0].as_str()
+                        let price = arr[0]
+                            .as_str()
                             .and_then(|s| Decimal::from_str(s).ok())
                             .unwrap_or_default();
-                        let amount = arr[1].as_str()
+                        let amount = arr[1]
+                            .as_str()
                             .and_then(|s| Decimal::from_str(s).ok())
                             .unwrap_or_default();
                         if amount > Decimal::ZERO {
@@ -214,12 +226,15 @@ impl BackpackWs {
         let order_book = OrderBook {
             symbol: unified_symbol.clone(),
             timestamp: Some(timestamp),
-            datetime: Some(chrono::DateTime::from_timestamp_millis(timestamp)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()),
+            datetime: Some(
+                chrono::DateTime::from_timestamp_millis(timestamp)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            ),
             nonce: data["u"].as_i64(),
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -229,11 +244,7 @@ impl BackpackWs {
         }
     }
 
-    async fn handle_message(
-        &self,
-        msg: &str,
-        symbol: &str,
-    ) -> Option<WsMessage> {
+    async fn handle_message(&self, msg: &str, symbol: &str) -> Option<WsMessage> {
         let parsed: Value = serde_json::from_str(msg).ok()?;
 
         // Handle subscription responses
@@ -248,14 +259,14 @@ impl BackpackWs {
             match event_type {
                 "ticker" | "24hrTicker" => {
                     return Some(WsMessage::Ticker(self.parse_ticker(data)));
-                }
+                },
                 "trade" => {
                     return Some(WsMessage::Trade(self.parse_trade(data)));
-                }
+                },
                 "depth" | "depthUpdate" => {
                     return Some(WsMessage::OrderBook(self.parse_orderbook(data, symbol)));
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -286,7 +297,7 @@ impl BackpackWs {
             .await
             .map_err(|e| CcxtError::NetworkError {
                 url: WS_URL.to_string(),
-                message: e.to_string()
+                message: e.to_string(),
             })?;
 
         let (mut write, mut read) = ws_stream.split();
@@ -316,7 +327,7 @@ impl BackpackWs {
             .await
             .map_err(|e| CcxtError::NetworkError {
                 url: WS_URL.to_string(),
-                message: e.to_string()
+                message: e.to_string(),
             })?;
 
         let symbol = symbols.first().cloned().unwrap_or_default();
@@ -341,13 +352,13 @@ impl BackpackWs {
                                 break;
                             }
                         }
-                    }
+                    },
                     Ok(Message::Ping(data)) => {
                         let _ = write.send(Message::Pong(data)).await;
-                    }
+                    },
                     Ok(Message::Close(_)) => break,
                     Err(_) => break,
-                    _ => {}
+                    _ => {},
                 }
             }
         });
@@ -381,7 +392,10 @@ impl WsExchange for BackpackWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
         let symbols: Vec<String> = symbols.iter().map(|s| s.to_string()).collect();
         self.subscribe(&symbols, "ticker", tx).await?;
@@ -410,7 +424,7 @@ impl WsExchange for BackpackWs {
         _timeframe: Timeframe,
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(CcxtError::NotSupported {
-            feature: "watch_ohlcv".to_string()
+            feature: "watch_ohlcv".to_string(),
         })
     }
 
@@ -443,7 +457,10 @@ mod tests {
     #[test]
     fn test_to_unified_symbol() {
         assert_eq!(BackpackWs::to_unified_symbol("BTC_USDC"), "BTC/USDC");
-        assert_eq!(BackpackWs::to_unified_symbol("ETH_USDC_PERP"), "ETH/USDC:USDC");
+        assert_eq!(
+            BackpackWs::to_unified_symbol("ETH_USDC_PERP"),
+            "ETH/USDC:USDC"
+        );
     }
 
     #[test]

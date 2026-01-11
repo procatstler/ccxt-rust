@@ -15,14 +15,14 @@ use std::str::FromStr;
 use std::sync::RwLock;
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
-use crate::crypto::evm::{EvmWallet, Eip712Domain, Eip712TypedData, TypedDataField, keccak256};
 use crate::crypto::common::Signer;
+use crate::crypto::evm::{keccak256, Eip712Domain, Eip712TypedData, EvmWallet, TypedDataField};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry,
-    OrderSide, OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, TimeInForce, OHLCV,
-    Position, PositionSide, MarginMode, FundingRate, FundingRateHistory, Trade,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, FundingRate,
+    FundingRateHistory, MarginMode, Market, MarketLimits, MarketPrecision, MarketType, MinMax,
+    Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide,
+    SignedRequest, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 const BASE_URL: &str = "https://api.hyperliquid.xyz";
@@ -312,12 +312,13 @@ impl Hyperliquid {
         api_urls.insert("private".into(), base_url.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/ccxt/ccxt/assets/43336371/b371bc6c-4a8c-489f-87f4-20a913dd8d4b".into()),
+            logo: Some(
+                "https://github.com/ccxt/ccxt/assets/43336371/b371bc6c-4a8c-489f-87f4-20a913dd8d4b"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://hyperliquid.xyz".into()),
-            doc: vec![
-                "https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api".into(),
-            ],
+            doc: vec!["https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api".into()],
             fees: Some("https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees".into()),
         };
 
@@ -515,9 +516,13 @@ impl Hyperliquid {
         nonce: u64,
         vault_address: Option<&str>,
     ) -> CcxtResult<Value> {
-        let wallet = self.wallet.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Wallet not set. Use from_private_key() or set_wallet() before signing.".to_string(),
-        })?;
+        let wallet = self
+            .wallet
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Wallet not set. Use from_private_key() or set_wallet() before signing."
+                    .to_string(),
+            })?;
 
         // Compute action hash
         let hash = self.action_hash(action, vault_address, nonce);
@@ -560,7 +565,12 @@ impl Hyperliquid {
     }
 
     /// Make a signed POST request to /exchange endpoint
-    async fn private_post_exchange(&self, action: Value, nonce: u64, vault_address: Option<&str>) -> CcxtResult<Value> {
+    async fn private_post_exchange(
+        &self,
+        action: Value,
+        nonce: u64,
+        vault_address: Option<&str>,
+    ) -> CcxtResult<Value> {
         self.rate_limiter.throttle(1.0).await;
 
         // Sign the action
@@ -591,15 +601,21 @@ impl Hyperliquid {
 
     /// Get wallet address from config (uses api_key as wallet address for Hyperliquid)
     fn get_wallet_address(&self) -> CcxtResult<String> {
-        self.config.api_key()
+        self.config
+            .api_key()
             .map(|s| s.to_string())
             .ok_or_else(|| CcxtError::AuthenticationError {
-                message: "walletAddress (api_key) is required for Hyperliquid".to_string()
+                message: "walletAddress (api_key) is required for Hyperliquid".to_string(),
             })
     }
 
     /// Parse a swap market from the meta response
-    fn parse_swap_market(&self, index: i64, asset: &HyperliquidAsset, _ctx: Option<&HyperliquidAssetCtx>) -> Market {
+    fn parse_swap_market(
+        &self,
+        index: i64,
+        asset: &HyperliquidAsset,
+        _ctx: Option<&HyperliquidAssetCtx>,
+    ) -> Market {
         let base = asset.name.clone();
         let quote = "USDC".to_string();
         let settle = "USDC".to_string();
@@ -613,8 +629,9 @@ impl Hyperliquid {
         let price_precision = 5; // 5 significant digits for price
 
         // Min amount as Decimal for limits
-        let min_amount = Decimal::from_str(&format!("0.{:0>width$}1", "", width = sz_decimals as usize))
-            .unwrap_or_else(|_| Decimal::new(1, 2));
+        let min_amount =
+            Decimal::from_str(&format!("0.{:0>width$}1", "", width = sz_decimals as usize))
+                .unwrap_or_else(|_| Decimal::new(1, 2));
 
         Market {
             id: base.clone(),
@@ -705,8 +722,9 @@ impl Hyperliquid {
         let symbol = format!("{base}/{quote}");
 
         let sz_decimals = base_token.sz_decimals;
-        let min_amount = Decimal::from_str(&format!("0.{:0>width$}1", "", width = sz_decimals as usize))
-            .unwrap_or_else(|_| Decimal::new(1, 2));
+        let min_amount =
+            Decimal::from_str(&format!("0.{:0>width$}1", "", width = sz_decimals as usize))
+                .unwrap_or_else(|_| Decimal::new(1, 2));
 
         // Spot market ID starts at 10000
         let market_id = 10000 + market.index;
@@ -776,23 +794,38 @@ impl Hyperliquid {
     }
 
     /// Calculate price precision based on significant digits rule
-    fn calculate_price_precision(&self, price_str: &str, amount_decimals: i32, max_decimals: i32) -> Decimal {
+    fn calculate_price_precision(
+        &self,
+        price_str: &str,
+        amount_decimals: i32,
+        max_decimals: i32,
+    ) -> Decimal {
         let price: f64 = price_str.parse().unwrap_or(0.0);
 
         if price == 0.0 {
             let sig_digits = 5;
             let precision = (max_decimals - amount_decimals).min(sig_digits);
             let precision_str = format!("0.{:0>width$}1", "", width = precision.max(0) as usize);
-            return Decimal::from_str(&precision_str).unwrap_or_else(|_| Decimal::new(1, 5)); // 0.00001
+            return Decimal::from_str(&precision_str).unwrap_or_else(|_| Decimal::new(1, 5));
+            // 0.00001
         }
 
         let integer_part = price.abs() as i64;
-        let integer_digits = if integer_part == 0 { 0 } else { integer_part.to_string().len() as i32 };
+        let integer_digits = if integer_part == 0 {
+            0
+        } else {
+            integer_part.to_string().len() as i32
+        };
         let sig_digits = 5.max(integer_digits);
         let price_precision = (max_decimals - amount_decimals).min(sig_digits - integer_digits);
 
-        let precision_str = format!("0.{:0>width$}1", "", width = price_precision.max(0) as usize);
-        Decimal::from_str(&precision_str).unwrap_or_else(|_| Decimal::new(1, 5)) // 0.00001
+        let precision_str = format!(
+            "0.{:0>width$}1",
+            "",
+            width = price_precision.max(0) as usize
+        );
+        Decimal::from_str(&precision_str).unwrap_or_else(|_| Decimal::new(1, 5))
+        // 0.00001
     }
 
     /// Convert coin name to market ID format
@@ -870,10 +903,14 @@ impl Hyperliquid {
         } else if let Some(filled) = order_data.get("filled") {
             // Immediately filled order response
             let oid = filled.get("oid")?.as_i64()?;
-            let total_sz = filled.get("totalSz").and_then(|v| v.as_str())
+            let total_sz = filled
+                .get("totalSz")
+                .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_default();
-            let avg_px = filled.get("avgPx").and_then(|v| v.as_str())
+            let avg_px = filled
+                .get("avgPx")
+                .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok());
 
             return Some(Order {
@@ -918,15 +955,22 @@ impl Hyperliquid {
         let sz = order.get("sz").and_then(|v| v.as_str());
         let orig_sz = order.get("origSz").and_then(|v| v.as_str());
         let oid = order.get("oid").and_then(|v| {
-            v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
         })?;
         let timestamp = order.get("timestamp").and_then(|v| {
-            v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
         });
-        let cloid = order.get("cloid").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let cloid = order
+            .get("cloid")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         let tif_str = order.get("tif").and_then(|v| v.as_str());
 
-        let status_str = order_data.get("status").and_then(|v| v.as_str())
+        let status_str = order_data
+            .get("status")
+            .and_then(|v| v.as_str())
             .or_else(|| order_data.get("ccxtStatus").and_then(|v| v.as_str()))
             .unwrap_or("open");
 
@@ -934,11 +978,15 @@ impl Hyperliquid {
         let side = self.parse_order_side(side_str);
         let status = self.parse_order_status(status_str);
 
-        let amount = orig_sz.or(sz).and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default();
+        let amount = orig_sz
+            .or(sz)
+            .and_then(|s| Decimal::from_str(s).ok())
+            .unwrap_or_default();
         let filled_amount = if status == OrderStatus::Closed {
             amount
         } else {
-            sz.and_then(|s| Decimal::from_str(s).ok()).unwrap_or_default()
+            sz.and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default()
         };
         let remaining = if amount > filled_amount {
             Some(amount - filled_amount)
@@ -968,7 +1016,10 @@ impl Hyperliquid {
             filled: filled_amount,
             remaining,
             stop_price: None,
-            trigger_price: order.get("triggerPx").and_then(|v| v.as_str()).and_then(|s| Decimal::from_str(s).ok()),
+            trigger_price: order
+                .get("triggerPx")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok()),
             take_profit_price: None,
             stop_loss_price: None,
             cost: None,
@@ -1059,9 +1110,12 @@ impl Exchange for Hyperliquid {
                         let ctx_array = meta_array.get(1).and_then(|c| c.as_array());
 
                         for (i, asset_val) in universe.iter().enumerate() {
-                            if let Ok(asset) = serde_json::from_value::<HyperliquidAsset>(asset_val.clone()) {
-                                let ctx = ctx_array.and_then(|arr| arr.get(i))
-                                    .and_then(|v| serde_json::from_value::<HyperliquidAssetCtx>(v.clone()).ok());
+                            if let Ok(asset) =
+                                serde_json::from_value::<HyperliquidAsset>(asset_val.clone())
+                            {
+                                let ctx = ctx_array.and_then(|arr| arr.get(i)).and_then(|v| {
+                                    serde_json::from_value::<HyperliquidAssetCtx>(v.clone()).ok()
+                                });
 
                                 let market = self.parse_swap_market(i as i64, &asset, ctx.as_ref());
                                 asset_index_to_symbol.insert(i as i64, market.symbol.clone());
@@ -1087,20 +1141,29 @@ impl Exchange for Hyperliquid {
                             meta.get("tokens").and_then(|t| t.as_array()),
                             meta.get("universe").and_then(|u| u.as_array()),
                         ) {
-                            let parsed_tokens: Vec<HyperliquidToken> = tokens.iter()
+                            let parsed_tokens: Vec<HyperliquidToken> = tokens
+                                .iter()
                                 .filter_map(|t| serde_json::from_value(t.clone()).ok())
                                 .collect();
 
                             let ctx_array = spot_array.get(1).and_then(|c| c.as_array());
 
                             for (i, market_val) in universe.iter().enumerate() {
-                                if let Ok(market_data) = serde_json::from_value::<HyperliquidSpotMarket>(market_val.clone()) {
+                                if let Ok(market_data) =
+                                    serde_json::from_value::<HyperliquidSpotMarket>(
+                                        market_val.clone(),
+                                    )
+                                {
                                     let ctx = ctx_array.and_then(|arr| arr.get(i));
 
-                                    if let Some(market) = self.parse_spot_market(&market_data, &parsed_tokens, ctx) {
+                                    if let Some(market) =
+                                        self.parse_spot_market(&market_data, &parsed_tokens, ctx)
+                                    {
                                         let spot_index = 10000 + i as i64;
-                                        asset_index_to_symbol.insert(spot_index, market.symbol.clone());
-                                        markets_by_id.insert(market.id.clone(), market.symbol.clone());
+                                        asset_index_to_symbol
+                                            .insert(spot_index, market.symbol.clone());
+                                        markets_by_id
+                                            .insert(market.id.clone(), market.symbol.clone());
                                         all_markets.insert(market.symbol.clone(), market);
                                     }
                                 }
@@ -1126,9 +1189,12 @@ impl Exchange for Hyperliquid {
 
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let tickers = self.fetch_tickers(Some(&[symbol])).await?;
-        tickers.get(symbol)
+        tickers
+            .get(symbol)
             .cloned()
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
@@ -1163,20 +1229,30 @@ impl Exchange for Hyperliquid {
                                     }
                                 }
 
-                                let mid_px = ctx.get("midPx").and_then(|v| v.as_str())
+                                let mid_px = ctx
+                                    .get("midPx")
+                                    .and_then(|v| v.as_str())
                                     .and_then(|s| Decimal::from_str(s).ok());
-                                let prev_day_px = ctx.get("prevDayPx").and_then(|v| v.as_str())
+                                let prev_day_px = ctx
+                                    .get("prevDayPx")
+                                    .and_then(|v| v.as_str())
                                     .and_then(|s| Decimal::from_str(s).ok());
-                                let day_ntl_vlm = ctx.get("dayNtlVlm").and_then(|v| v.as_str())
+                                let day_ntl_vlm = ctx
+                                    .get("dayNtlVlm")
+                                    .and_then(|v| v.as_str())
                                     .and_then(|s| Decimal::from_str(s).ok());
-                                let mark_px = ctx.get("markPx").and_then(|v| v.as_str())
+                                let mark_px = ctx
+                                    .get("markPx")
+                                    .and_then(|v| v.as_str())
                                     .and_then(|s| Decimal::from_str(s).ok());
                                 let impact_pxs = ctx.get("impactPxs").and_then(|v| v.as_array());
 
-                                let bid = impact_pxs.and_then(|arr| arr.first())
+                                let bid = impact_pxs
+                                    .and_then(|arr| arr.first())
                                     .and_then(|v| v.as_str())
                                     .and_then(|s| Decimal::from_str(s).ok());
-                                let ask = impact_pxs.and_then(|arr| arr.get(1))
+                                let ask = impact_pxs
+                                    .and_then(|arr| arr.get(1))
                                     .and_then(|v| v.as_str())
                                     .and_then(|s| Decimal::from_str(s).ok());
 
@@ -1221,8 +1297,9 @@ impl Exchange for Hyperliquid {
 
         let coin = {
             let markets = self.markets.read().unwrap();
-            let market = markets.get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
             if market.swap {
                 market.base.clone()
@@ -1237,10 +1314,10 @@ impl Exchange for Hyperliquid {
         });
 
         let response = self.public_post_info(request).await?;
-        let book: HyperliquidL2Book = serde_json::from_value(response.clone())
-            .map_err(|e| CcxtError::ParseError {
+        let book: HyperliquidL2Book =
+            serde_json::from_value(response.clone()).map_err(|e| CcxtError::ParseError {
                 data_type: "order_book".to_string(),
-                message: format!("Failed to parse order book: {e}")
+                message: format!("Failed to parse order book: {e}"),
             })?;
 
         let timestamp = book.time.parse::<i64>().ok();
@@ -1250,28 +1327,39 @@ impl Exchange for Hyperliquid {
                 .unwrap_or_default()
         });
 
-        let bids = book.levels.first().map(|levels| {
-            levels.iter().map(|level| {
-                OrderBookEntry {
-                    price: Decimal::from_str(&level.px).unwrap_or_default(),
-                    amount: Decimal::from_str(&level.sz).unwrap_or_default(),
-                }
-            }).collect()
-        }).unwrap_or_default();
+        let bids = book
+            .levels
+            .first()
+            .map(|levels| {
+                levels
+                    .iter()
+                    .map(|level| OrderBookEntry {
+                        price: Decimal::from_str(&level.px).unwrap_or_default(),
+                        amount: Decimal::from_str(&level.sz).unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        let asks = book.levels.get(1).map(|levels| {
-            levels.iter().map(|level| {
-                OrderBookEntry {
-                    price: Decimal::from_str(&level.px).unwrap_or_default(),
-                    amount: Decimal::from_str(&level.sz).unwrap_or_default(),
-                }
-            }).collect()
-        }).unwrap_or_default();
+        let asks = book
+            .levels
+            .get(1)
+            .map(|levels| {
+                levels
+                    .iter()
+                    .map(|level| OrderBookEntry {
+                        price: Decimal::from_str(&level.px).unwrap_or_default(),
+                        amount: Decimal::from_str(&level.sz).unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Ok(OrderBook {
             symbol: symbol.to_string(),
             bids,
             asks,
+            checksum: None,
             timestamp,
             datetime,
             nonce: None,
@@ -1289,8 +1377,9 @@ impl Exchange for Hyperliquid {
 
         let coin = {
             let markets = self.markets.read().unwrap();
-            let market = markets.get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
             if market.swap {
                 market.base.clone()
@@ -1299,7 +1388,9 @@ impl Exchange for Hyperliquid {
             }
         };
 
-        let interval = self.timeframes.get(&timeframe)
+        let interval = self
+            .timeframes
+            .get(&timeframe)
             .cloned()
             .unwrap_or_else(|| "1h".to_string());
 
@@ -1341,22 +1432,23 @@ impl Exchange for Hyperliquid {
 
         let response = self.public_post_info(request).await?;
 
-        let candles: Vec<HyperliquidOhlcv> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let candles: Vec<HyperliquidOhlcv> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "OHLCV".to_string(),
-                message: format!("Failed to parse OHLCV: {e}")
+                message: format!("Failed to parse OHLCV: {e}"),
             })?;
 
-        let result: Vec<OHLCV> = candles.iter().map(|c| {
-            OHLCV {
+        let result: Vec<OHLCV> = candles
+            .iter()
+            .map(|c| OHLCV {
                 timestamp: c.timestamp,
                 open: Decimal::from_str(&c.open).unwrap_or_default(),
                 high: Decimal::from_str(&c.high).unwrap_or_default(),
                 low: Decimal::from_str(&c.low).unwrap_or_default(),
                 close: Decimal::from_str(&c.close).unwrap_or_default(),
                 volume: Decimal::from_str(&c.volume).unwrap_or_default(),
-            }
-        }).collect();
+            })
+            .collect();
 
         // Apply limit if specified
         if let Some(limit_val) = limit {
@@ -1394,36 +1486,45 @@ impl Exchange for Hyperliquid {
                     let used_dec = Decimal::from_str(hold).unwrap_or_default();
                     let free_dec = total_dec - used_dec;
 
-                    result.currencies.insert(coin.to_string(), Balance {
-                        free: Some(free_dec),
-                        used: Some(used_dec),
-                        total: Some(total_dec),
-                        debt: None,
-                    });
+                    result.currencies.insert(
+                        coin.to_string(),
+                        Balance {
+                            free: Some(free_dec),
+                            used: Some(used_dec),
+                            total: Some(total_dec),
+                            debt: None,
+                        },
+                    );
                 }
             }
         } else {
             // Perpetual balance response
             if let Some(margin_summary) = perp_response.get("marginSummary") {
-                let account_value = margin_summary.get("accountValue")
+                let account_value = margin_summary
+                    .get("accountValue")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or_default();
-                let margin_used = margin_summary.get("totalMarginUsed")
+                let margin_used = margin_summary
+                    .get("totalMarginUsed")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or_default();
-                let withdrawable = perp_response.get("withdrawable")
+                let withdrawable = perp_response
+                    .get("withdrawable")
                     .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok())
                     .unwrap_or_default();
 
-                result.currencies.insert("USDC".to_string(), Balance {
-                    free: Some(withdrawable),
-                    used: Some(margin_used),
-                    total: Some(account_value),
-                    debt: None,
-                });
+                result.currencies.insert(
+                    "USDC".to_string(),
+                    Balance {
+                        free: Some(withdrawable),
+                        used: Some(margin_used),
+                        total: Some(account_value),
+                        debt: None,
+                    },
+                );
             }
 
             // Also fetch spot balance
@@ -1444,19 +1545,23 @@ impl Exchange for Hyperliquid {
                             let used_dec = Decimal::from_str(hold).unwrap_or_default();
                             let free_dec = total_dec - used_dec;
 
-                            result.currencies.insert(coin.to_string(), Balance {
-                                free: Some(free_dec),
-                                used: Some(used_dec),
-                                total: Some(total_dec),
-                                debt: None,
-                            });
+                            result.currencies.insert(
+                                coin.to_string(),
+                                Balance {
+                                    free: Some(free_dec),
+                                    used: Some(used_dec),
+                                    total: Some(total_dec),
+                                    debt: None,
+                                },
+                            );
                         }
                     }
                 }
             }
         }
 
-        let timestamp = perp_response.get("time")
+        let timestamp = perp_response
+            .get("time")
             .and_then(|t| t.as_str())
             .and_then(|s| s.parse::<i64>().ok());
         result.timestamp = timestamp;
@@ -1485,18 +1590,21 @@ impl Exchange for Hyperliquid {
 
         let response = self.public_post_info(request).await?;
 
-        let orders: Vec<Value> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let orders: Vec<Value> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "orders".to_string(),
-                message: format!("Failed to parse orders: {e}")
+                message: format!("Failed to parse orders: {e}"),
             })?;
 
         let _markets = self.markets.read().unwrap();
-        let result: Vec<Order> = orders.iter()
+        let result: Vec<Order> = orders
+            .iter()
             .filter_map(|o| {
                 let mut order_with_status = o.clone();
                 if order_with_status.get("status").is_none() {
-                    order_with_status.as_object_mut()?.insert("ccxtStatus".to_string(), json!("open"));
+                    order_with_status
+                        .as_object_mut()?
+                        .insert("ccxtStatus".to_string(), json!("open"));
                 }
                 self.parse_order(&order_with_status, None)
             })
@@ -1520,7 +1628,9 @@ impl Exchange for Hyperliquid {
         let oid: Value = if id.len() >= 34 {
             json!(id)
         } else {
-            json!(id.parse::<i64>().map_err(|_| CcxtError::BadRequest { message: "Invalid order ID".to_string() })?)
+            json!(id.parse::<i64>().map_err(|_| CcxtError::BadRequest {
+                message: "Invalid order ID".to_string()
+            })?)
         };
 
         let request = json!({
@@ -1535,7 +1645,9 @@ impl Exchange for Hyperliquid {
         let market = markets.get(symbol);
 
         self.parse_order(&response, market)
-            .ok_or_else(|| CcxtError::OrderNotFound { order_id: id.to_string() })
+            .ok_or_else(|| CcxtError::OrderNotFound {
+                order_id: id.to_string(),
+            })
     }
 
     async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
@@ -1554,7 +1666,10 @@ impl Exchange for Hyperliquid {
         if let Some(asset_positions) = response.get("assetPositions").and_then(|p| p.as_array()) {
             for pos_data in asset_positions {
                 if let Some(position) = pos_data.get("position") {
-                    let coin = position.get("coin").and_then(|c| c.as_str()).unwrap_or_default();
+                    let coin = position
+                        .get("coin")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or_default();
                     let symbol = self.coin_to_market_id(coin);
 
                     // Filter by symbols if specified
@@ -1564,7 +1679,9 @@ impl Exchange for Hyperliquid {
                         }
                     }
 
-                    let szi = position.get("szi").and_then(|v| v.as_str())
+                    let szi = position
+                        .get("szi")
+                        .and_then(|v| v.as_str())
                         .and_then(|s| Decimal::from_str(s).ok())
                         .unwrap_or_default();
 
@@ -1572,35 +1689,51 @@ impl Exchange for Hyperliquid {
                         continue; // Skip empty positions
                     }
 
-                    let entry_px = position.get("entryPx").and_then(|v| v.as_str())
+                    let entry_px = position
+                        .get("entryPx")
+                        .and_then(|v| v.as_str())
                         .and_then(|s| Decimal::from_str(s).ok());
-                    let liquidation_px = position.get("liquidationPx").and_then(|v| v.as_str())
+                    let liquidation_px = position
+                        .get("liquidationPx")
+                        .and_then(|v| v.as_str())
                         .and_then(|s| Decimal::from_str(s).ok());
-                    let margin_used = position.get("marginUsed").and_then(|v| v.as_str())
+                    let margin_used = position
+                        .get("marginUsed")
+                        .and_then(|v| v.as_str())
                         .and_then(|s| Decimal::from_str(s).ok());
-                    let position_value = position.get("positionValue").and_then(|v| v.as_str())
+                    let position_value = position
+                        .get("positionValue")
+                        .and_then(|v| v.as_str())
                         .and_then(|s| Decimal::from_str(s).ok());
-                    let unrealized_pnl = position.get("unrealizedPnl").and_then(|v| v.as_str())
+                    let unrealized_pnl = position
+                        .get("unrealizedPnl")
+                        .and_then(|v| v.as_str())
                         .and_then(|s| Decimal::from_str(s).ok());
-                    let return_on_equity = position.get("returnOnEquity").and_then(|v| v.as_str())
+                    let return_on_equity = position
+                        .get("returnOnEquity")
+                        .and_then(|v| v.as_str())
                         .and_then(|s| Decimal::from_str(s).ok());
 
                     let leverage_data = position.get("leverage");
-                    let leverage = leverage_data.and_then(|l| l.get("value"))
+                    let leverage = leverage_data
+                        .and_then(|l| l.get("value"))
                         .and_then(|v| v.as_i64())
                         .map(Decimal::from);
-                    let margin_mode = leverage_data.and_then(|l| l.get("type"))
+                    let margin_mode = leverage_data
+                        .and_then(|l| l.get("type"))
                         .and_then(|t| t.as_str())
                         .map(|s| s.to_lowercase());
 
-                    let side = if szi > Decimal::ZERO { PositionSide::Long } else { PositionSide::Short };
+                    let side = if szi > Decimal::ZERO {
+                        PositionSide::Long
+                    } else {
+                        PositionSide::Short
+                    };
                     let contracts = szi.abs();
-                    let margin_mode_enum = margin_mode.as_deref().map(|m| {
-                        match m {
-                            "isolated" => MarginMode::Isolated,
-                            "cross" => MarginMode::Cross,
-                            _ => MarginMode::Unknown,
-                        }
+                    let margin_mode_enum = margin_mode.as_deref().map(|m| match m {
+                        "isolated" => MarginMode::Isolated,
+                        "cross" => MarginMode::Cross,
+                        _ => MarginMode::Unknown,
                     });
 
                     positions.push(Position {
@@ -1640,7 +1773,10 @@ impl Exchange for Hyperliquid {
         Ok(positions)
     }
 
-    async fn fetch_funding_rates(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, FundingRate>> {
+    async fn fetch_funding_rates(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<HashMap<String, FundingRate>> {
         self.load_markets(false).await?;
 
         let request = json!({
@@ -1668,44 +1804,53 @@ impl Exchange for Hyperliquid {
                                 }
 
                                 if let Some(ctx) = ctx_array.get(i) {
-                                    let funding_rate = ctx.get("funding")
+                                    let funding_rate = ctx
+                                        .get("funding")
                                         .and_then(|f| f.as_str())
                                         .and_then(|s| Decimal::from_str(s).ok());
-                                    let mark_px = ctx.get("markPx")
+                                    let mark_px = ctx
+                                        .get("markPx")
                                         .and_then(|m| m.as_str())
                                         .and_then(|s| Decimal::from_str(s).ok());
-                                    let oracle_px = ctx.get("oraclePx")
+                                    let oracle_px = ctx
+                                        .get("oraclePx")
                                         .and_then(|o| o.as_str())
                                         .and_then(|s| Decimal::from_str(s).ok());
 
                                     // Funding timestamp is next hour
                                     let now = chrono::Utc::now();
-                                    let funding_timestamp = ((now.timestamp_millis() / 3600000) + 1) * 3600000;
+                                    let funding_timestamp =
+                                        ((now.timestamp_millis() / 3600000) + 1) * 3600000;
 
-                                    result.insert(symbol.clone(), FundingRate {
-                                        symbol: symbol.clone(),
-                                        funding_rate,
-                                        timestamp: None,
-                                        datetime: None,
-                                        funding_timestamp: Some(funding_timestamp),
-                                        funding_datetime: Some(
-                                            chrono::DateTime::from_timestamp_millis(funding_timestamp)
+                                    result.insert(
+                                        symbol.clone(),
+                                        FundingRate {
+                                            symbol: symbol.clone(),
+                                            funding_rate,
+                                            timestamp: None,
+                                            datetime: None,
+                                            funding_timestamp: Some(funding_timestamp),
+                                            funding_datetime: Some(
+                                                chrono::DateTime::from_timestamp_millis(
+                                                    funding_timestamp,
+                                                )
                                                 .map(|dt| dt.to_rfc3339())
-                                                .unwrap_or_default()
-                                        ),
-                                        mark_price: mark_px,
-                                        index_price: oracle_px,
-                                        interest_rate: None,
-                                        estimated_settle_price: None,
-                                        next_funding_rate: None,
-                                        next_funding_timestamp: None,
-                                        next_funding_datetime: None,
-                                        previous_funding_rate: None,
-                                        previous_funding_timestamp: None,
-                                        previous_funding_datetime: None,
-                                        interval: Some("1h".to_string()),
-                                        info: ctx.clone(),
-                                    });
+                                                .unwrap_or_default(),
+                                            ),
+                                            mark_price: mark_px,
+                                            index_price: oracle_px,
+                                            interest_rate: None,
+                                            estimated_settle_price: None,
+                                            next_funding_rate: None,
+                                            next_funding_timestamp: None,
+                                            next_funding_datetime: None,
+                                            previous_funding_rate: None,
+                                            previous_funding_timestamp: None,
+                                            previous_funding_datetime: None,
+                                            interval: Some("1h".to_string()),
+                                            info: ctx.clone(),
+                                        },
+                                    );
                                 }
                             }
                         }
@@ -1727,8 +1872,9 @@ impl Exchange for Hyperliquid {
 
         let base_currency = {
             let markets = self.markets.read().unwrap();
-            let market = markets.get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
             market.base.clone()
         };
 
@@ -1745,31 +1891,34 @@ impl Exchange for Hyperliquid {
 
         let response = self.public_post_info(request).await?;
 
-        let history: Vec<HyperliquidFundingHistory> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let history: Vec<HyperliquidFundingHistory> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "funding_history".to_string(),
-                message: format!("Failed to parse funding history: {e}")
+                message: format!("Failed to parse funding history: {e}"),
             })?;
 
-        let mut result: Vec<FundingRateHistory> = history.iter().map(|h| {
-            let timestamp = h.time;
-            FundingRateHistory {
-                info: json!({
-                    "coin": h.coin,
-                    "fundingRate": h.funding_rate,
-                    "premium": h.premium,
-                    "time": h.time
-                }),
-                symbol: symbol.to_string(),
-                funding_rate: Decimal::from_str(&h.funding_rate).unwrap_or_default(),
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                ),
-            }
-        }).collect();
+        let mut result: Vec<FundingRateHistory> = history
+            .iter()
+            .map(|h| {
+                let timestamp = h.time;
+                FundingRateHistory {
+                    info: json!({
+                        "coin": h.coin,
+                        "fundingRate": h.funding_rate,
+                        "premium": h.premium,
+                        "time": h.time
+                    }),
+                    symbol: symbol.to_string(),
+                    funding_rate: Decimal::from_str(&h.funding_rate).unwrap_or_default(),
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                }
+            })
+            .collect();
 
         result.sort_by_key(|f| f.timestamp);
 
@@ -1793,8 +1942,9 @@ impl Exchange for Hyperliquid {
 
         let coin = {
             let markets = self.markets.read().unwrap();
-            let market = markets.get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
             if market.swap {
                 market.base.clone()
@@ -1810,17 +1960,22 @@ impl Exchange for Hyperliquid {
 
         let response = self.public_post_info(request).await?;
 
-        let trades: Vec<Value> = serde_json::from_value(response)
-            .map_err(|e| CcxtError::ParseError {
+        let trades: Vec<Value> =
+            serde_json::from_value(response).map_err(|e| CcxtError::ParseError {
                 data_type: "trades".to_string(),
-                message: format!("Failed to parse trades: {e}")
+                message: format!("Failed to parse trades: {e}"),
             })?;
 
-        let result: Vec<Trade> = trades.iter()
+        let result: Vec<Trade> = trades
+            .iter()
             .filter_map(|t| {
-                let price = t.get("px").and_then(|v| v.as_str())
+                let price = t
+                    .get("px")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok())?;
-                let amount = t.get("sz").and_then(|v| v.as_str())
+                let amount = t
+                    .get("sz")
+                    .and_then(|v| v.as_str())
                     .and_then(|s| Decimal::from_str(s).ok())?;
                 let side_str = t.get("side").and_then(|v| v.as_str()).unwrap_or("B");
                 let timestamp = t.get("time").and_then(|v| v.as_i64())?;
@@ -1838,7 +1993,7 @@ impl Exchange for Hyperliquid {
                     datetime: Some(
                         chrono::DateTime::from_timestamp_millis(timestamp)
                             .map(|dt| dt.to_rfc3339())
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
                     ),
                     symbol: symbol.to_string(),
                     order: None,
@@ -1871,15 +2026,18 @@ impl Exchange for Hyperliquid {
         // Validate wallet is set
         if self.wallet.is_none() {
             return Err(CcxtError::AuthenticationError {
-                message: "Wallet not set. Use from_private_key() or set_wallet() before creating orders.".to_string(),
+                message:
+                    "Wallet not set. Use from_private_key() or set_wallet() before creating orders."
+                        .to_string(),
             });
         }
 
         // Get market info
         let (asset_index, _is_spot) = {
             let markets = self.markets.read().unwrap();
-            let market = markets.get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
             let is_spot = market.spot;
             let asset_index = if is_spot {
@@ -1903,18 +2061,18 @@ impl Exchange for Hyperliquid {
                     OrderSide::Sell => "0.00001".to_string(),
                 };
                 (json!({"limit": {"tif": "Ioc"}}), aggressive_price)
-            }
+            },
             OrderType::Limit => {
                 let px = price.ok_or_else(|| CcxtError::BadRequest {
                     message: "Limit order requires price".to_string(),
                 })?;
                 (json!({"limit": {"tif": "Gtc"}}), px.to_string())
-            }
+            },
             _ => {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type {order_type:?} not yet supported"),
                 });
-            }
+            },
         };
 
         let is_buy = match side {
@@ -1944,9 +2102,13 @@ impl Exchange for Hyperliquid {
         let response = self.private_post_exchange(action, nonce, None).await?;
 
         // Parse response
-        let status = response.get("status").and_then(|s| s.as_str()).unwrap_or("error");
+        let status = response
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("error");
         if status != "ok" {
-            let error_msg = response.get("response")
+            let error_msg = response
+                .get("response")
                 .and_then(|r| r.as_str())
                 .unwrap_or("Unknown error");
             return Err(CcxtError::ExchangeError {
@@ -2012,8 +2174,9 @@ impl Exchange for Hyperliquid {
         // Get asset index from symbol
         let asset_index = {
             let markets = self.markets.read().unwrap();
-            let market = markets.get(symbol)
-                .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.to_string() })?;
+            let market = markets.get(symbol).ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.to_string(),
+            })?;
 
             market.base_id.parse::<i64>().unwrap_or(0)
         };
@@ -2039,9 +2202,13 @@ impl Exchange for Hyperliquid {
         let response = self.private_post_exchange(action, nonce, None).await?;
 
         // Check response
-        let status = response.get("status").and_then(|s| s.as_str()).unwrap_or("error");
+        let status = response
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("error");
         if status != "ok" {
-            let error_msg = response.get("response")
+            let error_msg = response
+                .get("response")
                 .and_then(|r| r.as_str())
                 .unwrap_or("Unknown error");
             return Err(CcxtError::ExchangeError {

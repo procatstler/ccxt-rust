@@ -17,15 +17,15 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, FundingRate,
-    FundingRateHistory, Leverage, Liquidation, Market, MarketLimits, MarketPrecision, MarketType,
-    MarginMode, MarginModeInfo, MarginModification, MarginModificationType, OpenInterest, Order,
+    FundingRateHistory, Leverage, Liquidation, MarginMode, MarginModeInfo, MarginModification,
+    MarginModificationType, Market, MarketLimits, MarketPrecision, MarketType, OpenInterest, Order,
     OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionMode,
     PositionModeInfo, PositionSide, SignedRequest, Ticker, Timeframe, Trade, Transaction,
     TransactionStatus, TransactionType, TransferEntry, WsExchange, WsMessage, OHLCV,
 };
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use super::bitget_ws::BitgetWs;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -150,15 +150,24 @@ impl Bitget {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required".into(),
-        })?;
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API passphrase required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret required".into(),
+            })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API passphrase required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -182,11 +191,20 @@ impl Bitget {
         let full_path = format!("{path}{query_string}");
 
         // String to sign: timestamp + method + path + body
-        let sign_string = format!("{}{}{}{}", timestamp, method.to_uppercase(), full_path, body);
+        let sign_string = format!(
+            "{}{}{}{}",
+            timestamp,
+            method.to_uppercase(),
+            full_path,
+            body
+        );
 
         // HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret".into(),
+            }
+        })?;
         mac.update(sign_string.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
@@ -200,9 +218,13 @@ impl Bitget {
 
         match method {
             "GET" => {
-                let query_params = if params.is_empty() { None } else { Some(params) };
+                let query_params = if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                };
                 self.client.get(path, query_params, Some(headers)).await
-            }
+            },
             "POST" => {
                 let json_body: Option<serde_json::Value> = if body.is_empty() {
                     None
@@ -210,12 +232,18 @@ impl Bitget {
                     Some(serde_json::from_str(&body).unwrap_or_default())
                 };
                 self.client.post(path, json_body, Some(headers)).await
-            }
+            },
             "DELETE" => {
-                let query_params = if params.is_empty() { None } else { Some(params) };
+                let query_params = if params.is_empty() {
+                    None
+                } else {
+                    Some(params)
+                };
                 self.client.delete(path, query_params, Some(headers)).await
-            }
-            _ => Err(CcxtError::BadRequest { message: "Invalid HTTP method".into() }),
+            },
+            _ => Err(CcxtError::BadRequest {
+                message: "Invalid HTTP method".into(),
+            }),
         }
     }
 
@@ -228,7 +256,7 @@ impl Bitget {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             high: data.high24h.as_ref().and_then(|v| v.parse().ok()),
             low: data.low24h.as_ref().and_then(|v| v.parse().ok()),
@@ -242,9 +270,10 @@ impl Bitget {
             last: data.last_pr.as_ref().and_then(|v| v.parse().ok()),
             previous_close: None,
             change: data.change.as_ref().and_then(|v| v.parse().ok()),
-            percentage: data.change_utc24h.as_ref().and_then(|v| {
-                v.parse::<Decimal>().ok().map(|d| d * Decimal::from(100))
-            }),
+            percentage: data
+                .change_utc24h
+                .as_ref()
+                .and_then(|v| v.parse::<Decimal>().ok().map(|d| d * Decimal::from(100))),
             average: None,
             base_volume: data.base_volume.as_ref().and_then(|v| v.parse().ok()),
             quote_volume: data.quote_volume.as_ref().and_then(|v| v.parse().ok()),
@@ -255,14 +284,20 @@ impl Bitget {
     }
 
     fn parse_order(&self, data: &BitgetOrder, symbol: &str) -> Order {
-        let timestamp = data.c_time.as_ref()
+        let timestamp = data
+            .c_time
+            .as_ref()
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let amount: Decimal = data.size.as_ref()
+        let amount: Decimal = data
+            .size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
-        let filled: Decimal = data.base_volume.as_ref()
+        let filled: Decimal = data
+            .base_volume
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
         let price: Option<Decimal> = data.price.as_ref().and_then(|v| v.parse().ok());
@@ -294,7 +329,7 @@ impl Bitget {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             last_trade_timestamp: None,
             last_update_timestamp: data.u_time.as_ref().and_then(|v| v.parse().ok()),
@@ -327,10 +362,14 @@ impl Bitget {
 
         for account in accounts {
             let currency = account.coin.clone();
-            let available: Decimal = account.available.as_ref()
+            let available: Decimal = account
+                .available
+                .as_ref()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default();
-            let frozen: Decimal = account.frozen.as_ref()
+            let frozen: Decimal = account
+                .frozen
+                .as_ref()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_default();
 
@@ -342,7 +381,9 @@ impl Bitget {
 
     fn parse_deposit(&self, deposit: &BitgetDeposit) -> Transaction {
         let timestamp = deposit.c_time.as_ref().and_then(|t| t.parse::<i64>().ok());
-        let amount: Decimal = deposit.size.as_ref()
+        let amount: Decimal = deposit
+            .size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
 
@@ -376,8 +417,13 @@ impl Bitget {
     }
 
     fn parse_withdrawal(&self, withdrawal: &BitgetWithdrawal) -> Transaction {
-        let timestamp = withdrawal.c_time.as_ref().and_then(|t| t.parse::<i64>().ok());
-        let amount: Decimal = withdrawal.size.as_ref()
+        let timestamp = withdrawal
+            .c_time
+            .as_ref()
+            .and_then(|t| t.parse::<i64>().ok());
+        let amount: Decimal = withdrawal
+            .size
+            .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_default();
         let fee_amount: Option<Decimal> = withdrawal.fee.as_ref().and_then(|v| v.parse().ok());
@@ -396,7 +442,10 @@ impl Bitget {
             datetime: timestamp.and_then(|ts| {
                 chrono::DateTime::from_timestamp_millis(ts).map(|dt| dt.to_rfc3339())
             }),
-            updated: withdrawal.u_time.as_ref().and_then(|t| t.parse::<i64>().ok()),
+            updated: withdrawal
+                .u_time
+                .as_ref()
+                .and_then(|t| t.parse::<i64>().ok()),
             tx_type: TransactionType::Withdrawal,
             currency: withdrawal.coin.clone().unwrap_or_default(),
             network: withdrawal.chain.clone(),
@@ -411,7 +460,10 @@ impl Bitget {
                 rate: None,
             }),
             internal: None,
-            confirmations: withdrawal.confirm.as_ref().and_then(|c| c.parse::<u32>().ok()),
+            confirmations: withdrawal
+                .confirm
+                .as_ref()
+                .and_then(|c| c.parse::<u32>().ok()),
             info: serde_json::to_value(withdrawal).unwrap_or_default(),
         }
     }
@@ -440,7 +492,9 @@ impl Bitget {
 
         if response.code != "00000" {
             return Err(CcxtError::ExchangeError {
-                message: response.msg.unwrap_or_else(|| format!("Bitget error: {}", response.code)),
+                message: response
+                    .msg
+                    .unwrap_or_else(|| format!("Bitget error: {}", response.code)),
             });
         }
 
@@ -458,15 +512,24 @@ impl Bitget {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
-        let passphrase = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Passphrase required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
+        let passphrase = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Passphrase required".into(),
+            })?;
 
         let full_path = format!("/api/v2/mix{path}");
         let timestamp = Utc::now().timestamp_millis().to_string();
@@ -484,13 +547,16 @@ impl Bitget {
             };
             (url, String::new())
         } else {
-            (full_path.clone(), serde_json::to_string(&params).unwrap_or_else(|_| "{}".into()))
+            (
+                full_path.clone(),
+                serde_json::to_string(&params).unwrap_or_else(|_| "{}".into()),
+            )
         };
 
         let sign_str = format!("{}{}{}{}", timestamp, method.to_uppercase(), url, body_str);
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(sign_str.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
 
@@ -510,16 +576,22 @@ impl Bitget {
                 } else {
                     serde_json::from_str(&body_str).unwrap_or_default()
                 };
-                self.client.post(&full_path, Some(json_body), Some(headers)).await?
-            }
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("HTTP method: {method}"),
-            }),
+                self.client
+                    .post(&full_path, Some(json_body), Some(headers))
+                    .await?
+            },
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("HTTP method: {method}"),
+                })
+            },
         };
 
         if response.code != "00000" {
             return Err(CcxtError::ExchangeError {
-                message: response.msg.unwrap_or_else(|| format!("Bitget error: {}", response.code)),
+                message: response
+                    .msg
+                    .unwrap_or_else(|| format!("Bitget error: {}", response.code)),
             });
         }
 
@@ -533,7 +605,11 @@ impl Bitget {
         let timestamp = data.u_time.as_ref().and_then(|t| t.parse::<i64>().ok());
         let symbol = data.symbol.replace("USDT", "/USDT");
 
-        let size: Decimal = data.total.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+        let size: Decimal = data
+            .total
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
         let side = match data.hold_side.as_deref() {
             Some("long") => Some(PositionSide::Long),
             Some("short") => Some(PositionSide::Short),
@@ -541,13 +617,19 @@ impl Bitget {
         };
 
         let contracts = Some(size.abs());
-        let entry_price: Option<Decimal> = data.open_price_avg.as_ref().and_then(|p| p.parse().ok());
+        let entry_price: Option<Decimal> =
+            data.open_price_avg.as_ref().and_then(|p| p.parse().ok());
         let mark_price: Option<Decimal> = data.mark_price.as_ref().and_then(|p| p.parse().ok());
         let leverage: Option<Decimal> = data.leverage.as_ref().and_then(|l| l.parse().ok());
-        let unrealized_pnl: Option<Decimal> = data.unrealized_pl.as_ref().and_then(|u| u.parse().ok());
+        let unrealized_pnl: Option<Decimal> =
+            data.unrealized_pl.as_ref().and_then(|u| u.parse().ok());
         let liquidation_price: Option<Decimal> = data.liquidation_price.as_ref().and_then(|l| {
             let val: Decimal = l.parse().ok()?;
-            if val == Decimal::ZERO { None } else { Some(val) }
+            if val == Decimal::ZERO {
+                None
+            } else {
+                Some(val)
+            }
         });
         let margin: Option<Decimal> = data.margin.as_ref().and_then(|m| m.parse().ok());
 
@@ -593,7 +675,10 @@ impl Bitget {
 
     /// 펀딩 레이트 파싱
     fn parse_funding_rate(&self, data: &BitgetFundingRateData) -> FundingRate {
-        let timestamp = data.funding_time.as_ref().and_then(|t| t.parse::<i64>().ok());
+        let timestamp = data
+            .funding_time
+            .as_ref()
+            .and_then(|t| t.parse::<i64>().ok());
         let symbol = data.symbol.replace("USDT", "/USDT");
 
         FundingRate {
@@ -621,10 +706,18 @@ impl Bitget {
     }
 
     /// 펀딩 레이트 기록 파싱
-    fn parse_funding_rate_history(&self, data: &BitgetFundingRateHistoryData) -> FundingRateHistory {
-        let timestamp = data.funding_time.as_ref().and_then(|t| t.parse::<i64>().ok());
+    fn parse_funding_rate_history(
+        &self,
+        data: &BitgetFundingRateHistoryData,
+    ) -> FundingRateHistory {
+        let timestamp = data
+            .funding_time
+            .as_ref()
+            .and_then(|t| t.parse::<i64>().ok());
         let symbol = data.symbol.replace("USDT", "/USDT");
-        let funding_rate: Decimal = data.funding_rate.as_ref()
+        let funding_rate: Decimal = data
+            .funding_rate
+            .as_ref()
             .and_then(|r| r.parse().ok())
             .unwrap_or_default();
 
@@ -703,7 +796,8 @@ impl Exchange for Bitget {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BitgetResponse<Vec<BitgetSymbol>> = self.public_get("/api/v2/spot/public/symbols", None).await?;
+        let response: BitgetResponse<Vec<BitgetSymbol>> =
+            self.public_get("/api/v2/spot/public/symbols", None).await?;
 
         let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
             message: response.msg.unwrap_or_else(|| "No data in response".into()),
@@ -743,8 +837,14 @@ impl Exchange for Bitget {
                 linear: None,
                 inverse: None,
                 sub_type: None,
-                taker: symbol_data.taker_fee_rate.as_ref().and_then(|v| v.parse().ok()),
-                maker: symbol_data.maker_fee_rate.as_ref().and_then(|v| v.parse().ok()),
+                taker: symbol_data
+                    .taker_fee_rate
+                    .as_ref()
+                    .and_then(|v| v.parse().ok()),
+                maker: symbol_data
+                    .maker_fee_rate
+                    .as_ref()
+                    .and_then(|v| v.parse().ok()),
                 contract_size: None,
                 expiry: None,
                 expiry_datetime: None,
@@ -776,20 +876,27 @@ impl Exchange for Bitget {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: BitgetResponse<Vec<BitgetTicker>> = self.public_get("/api/v2/spot/market/tickers", Some(params)).await?;
+        let response: BitgetResponse<Vec<BitgetTicker>> = self
+            .public_get("/api/v2/spot/market/tickers", Some(params))
+            .await?;
 
-        let data = response.data.ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.into() })?;
-        let ticker = data.first()
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.into() })?;
+        let data = response.data.ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.into(),
+        })?;
+        let ticker = data.first().ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.into(),
+        })?;
 
         Ok(self.parse_ticker(ticker, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: BitgetResponse<Vec<BitgetTicker>> = self.public_get("/api/v2/spot/market/tickers", None).await?;
+        let response: BitgetResponse<Vec<BitgetTicker>> =
+            self.public_get("/api/v2/spot/market/tickers", None).await?;
 
-        let data = response.data
-            .ok_or_else(|| CcxtError::ExchangeError { message: "No data in response".into() })?;
+        let data = response.data.ok_or_else(|| CcxtError::ExchangeError {
+            message: "No data in response".into(),
+        })?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
 
@@ -801,7 +908,8 @@ impl Exchange for Bitget {
                 None => continue,
             };
 
-            let symbol_str = markets_by_id.get(&market_id)
+            let symbol_str = markets_by_id
+                .get(&market_id)
                 .cloned()
                 .unwrap_or_else(|| market_id.clone());
 
@@ -826,12 +934,17 @@ impl Exchange for Bitget {
             params.insert("limit".into(), l.min(150).to_string());
         }
 
-        let response: BitgetResponse<BitgetOrderBook> = self.public_get("/api/v2/spot/market/orderbook", Some(params)).await?;
+        let response: BitgetResponse<BitgetOrderBook> = self
+            .public_get("/api/v2/spot/market/orderbook", Some(params))
+            .await?;
 
-        let data = response.data
-            .ok_or_else(|| CcxtError::BadSymbol { symbol: symbol.into() })?;
+        let data = response.data.ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.into(),
+        })?;
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|b| {
                 if b.len() >= 2 {
                     Some(OrderBookEntry {
@@ -844,7 +957,9 @@ impl Exchange for Bitget {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|a| {
                 if a.len() >= 2 {
                     Some(OrderBookEntry {
@@ -865,11 +980,12 @@ impl Exchange for Bitget {
             datetime: Some(
                 chrono::DateTime::from_timestamp_millis(timestamp)
                     .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -886,40 +1002,49 @@ impl Exchange for Bitget {
             params.insert("limit".into(), l.min(500).to_string());
         }
 
-        let response: BitgetResponse<Vec<BitgetTrade>> = self.public_get("/api/v2/spot/market/fills", Some(params)).await?;
+        let response: BitgetResponse<Vec<BitgetTrade>> = self
+            .public_get("/api/v2/spot/market/fills", Some(params))
+            .await?;
 
         let data = response.data.unwrap_or_default();
 
-        let trades: Vec<Trade> = data.iter().map(|t| {
-            let timestamp = t.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
-            let price: Decimal = t.price.as_ref()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_default();
-            let amount: Decimal = t.size.as_ref()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_default();
+        let trades: Vec<Trade> = data
+            .iter()
+            .map(|t| {
+                let timestamp = t.ts.unwrap_or_else(|| Utc::now().timestamp_millis());
+                let price: Decimal = t
+                    .price
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default();
+                let amount: Decimal = t
+                    .size
+                    .as_ref()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_default();
 
-            Trade {
-                id: t.trade_id.clone().unwrap_or_default(),
-                order: None,
-                timestamp: Some(timestamp),
-                datetime: Some(
-                    chrono::DateTime::from_timestamp_millis(timestamp)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                ),
-                symbol: symbol.to_string(),
-                trade_type: None,
-                side: t.side.clone(),
-                taker_or_maker: None,
-                price,
-                amount,
-                cost: Some(price * amount),
-                fee: None,
-                fees: Vec::new(),
-                info: serde_json::to_value(t).unwrap_or_default(),
-            }
-        }).collect();
+                Trade {
+                    id: t.trade_id.clone().unwrap_or_default(),
+                    order: None,
+                    timestamp: Some(timestamp),
+                    datetime: Some(
+                        chrono::DateTime::from_timestamp_millis(timestamp)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default(),
+                    ),
+                    symbol: symbol.to_string(),
+                    trade_type: None,
+                    side: t.side.clone(),
+                    taker_or_maker: None,
+                    price,
+                    amount,
+                    cost: Some(price * amount),
+                    fee: None,
+                    fees: Vec::new(),
+                    info: serde_json::to_value(t).unwrap_or_default(),
+                }
+            })
+            .collect();
 
         Ok(trades)
     }
@@ -932,9 +1057,12 @@ impl Exchange for Bitget {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -946,23 +1074,28 @@ impl Exchange for Bitget {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: BitgetResponse<Vec<Vec<String>>> = self.public_get("/api/v2/spot/market/candles", Some(params)).await?;
+        let response: BitgetResponse<Vec<Vec<String>>> = self
+            .public_get("/api/v2/spot/market/candles", Some(params))
+            .await?;
 
         let data = response.data.unwrap_or_default();
 
-        let ohlcv: Vec<OHLCV> = data.iter().filter_map(|c| {
-            if c.len() < 6 {
-                return None;
-            }
-            Some(OHLCV {
-                timestamp: c[0].parse::<i64>().ok()?,
-                open: c[1].parse().ok()?,
-                high: c[2].parse().ok()?,
-                low: c[3].parse().ok()?,
-                close: c[4].parse().ok()?,
-                volume: c[5].parse().ok()?,
+        let ohlcv: Vec<OHLCV> = data
+            .iter()
+            .filter_map(|c| {
+                if c.len() < 6 {
+                    return None;
+                }
+                Some(OHLCV {
+                    timestamp: c[0].parse::<i64>().ok()?,
+                    open: c[1].parse().ok()?,
+                    high: c[2].parse().ok()?,
+                    low: c[3].parse().ok()?,
+                    close: c[4].parse().ok()?,
+                    volume: c[5].parse().ok()?,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(ohlcv)
     }
@@ -990,10 +1123,14 @@ impl Exchange for Bitget {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id.clone());
         params.insert("clientOid".into(), client_oid);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .into(),
+        );
         params.insert("size".into(), amount.to_string());
         params.insert("force".into(), "gtc".into());
 
@@ -1004,21 +1141,24 @@ impl Exchange for Bitget {
                 })?;
                 params.insert("orderType".into(), "limit".into());
                 params.insert("price".into(), price_val.to_string());
-            }
+            },
             OrderType::Market => {
                 params.insert("orderType".into(), "market".into());
-            }
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
+            },
+            _ => {
+                return Err(CcxtError::NotSupported {
+                    feature: format!("Order type: {order_type:?}"),
+                })
+            },
         }
 
         let response: BitgetResponse<BitgetOrderResult> = self
             .private_request("POST", "/api/v2/spot/trade/place-order", params)
             .await?;
 
-        let result = response.data
-            .ok_or_else(|| CcxtError::ExchangeError { message: response.msg.unwrap_or_else(|| "Order failed".into()) })?;
+        let result = response.data.ok_or_else(|| CcxtError::ExchangeError {
+            message: response.msg.unwrap_or_else(|| "Order failed".into()),
+        })?;
 
         // Fetch the created order
         self.fetch_order(&result.order_id, symbol).await
@@ -1042,7 +1182,7 @@ impl Exchange for Bitget {
             Some(mut o) => {
                 o.status = OrderStatus::Canceled;
                 Ok(o)
-            }
+            },
             None => Ok(Order {
                 id: id.to_string(),
                 client_order_id: None,
@@ -1071,7 +1211,7 @@ impl Exchange for Bitget {
                 reduce_only: None,
                 post_only: None,
                 info: serde_json::Value::Null,
-            })
+            }),
         }
     }
 
@@ -1129,11 +1269,13 @@ impl Exchange for Bitget {
             .private_request("GET", "/api/v2/spot/trade/orderInfo", params)
             .await?;
 
-        let orders = response.data
-            .ok_or_else(|| CcxtError::OrderNotFound { order_id: id.into() })?;
+        let orders = response.data.ok_or_else(|| CcxtError::OrderNotFound {
+            order_id: id.into(),
+        })?;
 
-        let order_data = orders.first()
-            .ok_or_else(|| CcxtError::OrderNotFound { order_id: id.into() })?;
+        let order_data = orders.first().ok_or_else(|| CcxtError::OrderNotFound {
+            order_id: id.into(),
+        })?;
 
         Ok(self.parse_order(order_data, symbol))
     }
@@ -1160,17 +1302,21 @@ impl Exchange for Bitget {
         let orders = response.data.unwrap_or_default();
         let symbol_str = symbol.unwrap_or("");
 
-        Ok(orders.iter().map(|o| {
-            let sym = if symbol_str.is_empty() {
-                // Try to get symbol from markets_by_id
-                o.symbol.as_ref()
-                    .and_then(|s| self.markets_by_id.read().ok()?.get(s).cloned())
-                    .unwrap_or_default()
-            } else {
-                symbol_str.to_string()
-            };
-            self.parse_order(o, &sym)
-        }).collect())
+        Ok(orders
+            .iter()
+            .map(|o| {
+                let sym = if symbol_str.is_empty() {
+                    // Try to get symbol from markets_by_id
+                    o.symbol
+                        .as_ref()
+                        .and_then(|s| self.markets_by_id.read().ok()?.get(s).cloned())
+                        .unwrap_or_default()
+                } else {
+                    symbol_str.to_string()
+                };
+                self.parse_order(o, &sym)
+            })
+            .collect())
     }
 
     async fn fetch_closed_orders(
@@ -1195,16 +1341,20 @@ impl Exchange for Bitget {
         let orders = response.data.unwrap_or_default();
         let symbol_str = symbol.unwrap_or("");
 
-        Ok(orders.iter().map(|o| {
-            let sym = if symbol_str.is_empty() {
-                o.symbol.as_ref()
-                    .and_then(|s| self.markets_by_id.read().ok()?.get(s).cloned())
-                    .unwrap_or_default()
-            } else {
-                symbol_str.to_string()
-            };
-            self.parse_order(o, &sym)
-        }).collect())
+        Ok(orders
+            .iter()
+            .map(|o| {
+                let sym = if symbol_str.is_empty() {
+                    o.symbol
+                        .as_ref()
+                        .and_then(|s| self.markets_by_id.read().ok()?.get(s).cloned())
+                        .unwrap_or_default()
+                } else {
+                    symbol_str.to_string()
+                };
+                self.parse_order(o, &sym)
+            })
+            .collect())
     }
 
     async fn fetch_my_trades(
@@ -1232,15 +1382,21 @@ impl Exchange for Bitget {
             .iter()
             .map(|f| {
                 let timestamp = f.c_time.as_ref().and_then(|t| t.parse::<i64>().ok());
-                let price: Decimal = f.price.as_ref()
+                let price: Decimal = f
+                    .price
+                    .as_ref()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or_default();
-                let amount: Decimal = f.size.as_ref()
+                let amount: Decimal = f
+                    .size
+                    .as_ref()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or_default();
                 let fee_amount: Option<Decimal> = f.fee.as_ref().and_then(|v| v.parse().ok());
 
-                let symbol_str = f.symbol.as_ref()
+                let symbol_str = f
+                    .symbol
+                    .as_ref()
                     .and_then(|s| self.markets_by_id.read().ok()?.get(s).cloned())
                     .unwrap_or_else(|| symbol.unwrap_or("").to_string());
 
@@ -1299,10 +1455,8 @@ impl Exchange for Bitget {
 
         let deposits = response.data.unwrap_or_default();
 
-        let transactions: Vec<Transaction> = deposits
-            .iter()
-            .map(|d| self.parse_deposit(d))
-            .collect();
+        let transactions: Vec<Transaction> =
+            deposits.iter().map(|d| self.parse_deposit(d)).collect();
 
         Ok(transactions)
     }
@@ -1505,37 +1659,51 @@ impl Exchange for Bitget {
 
     // === WebSocket Methods ===
 
-    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ticker(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ticker(symbol).await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_tickers(symbols).await
     }
 
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_order_book(symbol, limit).await
     }
 
-    async fn watch_trades(&self, symbol: &str) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_trades(symbol).await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         let ws = self.ws_client.read().await;
         ws.watch_ohlcv(symbol, timeframe).await
     }
 
     // === Futures Methods ===
 
-    async fn fetch_positions(
-        &self,
-        symbols: Option<&[&str]>,
-    ) -> CcxtResult<Vec<Position>> {
+    async fn fetch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Vec<Position>> {
         let mut params = HashMap::new();
         params.insert("productType".into(), "USDT-FUTURES".into());
 
@@ -1547,7 +1715,8 @@ impl Exchange for Bitget {
             .iter()
             .filter(|p| {
                 // Filter out zero positions
-                p.total.as_ref()
+                p.total
+                    .as_ref()
                     .and_then(|t| t.parse::<Decimal>().ok())
                     .map(|t| t != Decimal::ZERO)
                     .unwrap_or(false)
@@ -1563,11 +1732,7 @@ impl Exchange for Bitget {
         Ok(positions)
     }
 
-    async fn set_leverage(
-        &self,
-        leverage: Decimal,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn set_leverage(&self, leverage: Decimal, symbol: &str) -> CcxtResult<Leverage> {
         let market_id = self.to_mix_market_id(symbol);
 
         let mut params = HashMap::new();
@@ -1589,10 +1754,7 @@ impl Exchange for Bitget {
         Ok(Leverage::new(symbol, MarginMode::Cross, leverage, leverage))
     }
 
-    async fn fetch_leverage(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<Leverage> {
+    async fn fetch_leverage(&self, symbol: &str) -> CcxtResult<Leverage> {
         let positions = self.fetch_positions(Some(&[symbol])).await?;
 
         if let Some(pos) = positions.first() {
@@ -1600,7 +1762,12 @@ impl Exchange for Bitget {
             let margin_mode = pos.margin_mode.clone().unwrap_or(MarginMode::Cross);
             Ok(Leverage::new(symbol, margin_mode, leverage, leverage))
         } else {
-            Ok(Leverage::new(symbol, MarginMode::Cross, Decimal::ONE, Decimal::ONE))
+            Ok(Leverage::new(
+                symbol,
+                MarginMode::Cross,
+                Decimal::ONE,
+                Decimal::ONE,
+            ))
         }
     }
 
@@ -1614,9 +1781,11 @@ impl Exchange for Bitget {
         let mode_str = match margin_mode {
             MarginMode::Cross => "crossed",
             MarginMode::Isolated => "isolated",
-            MarginMode::Unknown => return Err(CcxtError::BadRequest {
-                message: "Unknown margin mode is not supported".into(),
-            }),
+            MarginMode::Unknown => {
+                return Err(CcxtError::BadRequest {
+                    message: "Unknown margin mode is not supported".into(),
+                })
+            },
         };
 
         let mut params = HashMap::new();
@@ -1631,10 +1800,7 @@ impl Exchange for Bitget {
         Ok(MarginModeInfo::new(symbol, margin_mode))
     }
 
-    async fn fetch_funding_rate(
-        &self,
-        symbol: &str,
-    ) -> CcxtResult<FundingRate> {
+    async fn fetch_funding_rate(&self, symbol: &str) -> CcxtResult<FundingRate> {
         let market_id = self.to_mix_market_id(symbol);
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -1719,12 +1885,13 @@ impl Exchange for Bitget {
         params.insert("symbol".into(), market_id);
         params.insert("productType".into(), "USDT-FUTURES".into());
 
-        let response: BitgetOpenInterestData = self
-            .mix_public_get("/open-interest", Some(params))
-            .await?;
+        let response: BitgetOpenInterestData =
+            self.mix_public_get("/open-interest", Some(params)).await?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let amount: Decimal = response.amount.as_ref()
+        let amount: Decimal = response
+            .amount
+            .as_ref()
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
 
@@ -1767,10 +1934,14 @@ impl Exchange for Bitget {
         })?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let index_price: Decimal = data.index_price.as_ref()
+        let index_price: Decimal = data
+            .index_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
-        let mark_price: Decimal = data.mark_price.as_ref()
+        let mark_price: Decimal = data
+            .mark_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
 
@@ -1802,7 +1973,9 @@ impl Exchange for Bitget {
         })?;
 
         let timestamp = Utc::now().timestamp_millis();
-        let mark_price: Decimal = data.mark_price.as_ref()
+        let mark_price: Decimal = data
+            .mark_price
+            .as_ref()
             .and_then(|p| p.parse().ok())
             .unwrap_or_default();
 
@@ -1835,7 +2008,12 @@ impl Exchange for Bitget {
 
         for data in &response {
             let market_id = &data.symbol;
-            let symbol = match self.markets_by_id.read().ok().and_then(|m| m.get(market_id).cloned()) {
+            let symbol = match self
+                .markets_by_id
+                .read()
+                .ok()
+                .and_then(|m| m.get(market_id).cloned())
+            {
                 Some(s) => s,
                 None => continue,
             };
@@ -1851,14 +2029,17 @@ impl Exchange for Bitget {
                 None => continue,
             };
 
-            tickers.insert(symbol.clone(), Ticker {
-                symbol,
-                timestamp: Some(timestamp),
-                datetime: Some(Utc::now().to_rfc3339()),
-                mark_price: Some(mark_price),
-                info: serde_json::to_value(data).unwrap_or_default(),
-                ..Default::default()
-            });
+            tickers.insert(
+                symbol.clone(),
+                Ticker {
+                    symbol,
+                    timestamp: Some(timestamp),
+                    datetime: Some(Utc::now().to_rfc3339()),
+                    mark_price: Some(mark_price),
+                    info: serde_json::to_value(data).unwrap_or_default(),
+                    ..Default::default()
+                },
+            );
         }
 
         Ok(tickers)
@@ -1872,9 +2053,12 @@ impl Exchange for Bitget {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_mix_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -1894,19 +2078,22 @@ impl Exchange for Bitget {
 
         let data = response.data.unwrap_or_default();
 
-        let ohlcv: Vec<OHLCV> = data.iter().filter_map(|c| {
-            if c.len() < 5 {
-                return None;
-            }
-            Some(OHLCV {
-                timestamp: c[0].parse().ok()?,
-                open: c[1].parse().ok()?,
-                high: c[2].parse().ok()?,
-                low: c[3].parse().ok()?,
-                close: c[4].parse().ok()?,
-                volume: Decimal::ZERO, // Mark price candles have no volume
+        let ohlcv: Vec<OHLCV> = data
+            .iter()
+            .filter_map(|c| {
+                if c.len() < 5 {
+                    return None;
+                }
+                Some(OHLCV {
+                    timestamp: c[0].parse().ok()?,
+                    open: c[1].parse().ok()?,
+                    high: c[2].parse().ok()?,
+                    low: c[3].parse().ok()?,
+                    close: c[4].parse().ok()?,
+                    volume: Decimal::ZERO, // Mark price candles have no volume
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(ohlcv)
     }
@@ -1919,9 +2106,12 @@ impl Exchange for Bitget {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.to_mix_market_id(symbol);
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -1941,19 +2131,22 @@ impl Exchange for Bitget {
 
         let data = response.data.unwrap_or_default();
 
-        let ohlcv: Vec<OHLCV> = data.iter().filter_map(|c| {
-            if c.len() < 5 {
-                return None;
-            }
-            Some(OHLCV {
-                timestamp: c[0].parse().ok()?,
-                open: c[1].parse().ok()?,
-                high: c[2].parse().ok()?,
-                low: c[3].parse().ok()?,
-                close: c[4].parse().ok()?,
-                volume: Decimal::ZERO, // Index price candles have no volume
+        let ohlcv: Vec<OHLCV> = data
+            .iter()
+            .filter_map(|c| {
+                if c.len() < 5 {
+                    return None;
+                }
+                Some(OHLCV {
+                    timestamp: c[0].parse().ok()?,
+                    open: c[1].parse().ok()?,
+                    high: c[2].parse().ok()?,
+                    low: c[3].parse().ok()?,
+                    close: c[4].parse().ok()?,
+                    volume: Decimal::ZERO, // Index price candles have no volume
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(ohlcv)
     }
@@ -1977,14 +2170,15 @@ impl Exchange for Bitget {
 
         let _ = symbol; // symbol is optional for Bitget
 
-        let mode = if hedged { PositionMode::Hedged } else { PositionMode::OneWay };
+        let mode = if hedged {
+            PositionMode::Hedged
+        } else {
+            PositionMode::OneWay
+        };
         Ok(PositionModeInfo::new(mode).with_info(response))
     }
 
-    async fn fetch_position_mode(
-        &self,
-        symbol: Option<&str>,
-    ) -> CcxtResult<PositionModeInfo> {
+    async fn fetch_position_mode(&self, symbol: Option<&str>) -> CcxtResult<PositionModeInfo> {
         let product_type = "USDT-FUTURES";
 
         let mut params = HashMap::new();
@@ -1997,7 +2191,8 @@ impl Exchange for Bitget {
         let _ = symbol; // symbol is optional
 
         // Parse position mode from response
-        let pos_mode = response.get("posMode")
+        let pos_mode = response
+            .get("posMode")
             .and_then(|v| v.as_str())
             .unwrap_or("one_way_mode");
 
@@ -2010,11 +2205,7 @@ impl Exchange for Bitget {
         Ok(PositionModeInfo::new(mode).with_info(response))
     }
 
-    async fn add_margin(
-        &self,
-        symbol: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginModification> {
+    async fn add_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<MarginModification> {
         let market_id = self.to_mix_market_id(symbol);
         let product_type = "USDT-FUTURES";
 
@@ -2038,11 +2229,7 @@ impl Exchange for Bitget {
         })
     }
 
-    async fn reduce_margin(
-        &self,
-        symbol: &str,
-        amount: Decimal,
-    ) -> CcxtResult<MarginModification> {
+    async fn reduce_margin(&self, symbol: &str, amount: Decimal) -> CcxtResult<MarginModification> {
         // Bitget uses negative amount for reducing margin
         let market_id = self.to_mix_market_id(symbol);
         let product_type = "USDT-FUTURES";

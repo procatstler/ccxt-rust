@@ -1,0 +1,73 @@
+name: Code Coverage
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - 'ccxt-rust/src/**'
+      - 'ccxt-rust/tests/**'
+      - 'ccxt-rust/Cargo.toml'
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - 'ccxt-rust/src/**'
+      - 'ccxt-rust/tests/**'
+      - 'ccxt-rust/Cargo.toml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: ccxt-rust
+
+jobs:
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ccxt-rust/target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coverage-
+
+      - name: Generate coverage report
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ccxt-rust/lcov.info
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Generate coverage summary
+        run: cargo llvm-cov --all-features --workspace --text | head -50
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(cargo llvm-cov --all-features --workspace --json | jq '.data[0].totals.lines.percent')
+          echo "Coverage: ${COVERAGE}%"
+          # Warn if coverage drops below 50%
+          if (( $(echo "$COVERAGE < 50" | bc -l) )); then
+            echo "::warning::Code coverage is below 50%"
+          fi

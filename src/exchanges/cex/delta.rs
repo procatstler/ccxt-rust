@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -121,23 +121,33 @@ impl Delta {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp().to_string();
-        let body_str = body.as_ref()
+        let body_str = body
+            .as_ref()
             .map(|b| serde_json::to_string(b).unwrap_or_default())
             .unwrap_or_default();
 
         // Signature: method + timestamp + path + body
         let signature_payload = format!("{method}{timestamp}{path}{body_str}");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(signature_payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -235,7 +245,11 @@ impl Exchange for Delta {
 
         if !response.success.unwrap_or(false) {
             return Err(CcxtError::ExchangeError {
-                message: response.error.as_ref().and_then(|e| e.message.clone()).unwrap_or_else(|| "Unknown error".into()),
+                message: response
+                    .error
+                    .as_ref()
+                    .and_then(|e| e.message.clone())
+                    .unwrap_or_else(|| "Unknown error".into()),
             });
         }
 
@@ -244,10 +258,14 @@ impl Exchange for Delta {
 
         for product in &data {
             let id = product.symbol.clone().unwrap_or_default();
-            let base = product.underlying_asset.as_ref()
+            let base = product
+                .underlying_asset
+                .as_ref()
                 .and_then(|a| a.symbol.clone())
                 .unwrap_or_default();
-            let quote = product.quoting_asset.as_ref()
+            let quote = product
+                .quoting_asset
+                .as_ref()
                 .and_then(|a| a.symbol.clone())
                 .unwrap_or_else(|| "USD".to_string());
 
@@ -284,11 +302,19 @@ impl Exchange for Delta {
                 linear: Some(!product.is_quanto.unwrap_or(false)),
                 inverse: Some(product.is_quanto.unwrap_or(false)),
                 sub_type: Some(if is_perpetual { "linear" } else { "inverse" }.to_string()),
-                taker: product.taker_commission_rate.as_ref().and_then(|s| s.parse().ok()),
-                maker: product.maker_commission_rate.as_ref().and_then(|s| s.parse().ok()),
+                taker: product
+                    .taker_commission_rate
+                    .as_ref()
+                    .and_then(|s| s.parse().ok()),
+                maker: product
+                    .maker_commission_rate
+                    .as_ref()
+                    .and_then(|s| s.parse().ok()),
                 contract_size: product.contract_value.as_ref().and_then(|s| s.parse().ok()),
                 expiry: product.settlement_time.as_ref().and_then(|s| {
-                    chrono::DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.timestamp_millis())
+                    chrono::DateTime::parse_from_rfc3339(s)
+                        .ok()
+                        .map(|dt| dt.timestamp_millis())
                 }),
                 expiry_datetime: product.settlement_time.clone(),
                 strike: product.strike_price.as_ref().and_then(|s| s.parse().ok()),
@@ -360,7 +386,10 @@ impl Exchange for Delta {
             last: data.close.as_ref().and_then(|s| s.parse().ok()),
             previous_close: None,
             change: None,
-            percentage: data.price_change_percent_24h.as_ref().and_then(|s| s.parse().ok()),
+            percentage: data
+                .price_change_percent_24h
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             average: None,
             base_volume: data.volume.as_ref().and_then(|s| s.parse().ok()),
             quote_volume: data.turnover.as_ref().and_then(|s| s.parse().ok()),
@@ -386,7 +415,9 @@ impl Exchange for Delta {
 
         let timestamp = Utc::now().timestamp_millis();
 
-        let bids: Vec<OrderBookEntry> = data.buy.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .buy
+            .iter()
             .filter_map(|b| {
                 Some(OrderBookEntry {
                     price: b.price.as_ref()?.parse().ok()?,
@@ -395,7 +426,9 @@ impl Exchange for Delta {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.sell.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .sell
+            .iter()
             .filter_map(|a| {
                 Some(OrderBookEntry {
                     price: a.price.as_ref()?.parse().ok()?,
@@ -411,10 +444,16 @@ impl Exchange for Delta {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
-    async fn fetch_trades(&self, symbol: &str, _since: Option<i64>, limit: Option<u32>) -> CcxtResult<Vec<Trade>> {
+    async fn fetch_trades(
+        &self,
+        symbol: &str,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.market_id(symbol).unwrap_or_else(|| symbol.to_string());
         let path = format!("/trades/{market_id}");
 
@@ -423,12 +462,21 @@ impl Exchange for Delta {
         let data = response.result.unwrap_or_default();
         let limit = limit.unwrap_or(100) as usize;
 
-        let trades: Vec<Trade> = data.iter()
+        let trades: Vec<Trade> = data
+            .iter()
             .take(limit)
             .map(|t| {
                 let timestamp = t.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
-                let price: Decimal = t.price.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-                let amount: Decimal = t.size.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+                let price: Decimal = t
+                    .price
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
+                let amount: Decimal = t
+                    .size
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
 
                 Trade {
                     id: t.id.map(|i| i.to_string()).unwrap_or_default(),
@@ -441,9 +489,10 @@ impl Exchange for Delta {
                     ),
                     symbol: symbol.to_string(),
                     trade_type: None,
-                    side: t.buyer_role.as_ref().map(|r| {
-                        if r == "taker" { "buy" } else { "sell" }.to_string()
-                    }),
+                    side: t
+                        .buyer_role
+                        .as_ref()
+                        .map(|r| if r == "taker" { "buy" } else { "sell" }.to_string()),
                     taker_or_maker: None, // Delta uses string buyer_role
                     price,
                     amount,
@@ -466,7 +515,11 @@ impl Exchange for Delta {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = self.market_id(symbol).unwrap_or_else(|| symbol.to_string());
-        let resolution = self.timeframes.get(&timeframe).cloned().unwrap_or_else(|| "1h".into());
+        let resolution = self
+            .timeframes
+            .get(&timeframe)
+            .cloned()
+            .unwrap_or_else(|| "1h".into());
         let path = "/history/candles".to_string();
 
         let mut params = HashMap::new();
@@ -481,10 +534,12 @@ impl Exchange for Delta {
             params.insert("end".into(), end.to_string());
         }
 
-        let response: DeltaResponse<Vec<DeltaCandle>> = self.public_get(&path, Some(params)).await?;
+        let response: DeltaResponse<Vec<DeltaCandle>> =
+            self.public_get(&path, Some(params)).await?;
 
         let data = response.result.unwrap_or_default();
-        let ohlcv: Vec<OHLCV> = data.iter()
+        let ohlcv: Vec<OHLCV> = data
+            .iter()
             .filter_map(|c| {
                 Some(OHLCV {
                     timestamp: c.time? * 1000,
@@ -514,10 +569,14 @@ impl Exchange for Delta {
 
         for balance_data in &data {
             if let Some(asset) = balance_data.asset.as_ref().and_then(|a| a.symbol.clone()) {
-                let free: Decimal = balance_data.available_balance.as_ref()
+                let free: Decimal = balance_data
+                    .available_balance
+                    .as_ref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or_default();
-                let total: Decimal = balance_data.balance.as_ref()
+                let total: Decimal = balance_data
+                    .balance
+                    .as_ref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or_default();
 
@@ -566,15 +625,20 @@ impl Exchange for Delta {
             body["limit_price"] = serde_json::json!(p.to_string());
         }
 
-        let response: DeltaResponse<DeltaOrder> = self
-            .private_request("POST", "/orders", Some(body))
-            .await?;
+        let response: DeltaResponse<DeltaOrder> =
+            self.private_request("POST", "/orders", Some(body)).await?;
 
         let data = response.result.ok_or_else(|| CcxtError::ExchangeError {
-            message: response.error.as_ref().and_then(|e| e.message.clone()).unwrap_or_else(|| "Order creation failed".into()),
+            message: response
+                .error
+                .as_ref()
+                .and_then(|e| e.message.clone())
+                .unwrap_or_else(|| "Order creation failed".into()),
         })?;
 
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -659,15 +723,15 @@ impl Exchange for Delta {
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
         let path = format!("/orders/{id}");
 
-        let response: DeltaResponse<DeltaOrder> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: DeltaResponse<DeltaOrder> = self.private_request("GET", &path, None).await?;
 
         let data = response.result.ok_or_else(|| CcxtError::OrderNotFound {
             order_id: id.to_string(),
         })?;
 
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -693,8 +757,16 @@ impl Exchange for Delta {
             _ => OrderType::Limit,
         };
 
-        let amount: Decimal = data.size.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-        let unfilled: Decimal = data.unfilled_size.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+        let amount: Decimal = data
+            .size
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        let unfilled: Decimal = data
+            .unfilled_size
+            .as_ref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
 
         Ok(Order {
             id: data.id.map(|i| i.to_string()).unwrap_or_default(),
@@ -709,7 +781,10 @@ impl Exchange for Delta {
             time_in_force: None, // Delta uses string time_in_force
             side,
             price: data.limit_price.as_ref().and_then(|s| s.parse().ok()),
-            average: data.average_fill_price.as_ref().and_then(|s| s.parse().ok()),
+            average: data
+                .average_fill_price
+                .as_ref()
+                .and_then(|s| s.parse().ok()),
             amount,
             filled: amount - unfilled,
             remaining: Some(unfilled),
@@ -737,23 +812,29 @@ impl Exchange for Delta {
         params.insert("state".into(), "open".to_string());
 
         if let Some(s) = symbol {
-            params.insert("product_symbol".into(), self.market_id(s).unwrap_or_else(|| s.to_string()));
+            params.insert(
+                "product_symbol".into(),
+                self.market_id(s).unwrap_or_else(|| s.to_string()),
+            );
         }
 
-        let query = params.iter()
+        let query = params
+            .iter()
             .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("&");
         let path = format!("/orders?{query}");
 
-        let response: DeltaResponse<Vec<DeltaOrder>> = self
-            .private_request("GET", &path, None)
-            .await?;
+        let response: DeltaResponse<Vec<DeltaOrder>> =
+            self.private_request("GET", &path, None).await?;
 
         let data = response.result.unwrap_or_default();
-        let orders: Vec<Order> = data.iter()
+        let orders: Vec<Order> = data
+            .iter()
             .map(|o| {
-                let timestamp = o.created_at.as_ref()
+                let timestamp = o
+                    .created_at
+                    .as_ref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis())
                     .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -772,8 +853,16 @@ impl Exchange for Delta {
                     _ => OrderType::Limit,
                 };
 
-                let amount: Decimal = o.size.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
-                let unfilled: Decimal = o.unfilled_size.as_ref().and_then(|s| s.parse().ok()).unwrap_or_default();
+                let amount: Decimal = o
+                    .size
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
+                let unfilled: Decimal = o
+                    .unfilled_size
+                    .as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
 
                 Order {
                     id: o.id.map(|i| i.to_string()).unwrap_or_default(),

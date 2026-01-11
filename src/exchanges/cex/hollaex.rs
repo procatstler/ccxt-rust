@@ -16,9 +16,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -148,12 +148,18 @@ impl Hollaex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // Calculate expiration (default 60 seconds from now)
         let expires = Utc::now().timestamp() + 60;
@@ -168,8 +174,8 @@ impl Hollaex {
         };
 
         // Create HMAC-SHA256 signature
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(auth_str.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -199,7 +205,7 @@ impl Hollaex {
                     None
                 };
                 self.private_client.post(&url, body, Some(headers)).await
-            }
+            },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -209,7 +215,9 @@ impl Hollaex {
 
     /// Parse ticker response
     fn parse_ticker(&self, data: &HollaexTicker, symbol: &str) -> Ticker {
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis())
             .or_else(|| Some(Utc::now().timestamp_millis()));
@@ -279,16 +287,22 @@ impl Hollaex {
             None
         };
 
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
 
-        let updated_timestamp = data.updated_at.as_ref()
+        let updated_timestamp = data
+            .updated_at
+            .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
 
         // Check for post-only meta flag
-        let post_only = data.meta.as_ref()
+        let post_only = data
+            .meta
+            .as_ref()
             .and_then(|m| m.get("post_only"))
             .and_then(|v| v.as_bool());
 
@@ -344,11 +358,13 @@ impl Hollaex {
                     let free_key = format!("{currency}_available");
                     let total_key = format!("{currency}_balance");
 
-                    let free = obj.get(&free_key)
+                    let free = obj
+                        .get(&free_key)
                         .and_then(|v| v.as_str())
                         .and_then(|s| s.parse::<Decimal>().ok());
 
-                    let total = obj.get(&total_key)
+                    let total = obj
+                        .get(&total_key)
                         .and_then(|v| v.as_str())
                         .and_then(|s| s.parse::<Decimal>().ok());
 
@@ -374,7 +390,9 @@ impl Hollaex {
 
     /// Parse trade response
     fn parse_trade(&self, data: &HollaexTrade, symbol: &str) -> Trade {
-        let timestamp = data.timestamp.as_ref()
+        let timestamp = data
+            .timestamp
+            .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
 
@@ -471,9 +489,7 @@ impl Exchange for Hollaex {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: HollaexConstants = self
-            .public_get("/v2/constants", None)
-            .await?;
+        let response: HollaexConstants = self.public_get("/v2/constants", None).await?;
 
         let mut markets = Vec::new();
 
@@ -512,8 +528,24 @@ impl Exchange for Hollaex {
                 strike: None,
                 option_type: None,
                 precision: MarketPrecision {
-                    amount: Some(pair_data.increment_size.to_string().split('.').nth(1).map(|s| s.len() as i32).unwrap_or(8)),
-                    price: Some(pair_data.increment_price.to_string().split('.').nth(1).map(|s| s.len() as i32).unwrap_or(8)),
+                    amount: Some(
+                        pair_data
+                            .increment_size
+                            .to_string()
+                            .split('.')
+                            .nth(1)
+                            .map(|s| s.len() as i32)
+                            .unwrap_or(8),
+                    ),
+                    price: Some(
+                        pair_data
+                            .increment_price
+                            .to_string()
+                            .split('.')
+                            .nth(1)
+                            .map(|s| s.len() as i32)
+                            .unwrap_or(8),
+                    ),
                     cost: None,
                     base: None,
                     quote: None,
@@ -527,11 +559,19 @@ impl Exchange for Hollaex {
                         min: Some(pair_data.min_price),
                         max: Some(pair_data.max_price),
                     },
-                    cost: crate::types::MinMax { min: None, max: None },
-                    leverage: crate::types::MinMax { min: None, max: None },
+                    cost: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    leverage: crate::types::MinMax {
+                        min: None,
+                        max: None,
+                    },
                 },
                 margin_modes: None,
-                created: pair_data.created_at.as_ref()
+                created: pair_data
+                    .created_at
+                    .as_ref()
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                     .map(|dt| dt.timestamp_millis()),
                 info: serde_json::to_value(&pair_data).unwrap_or_default(),
@@ -548,7 +588,8 @@ impl Exchange for Hollaex {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
                 .ok_or_else(|| CcxtError::BadSymbol {
                     symbol: symbol.to_string(),
@@ -558,17 +599,13 @@ impl Exchange for Hollaex {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
 
-        let response: HollaexTicker = self
-            .public_get("/v2/ticker", Some(params))
-            .await?;
+        let response: HollaexTicker = self.public_get("/v2/ticker", Some(params)).await?;
 
         Ok(self.parse_ticker(&response, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: HashMap<String, HollaexTicker> = self
-            .public_get("/v2/tickers", None)
-            .await?;
+        let response: HashMap<String, HollaexTicker> = self.public_get("/v2/tickers", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut tickers = HashMap::new();
@@ -592,7 +629,8 @@ impl Exchange for Hollaex {
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
                 .ok_or_else(|| CcxtError::BadSymbol {
                     symbol: symbol.to_string(),
@@ -602,15 +640,17 @@ impl Exchange for Hollaex {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id.clone());
 
-        let response: HashMap<String, HollaexOrderBookData> = self
-            .public_get("/v2/orderbook", Some(params))
-            .await?;
+        let response: HashMap<String, HollaexOrderBookData> =
+            self.public_get("/v2/orderbook", Some(params)).await?;
 
-        let orderbook_data = response.get(&market_id).ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("No orderbook data for {market_id}"),
-        })?;
+        let orderbook_data = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("No orderbook data for {market_id}"),
+            })?;
 
-        let mut bids: Vec<OrderBookEntry> = orderbook_data.bids
+        let mut bids: Vec<OrderBookEntry> = orderbook_data
+            .bids
             .iter()
             .take(limit.unwrap_or(u32::MAX) as usize)
             .map(|b| OrderBookEntry {
@@ -619,7 +659,8 @@ impl Exchange for Hollaex {
             })
             .collect();
 
-        let mut asks: Vec<OrderBookEntry> = orderbook_data.asks
+        let mut asks: Vec<OrderBookEntry> = orderbook_data
+            .asks
             .iter()
             .take(limit.unwrap_or(u32::MAX) as usize)
             .map(|a| OrderBookEntry {
@@ -632,7 +673,9 @@ impl Exchange for Hollaex {
         bids.sort_by(|a, b| b.price.cmp(&a.price)); // Descending
         asks.sort_by(|a, b| a.price.cmp(&b.price)); // Ascending
 
-        let timestamp = orderbook_data.timestamp.as_ref()
+        let timestamp = orderbook_data
+            .timestamp
+            .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis());
 
@@ -643,6 +686,7 @@ impl Exchange for Hollaex {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -654,7 +698,8 @@ impl Exchange for Hollaex {
     ) -> CcxtResult<Vec<Trade>> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
                 .ok_or_else(|| CcxtError::BadSymbol {
                     symbol: symbol.to_string(),
@@ -664,19 +709,22 @@ impl Exchange for Hollaex {
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id.clone());
 
-        let response: HashMap<String, Vec<HollaexPublicTrade>> = self
-            .public_get("/v2/trades", Some(params))
-            .await?;
+        let response: HashMap<String, Vec<HollaexPublicTrade>> =
+            self.public_get("/v2/trades", Some(params)).await?;
 
-        let trades_data = response.get(&market_id).ok_or_else(|| CcxtError::ExchangeError {
-            message: format!("No trades data for {market_id}"),
-        })?;
+        let trades_data = response
+            .get(&market_id)
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: format!("No trades data for {market_id}"),
+            })?;
 
         let mut trades: Vec<Trade> = trades_data
             .iter()
             .take(limit.unwrap_or(u32::MAX) as usize)
             .map(|t| {
-                let timestamp = t.timestamp.as_ref()
+                let timestamp = t
+                    .timestamp
+                    .as_ref()
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                     .map(|dt| dt.timestamp_millis());
 
@@ -717,16 +765,20 @@ impl Exchange for Hollaex {
     ) -> CcxtResult<Vec<OHLCV>> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
                 .ok_or_else(|| CcxtError::BadSymbol {
                     symbol: symbol.to_string(),
                 })?
         };
 
-        let resolution = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let resolution = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
@@ -746,19 +798,21 @@ impl Exchange for Hollaex {
         };
 
         let to = Utc::now().timestamp();
-        let from = since.map(|s| s / 1000).unwrap_or(to - (timeframe_ms * limit_val as i64) / 1000);
+        let from = since
+            .map(|s| s / 1000)
+            .unwrap_or(to - (timeframe_ms * limit_val as i64) / 1000);
 
         params.insert("from".into(), from.to_string());
         params.insert("to".into(), to.to_string());
 
-        let response: Vec<HollaexOHLCV> = self
-            .public_get("/v2/chart", Some(params))
-            .await?;
+        let response: Vec<HollaexOHLCV> = self.public_get("/v2/chart", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .iter()
             .filter_map(|c| {
-                let timestamp = c.time.as_ref()
+                let timestamp = c
+                    .time
+                    .as_ref()
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                     .map(|dt| dt.timestamp_millis())?;
 
@@ -794,7 +848,8 @@ impl Exchange for Hollaex {
     ) -> CcxtResult<Order> {
         let market_id = {
             let markets = self.markets.read().unwrap();
-            markets.get(symbol)
+            markets
+                .get(symbol)
                 .map(|m| m.id.clone())
                 .ok_or_else(|| CcxtError::BadSymbol {
                     symbol: symbol.to_string(),
@@ -803,18 +858,28 @@ impl Exchange for Hollaex {
 
         let mut params = HashMap::new();
         params.insert("symbol".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .into(),
+        );
         params.insert("size".into(), amount.to_string());
-        params.insert("type".into(), match order_type {
-            OrderType::Limit => "limit",
-            OrderType::Market => "market",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "type".into(),
+            match order_type {
+                OrderType::Limit => "limit",
+                OrderType::Market => "market",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
 
         if order_type == OrderType::Limit {
             let price_val = price.ok_or_else(|| CcxtError::ArgumentsRequired {
@@ -823,9 +888,7 @@ impl Exchange for Hollaex {
             params.insert("price".into(), price_val.to_string());
         }
 
-        let response: HollaexOrder = self
-            .private_request("POST", "/v2/order", params)
-            .await?;
+        let response: HollaexOrder = self.private_request("POST", "/v2/order", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -834,9 +897,7 @@ impl Exchange for Hollaex {
         let mut params = HashMap::new();
         params.insert("order_id".into(), id.to_string());
 
-        let response: HollaexOrder = self
-            .private_request("DELETE", "/v2/order", params)
-            .await?;
+        let response: HollaexOrder = self.private_request("DELETE", "/v2/order", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -845,9 +906,7 @@ impl Exchange for Hollaex {
         let mut params = HashMap::new();
         params.insert("order_id".into(), id.to_string());
 
-        let response: HollaexOrder = self
-            .private_request("GET", "/v2/order", params)
-            .await?;
+        let response: HollaexOrder = self.private_request("GET", "/v2/order", params).await?;
 
         Ok(self.parse_order(&response, symbol))
     }
@@ -863,7 +922,8 @@ impl Exchange for Hollaex {
         if let Some(s) = symbol {
             let market_id = {
                 let markets = self.markets.read().unwrap();
-                markets.get(s)
+                markets
+                    .get(s)
                     .map(|m| m.id.clone())
                     .ok_or_else(|| CcxtError::BadSymbol {
                         symbol: s.to_string(),
@@ -883,12 +943,12 @@ impl Exchange for Hollaex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: HollaexOrdersResponse = self
-            .private_request("GET", "/v2/orders", params)
-            .await?;
+        let response: HollaexOrdersResponse =
+            self.private_request("GET", "/v2/orders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let orders: Vec<Order> = response.data
+        let orders: Vec<Order> = response
+            .data
             .iter()
             .map(|o| {
                 let sym = markets_by_id
@@ -914,7 +974,8 @@ impl Exchange for Hollaex {
         if let Some(s) = symbol {
             let market_id = {
                 let markets = self.markets.read().unwrap();
-                markets.get(s)
+                markets
+                    .get(s)
                     .map(|m| m.id.clone())
                     .ok_or_else(|| CcxtError::BadSymbol {
                         symbol: s.to_string(),
@@ -934,12 +995,12 @@ impl Exchange for Hollaex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: HollaexOrdersResponse = self
-            .private_request("GET", "/v2/orders", params)
-            .await?;
+        let response: HollaexOrdersResponse =
+            self.private_request("GET", "/v2/orders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let orders: Vec<Order> = response.data
+        let orders: Vec<Order> = response
+            .data
             .iter()
             .map(|o| {
                 let sym = markets_by_id
@@ -965,7 +1026,8 @@ impl Exchange for Hollaex {
         if let Some(s) = symbol {
             let market_id = {
                 let markets = self.markets.read().unwrap();
-                markets.get(s)
+                markets
+                    .get(s)
                     .map(|m| m.id.clone())
                     .ok_or_else(|| CcxtError::BadSymbol {
                         symbol: s.to_string(),
@@ -985,12 +1047,12 @@ impl Exchange for Hollaex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: HollaexOrdersResponse = self
-            .private_request("GET", "/v2/orders", params)
-            .await?;
+        let response: HollaexOrdersResponse =
+            self.private_request("GET", "/v2/orders", params).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let orders: Vec<Order> = response.data
+        let orders: Vec<Order> = response
+            .data
             .iter()
             .map(|o| {
                 let sym = markets_by_id
@@ -1015,7 +1077,8 @@ impl Exchange for Hollaex {
         if let Some(s) = symbol {
             let market_id = {
                 let markets = self.markets.read().unwrap();
-                markets.get(s)
+                markets
+                    .get(s)
                     .map(|m| m.id.clone())
                     .ok_or_else(|| CcxtError::BadSymbol {
                         symbol: s.to_string(),
@@ -1040,12 +1103,17 @@ impl Exchange for Hollaex {
             .await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
-        let trades: Vec<Trade> = response.data
+        let trades: Vec<Trade> = response
+            .data
             .iter()
             .map(|t| {
                 let sym = symbol
                     .map(|s| s.to_string())
-                    .or_else(|| markets_by_id.get(&t.symbol.clone().unwrap_or_default()).cloned())
+                    .or_else(|| {
+                        markets_by_id
+                            .get(&t.symbol.clone().unwrap_or_default())
+                            .cloned()
+                    })
                     .unwrap_or_default();
                 self.parse_trade(t, &sym)
             })

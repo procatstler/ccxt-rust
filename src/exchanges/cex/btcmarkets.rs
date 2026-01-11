@@ -14,9 +14,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 #[allow(dead_code)]
@@ -121,12 +121,18 @@ impl Btcmarkets {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let body_str = body.as_deref().unwrap_or("");
@@ -139,13 +145,11 @@ impl Btcmarkets {
         };
 
         // Decode base64 secret
-        let secret_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            api_secret,
-        )
-        .map_err(|_| CcxtError::AuthenticationError {
-            message: "Invalid API secret encoding".into(),
-        })?;
+        let secret_bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, api_secret)
+                .map_err(|_| CcxtError::AuthenticationError {
+                    message: "Invalid API secret encoding".into(),
+                })?;
 
         let mut mac = HmacSha512::new_from_slice(&secret_bytes).map_err(|_| {
             CcxtError::AuthenticationError {
@@ -173,7 +177,7 @@ impl Btcmarkets {
                     Some(serde_json::from_str(body_str).unwrap_or(serde_json::Value::Null))
                 };
                 self.client.post(path, body_value, Some(headers)).await
-            }
+            },
             "DELETE" => self.client.delete(path, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method {method}"),
@@ -422,6 +426,7 @@ impl Exchange for Btcmarkets {
             timestamp: Some(timestamp),
             datetime: Some(Utc::now().to_rfc3339()),
             nonce: None,
+            checksum: None,
             bids: parse_entries(&response.bids),
             asks: parse_entries(&response.asks),
         })
@@ -458,7 +463,10 @@ impl Exchange for Btcmarkets {
                     taker_or_maker: None,
                     price: t.price.unwrap_or_default(),
                     amount: t.amount.unwrap_or_default(),
-                    cost: t.price.as_ref().and_then(|p| t.amount.as_ref().map(|a| p * a)),
+                    cost: t
+                        .price
+                        .as_ref()
+                        .and_then(|p| t.amount.as_ref().map(|a| p * a)),
                     fee: None,
                     fees: Vec::new(),
                     info: serde_json::to_value(t).unwrap_or_default(),
@@ -518,9 +526,9 @@ impl Exchange for Btcmarkets {
     }
 
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
-        let response: Vec<BtcmarketsBalance> =
-            self.private_request("GET", "/accounts/me/balances", None)
-                .await?;
+        let response: Vec<BtcmarketsBalance> = self
+            .private_request("GET", "/accounts/me/balances", None)
+            .await?;
 
         let mut balances = Balances::default();
         let timestamp = Utc::now().timestamp_millis();
@@ -568,7 +576,7 @@ impl Exchange for Btcmarkets {
                 return Err(CcxtError::NotSupported {
                     feature: format!("Order type {order_type:?}"),
                 })
-            }
+            },
         };
 
         let mut order_data = serde_json::json!({
@@ -598,7 +606,7 @@ impl Exchange for Btcmarkets {
             Some("Fully Matched") => OrderStatus::Closed,
             Some("Cancelled") | Some("Partially Cancelled") | Some("Failed") => {
                 OrderStatus::Canceled
-            }
+            },
             _ => OrderStatus::Open,
         };
 
@@ -695,7 +703,7 @@ impl Exchange for Btcmarkets {
             Some("Fully Matched") => OrderStatus::Closed,
             Some("Cancelled") | Some("Partially Cancelled") | Some("Failed") => {
                 OrderStatus::Canceled
-            }
+            },
             _ => OrderStatus::Open,
         };
 

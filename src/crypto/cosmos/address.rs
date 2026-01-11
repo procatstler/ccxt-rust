@@ -18,11 +18,11 @@
 //! - Cosmos: cosmos1abc...xyz
 //! - Osmosis: osmo1abc...xyz
 
+use super::keys::{coin_type, private_key_to_public_key};
 use crate::errors::{CcxtError, CcxtResult};
 use bech32::{Bech32, Hrp};
 use ripemd::Ripemd160;
-use sha2::{Sha256, Digest};
-use super::keys::{private_key_to_public_key, coin_type};
+use sha2::{Digest, Sha256};
 
 /// 체인 설정
 #[derive(Debug, Clone)]
@@ -71,20 +71,12 @@ pub const DYDX_TESTNET: ChainConfig = ChainConfig::new(
 );
 
 /// Cosmos Hub
-pub const COSMOS_HUB: ChainConfig = ChainConfig::new(
-    "Cosmos Hub",
-    "cosmos",
-    coin_type::COSMOS,
-    "cosmoshub-4",
-);
+pub const COSMOS_HUB: ChainConfig =
+    ChainConfig::new("Cosmos Hub", "cosmos", coin_type::COSMOS, "cosmoshub-4");
 
 /// Osmosis
-pub const OSMOSIS: ChainConfig = ChainConfig::new(
-    "Osmosis",
-    "osmo",
-    coin_type::COSMOS,
-    "osmosis-1",
-);
+pub const OSMOSIS: ChainConfig =
+    ChainConfig::new("Osmosis", "osmo", coin_type::COSMOS, "osmosis-1");
 
 /// Injective (EVM 호환)
 pub const INJECTIVE: ChainConfig = ChainConfig::new(
@@ -117,15 +109,15 @@ pub fn public_key_to_address(public_key: &[u8; 33], prefix: &str) -> CcxtResult<
     let ripemd_hash = Ripemd160::digest(sha256_hash);
 
     // Step 3: Bech32 인코딩
-    let hrp = Hrp::parse(prefix)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid address prefix '{prefix}': {e}"),
-        })?;
+    let hrp = Hrp::parse(prefix).map_err(|e| CcxtError::InvalidSignature {
+        message: format!("Invalid address prefix '{prefix}': {e}"),
+    })?;
 
-    let address = bech32::encode::<Bech32>(hrp, ripemd_hash.as_slice())
-        .map_err(|e| CcxtError::InvalidSignature {
+    let address = bech32::encode::<Bech32>(hrp, ripemd_hash.as_slice()).map_err(|e| {
+        CcxtError::InvalidSignature {
             message: format!("Bech32 encoding failed: {e}"),
-        })?;
+        }
+    })?;
 
     Ok(address)
 }
@@ -155,11 +147,13 @@ pub fn private_key_to_address(private_key: &[u8; 32], prefix: &str) -> CcxtResul
 /// # Returns
 ///
 /// 유효하면 (prefix, data) 튜플
-pub fn validate_address(address: &str, expected_prefix: Option<&str>) -> CcxtResult<(String, Vec<u8>)> {
-    let (hrp, data) = bech32::decode(address)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid Bech32 address: {e}"),
-        })?;
+pub fn validate_address(
+    address: &str,
+    expected_prefix: Option<&str>,
+) -> CcxtResult<(String, Vec<u8>)> {
+    let (hrp, data) = bech32::decode(address).map_err(|e| CcxtError::InvalidSignature {
+        message: format!("Invalid Bech32 address: {e}"),
+    })?;
 
     let prefix = hrp.to_string();
 
@@ -196,13 +190,12 @@ pub fn validate_address(address: &str, expected_prefix: Option<&str>) -> CcxtRes
 pub fn convert_address_prefix(address: &str, new_prefix: &str) -> CcxtResult<String> {
     let (_, data) = validate_address(address, None)?;
 
-    let hrp = Hrp::parse(new_prefix)
-        .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid prefix '{new_prefix}': {e}"),
-        })?;
+    let hrp = Hrp::parse(new_prefix).map_err(|e| CcxtError::InvalidSignature {
+        message: format!("Invalid prefix '{new_prefix}': {e}"),
+    })?;
 
-    let new_address = bech32::encode::<Bech32>(hrp, &data)
-        .map_err(|e| CcxtError::InvalidSignature {
+    let new_address =
+        bech32::encode::<Bech32>(hrp, &data).map_err(|e| CcxtError::InvalidSignature {
             message: format!("Bech32 encoding failed: {e}"),
         })?;
 

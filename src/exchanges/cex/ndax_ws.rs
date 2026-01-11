@@ -9,21 +9,21 @@ use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, RwLock};
 use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_URL: &str = "wss://api.ndax.io/WSGateway";
@@ -119,7 +119,12 @@ impl NdaxWs {
     }
 
     /// Subscribe to Level 2 order book
-    async fn subscribe_level2(&self, symbol: &str, instrument_id: u32, depth: u32) -> CcxtResult<()> {
+    async fn subscribe_level2(
+        &self,
+        symbol: &str,
+        instrument_id: u32,
+        depth: u32,
+    ) -> CcxtResult<()> {
         let request_id = self.next_request_id();
         let payload = json!({
             "OMSId": OMS_ID,
@@ -135,7 +140,8 @@ impl NdaxWs {
         });
 
         self.send_message(msg).await?;
-        self.register_instrument(symbol.to_string(), instrument_id).await;
+        self.register_instrument(symbol.to_string(), instrument_id)
+            .await;
         Ok(())
     }
 
@@ -155,7 +161,8 @@ impl NdaxWs {
         });
 
         self.send_message(msg).await?;
-        self.register_instrument(symbol.to_string(), instrument_id).await;
+        self.register_instrument(symbol.to_string(), instrument_id)
+            .await;
         Ok(())
     }
 
@@ -176,7 +183,8 @@ impl NdaxWs {
         });
 
         self.send_message(msg).await?;
-        self.register_instrument(symbol.to_string(), instrument_id).await;
+        self.register_instrument(symbol.to_string(), instrument_id)
+            .await;
         Ok(())
     }
 
@@ -198,7 +206,8 @@ impl NdaxWs {
         });
 
         self.send_message(msg).await?;
-        self.register_instrument(symbol.to_string(), instrument_id).await;
+        self.register_instrument(symbol.to_string(), instrument_id)
+            .await;
         Ok(())
     }
 
@@ -225,17 +234,18 @@ impl NdaxWs {
                                     &subscriptions,
                                     &orderbook_cache,
                                     &instrument_to_symbol,
-                                ).await;
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -254,28 +264,32 @@ impl NdaxWs {
 
         match msg_type {
             // Message type 3 is event
-            3 => {
-                match endpoint {
-                    "Level2UpdateEvent" => {
-                        Self::handle_orderbook_update(data, subscriptions, orderbook_cache, instrument_to_symbol).await;
-                    }
-                    "Level1UpdateEvent" => {
-                        Self::handle_level1_update(data, subscriptions, instrument_to_symbol).await;
-                    }
-                    "TradeDataUpdateEvent" => {
-                        Self::handle_trade_update(data, subscriptions, instrument_to_symbol).await;
-                    }
-                    "TickerDataUpdateEvent" => {
-                        Self::handle_ticker_update(data, subscriptions, instrument_to_symbol).await;
-                    }
-                    _ => {}
-                }
-            }
+            3 => match endpoint {
+                "Level2UpdateEvent" => {
+                    Self::handle_orderbook_update(
+                        data,
+                        subscriptions,
+                        orderbook_cache,
+                        instrument_to_symbol,
+                    )
+                    .await;
+                },
+                "Level1UpdateEvent" => {
+                    Self::handle_level1_update(data, subscriptions, instrument_to_symbol).await;
+                },
+                "TradeDataUpdateEvent" => {
+                    Self::handle_trade_update(data, subscriptions, instrument_to_symbol).await;
+                },
+                "TickerDataUpdateEvent" => {
+                    Self::handle_ticker_update(data, subscriptions, instrument_to_symbol).await;
+                },
+                _ => {},
+            },
             // Message type 1 is response
             1 => {
                 // Handle subscription responses if needed
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -301,10 +315,12 @@ impl NdaxWs {
 
                                 if let Some(symbol) = symbol_opt {
                                     let action_type = update[3].as_u64().unwrap_or(0);
-                                    let price: Decimal = update[6].as_f64()
+                                    let price: Decimal = update[6]
+                                        .as_f64()
                                         .and_then(Decimal::from_f64)
                                         .unwrap_or_default();
-                                    let quantity: Decimal = update[8].as_f64()
+                                    let quantity: Decimal = update[8]
+                                        .as_f64()
                                         .and_then(Decimal::from_f64)
                                         .unwrap_or_default();
                                     let side = update[9].as_u64().unwrap_or(0);
@@ -313,19 +329,23 @@ impl NdaxWs {
                                     let is_snapshot = action_type == 2; // 2 = New, 0 = Update, 1 = Delete
 
                                     let mut cache = orderbook_cache.write().await;
-                                    let orderbook = cache.entry(symbol.clone()).or_insert_with(|| {
-                                        OrderBook {
+                                    let orderbook =
+                                        cache.entry(symbol.clone()).or_insert_with(|| OrderBook {
                                             symbol: symbol.clone(),
                                             bids: Vec::new(),
                                             asks: Vec::new(),
                                             timestamp: None,
                                             datetime: None,
                                             nonce: None,
-                                        }
-                                    });
+                                            checksum: None,
+                                        });
 
                                     // Update orderbook based on action type
-                                    let book_side = if side == 0 { &mut orderbook.bids } else { &mut orderbook.asks };
+                                    let book_side = if side == 0 {
+                                        &mut orderbook.bids
+                                    } else {
+                                        &mut orderbook.asks
+                                    };
 
                                     match action_type {
                                         0 | 2 => {
@@ -335,18 +355,23 @@ impl NdaxWs {
                                                 book_side.retain(|e| e.price != price);
                                             } else {
                                                 // Update or add entry
-                                                if let Some(entry) = book_side.iter_mut().find(|e| e.price == price) {
+                                                if let Some(entry) =
+                                                    book_side.iter_mut().find(|e| e.price == price)
+                                                {
                                                     entry.amount = quantity;
                                                 } else {
-                                                    book_side.push(OrderBookEntry { price, amount: quantity });
+                                                    book_side.push(OrderBookEntry {
+                                                        price,
+                                                        amount: quantity,
+                                                    });
                                                 }
                                             }
-                                        }
+                                        },
                                         1 => {
                                             // Delete
                                             book_side.retain(|e| e.price != price);
-                                        }
-                                        _ => {}
+                                        },
+                                        _ => {},
                                     }
 
                                     // Sort
@@ -361,11 +386,12 @@ impl NdaxWs {
 
                                     let subs = subscriptions.read().await;
                                     if let Some(sender) = subs.get(&key) {
-                                        let _ = sender.send(WsMessage::OrderBook(WsOrderBookEvent {
-                                            symbol: symbol.clone(),
-                                            order_book: orderbook_clone,
-                                            is_snapshot,
-                                        }));
+                                        let _ =
+                                            sender.send(WsMessage::OrderBook(WsOrderBookEvent {
+                                                symbol: symbol.clone(),
+                                                order_book: orderbook_clone,
+                                                is_snapshot,
+                                            }));
                                     }
                                 }
                             }
@@ -384,7 +410,10 @@ impl NdaxWs {
     ) {
         if let Some(payload_str) = data.get("o").and_then(|v| v.as_str()) {
             if let Ok(payload) = serde_json::from_str::<Value>(payload_str) {
-                let instrument_id = payload.get("InstrumentId").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let instrument_id = payload
+                    .get("InstrumentId")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
                 let symbol_opt = {
                     let map = instrument_to_symbol.read().await;
                     map.get(&instrument_id).cloned()
@@ -395,19 +424,33 @@ impl NdaxWs {
 
                     let ticker = Ticker {
                         symbol: symbol.clone(),
-                        last: payload.get("LastTradedPx").and_then(|v| v.as_f64())
+                        last: payload
+                            .get("LastTradedPx")
+                            .and_then(|v| v.as_f64())
                             .and_then(Decimal::from_f64),
-                        bid: payload.get("BestBid").and_then(|v| v.as_f64())
+                        bid: payload
+                            .get("BestBid")
+                            .and_then(|v| v.as_f64())
                             .and_then(Decimal::from_f64),
-                        ask: payload.get("BestOffer").and_then(|v| v.as_f64())
+                        ask: payload
+                            .get("BestOffer")
+                            .and_then(|v| v.as_f64())
                             .and_then(Decimal::from_f64),
-                        high: payload.get("High").and_then(|v| v.as_f64())
+                        high: payload
+                            .get("High")
+                            .and_then(|v| v.as_f64())
                             .and_then(Decimal::from_f64),
-                        low: payload.get("Low").and_then(|v| v.as_f64())
+                        low: payload
+                            .get("Low")
+                            .and_then(|v| v.as_f64())
                             .and_then(Decimal::from_f64),
-                        base_volume: payload.get("Volume").and_then(|v| v.as_f64())
+                        base_volume: payload
+                            .get("Volume")
+                            .and_then(|v| v.as_f64())
                             .and_then(Decimal::from_f64),
-                        timestamp: payload.get("CurrentDayPxChangeTime").and_then(|v| v.as_i64()),
+                        timestamp: payload
+                            .get("CurrentDayPxChangeTime")
+                            .and_then(|v| v.as_i64()),
                         ..Default::default()
                     };
 
@@ -445,11 +488,16 @@ impl NdaxWs {
                                 if let Some(symbol) = symbol_opt {
                                     let key = format!("trades:{symbol}");
 
-                                    let trade_id = trade_array[0].as_u64().map(|id| id.to_string()).unwrap_or_default();
-                                    let quantity: Decimal = trade_array[2].as_f64()
+                                    let trade_id = trade_array[0]
+                                        .as_u64()
+                                        .map(|id| id.to_string())
+                                        .unwrap_or_default();
+                                    let quantity: Decimal = trade_array[2]
+                                        .as_f64()
                                         .and_then(Decimal::from_f64)
                                         .unwrap_or_default();
-                                    let price: Decimal = trade_array[3].as_f64()
+                                    let price: Decimal = trade_array[3]
+                                        .as_f64()
                                         .and_then(Decimal::from_f64)
                                         .unwrap_or_default();
                                     let timestamp = trade_array[6].as_i64();
@@ -458,7 +506,8 @@ impl NdaxWs {
 
                                     let side = if taker_side == 0 { "buy" } else { "sell" };
 
-                                    let mut trade = Trade::new(trade_id, symbol.clone(), price, quantity);
+                                    let mut trade =
+                                        Trade::new(trade_id, symbol.clone(), price, quantity);
                                     trade = trade.with_side(side);
                                     if let Some(ts) = timestamp {
                                         trade = trade.with_timestamp(ts);
@@ -493,7 +542,8 @@ impl NdaxWs {
                         if let Some(ticker) = ticker_array.as_array() {
                             if ticker.len() >= 10 {
                                 // Ticker data format: [timestamp, high, low, open, close, volume, ...]
-                                let instrument_id = ticker.get(1).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                let instrument_id =
+                                    ticker.get(1).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                                 let symbol_opt = {
                                     let map = instrument_to_symbol.read().await;
                                     map.get(&instrument_id).cloned()
@@ -503,11 +553,16 @@ impl NdaxWs {
                                     let key = format!("ticker:{symbol}");
 
                                     let timestamp = ticker[0].as_i64();
-                                    let high: Option<Decimal> = ticker[2].as_f64().and_then(Decimal::from_f64);
-                                    let low: Option<Decimal> = ticker[3].as_f64().and_then(Decimal::from_f64);
-                                    let open: Option<Decimal> = ticker[4].as_f64().and_then(Decimal::from_f64);
-                                    let close: Option<Decimal> = ticker[5].as_f64().and_then(Decimal::from_f64);
-                                    let volume: Option<Decimal> = ticker[6].as_f64().and_then(Decimal::from_f64);
+                                    let high: Option<Decimal> =
+                                        ticker[2].as_f64().and_then(Decimal::from_f64);
+                                    let low: Option<Decimal> =
+                                        ticker[3].as_f64().and_then(Decimal::from_f64);
+                                    let open: Option<Decimal> =
+                                        ticker[4].as_f64().and_then(Decimal::from_f64);
+                                    let close: Option<Decimal> =
+                                        ticker[5].as_f64().and_then(Decimal::from_f64);
+                                    let volume: Option<Decimal> =
+                                        ticker[6].as_f64().and_then(Decimal::from_f64);
 
                                     let ticker_obj = Ticker {
                                         symbol: symbol.clone(),
@@ -609,7 +664,10 @@ impl WsExchange for NdaxWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {

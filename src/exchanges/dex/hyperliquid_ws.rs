@@ -27,9 +27,9 @@ use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, Fee, MarginMode, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
-    OrderType, Position, PositionSide, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
-    WsExchange, WsMessage, WsBalanceEvent, WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent,
-    WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent,
+    OrderType, Position, PositionSide, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade,
+    WsBalanceEvent, WsExchange, WsMessage, WsMyTradeEvent, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsPositionEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 
 const WS_BASE_URL: &str = "wss://api.hyperliquid.xyz/ws";
@@ -212,13 +212,19 @@ impl HyperliquidWs {
         let coin = &data.coin;
         let symbol = Self::coin_to_symbol(coin, !coin.contains('/'));
 
-        let timestamp = data.time.parse::<i64>().ok()
+        let timestamp = data
+            .time
+            .parse::<i64>()
+            .ok()
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         // Parse bids (first array in levels)
-        let bids: Vec<OrderBookEntry> = data.levels.first()
+        let bids: Vec<OrderBookEntry> = data
+            .levels
+            .first()
             .map(|level_array| {
-                level_array.iter()
+                level_array
+                    .iter()
                     .filter_map(|level| {
                         Some(OrderBookEntry {
                             price: Decimal::from_str(&level.px).ok()?,
@@ -230,9 +236,12 @@ impl HyperliquidWs {
             .unwrap_or_default();
 
         // Parse asks (second array in levels)
-        let asks: Vec<OrderBookEntry> = data.levels.get(1)
+        let asks: Vec<OrderBookEntry> = data
+            .levels
+            .get(1)
             .map(|level_array| {
-                level_array.iter()
+                level_array
+                    .iter()
                     .filter_map(|level| {
                         Some(OrderBookEntry {
                             price: Decimal::from_str(&level.px).ok()?,
@@ -254,6 +263,7 @@ impl HyperliquidWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         Some(WsMessage::OrderBook(WsOrderBookEvent {
@@ -272,7 +282,8 @@ impl HyperliquidWs {
         let coin = &data[0].coin;
         let symbol = Self::coin_to_symbol(coin, !coin.contains('/'));
 
-        let trades: Vec<Trade> = data.iter()
+        let trades: Vec<Trade> = data
+            .iter()
             .filter_map(|t| {
                 let price = Decimal::from_str(&t.px).ok()?;
                 let amount = Decimal::from_str(&t.sz).ok()?;
@@ -342,7 +353,10 @@ impl HyperliquidWs {
         // Group fills by coin
         let mut fills_by_coin: HashMap<String, Vec<&HyperliquidFill>> = HashMap::new();
         for fill in fills {
-            fills_by_coin.entry(fill.coin.clone()).or_default().push(fill);
+            fills_by_coin
+                .entry(fill.coin.clone())
+                .or_default()
+                .push(fill);
         }
 
         for (coin, coin_fills) in fills_by_coin {
@@ -371,7 +385,11 @@ impl HyperliquidWs {
                         } else {
                             Some("buy".to_string())
                         },
-                        taker_or_maker: Some(if f.crossed { TakerOrMaker::Taker } else { TakerOrMaker::Maker }),
+                        taker_or_maker: Some(if f.crossed {
+                            TakerOrMaker::Taker
+                        } else {
+                            TakerOrMaker::Maker
+                        }),
                         price,
                         amount,
                         cost: Some(price * amount),
@@ -462,17 +480,27 @@ impl HyperliquidWs {
                         reduce_only: order.reduce_only,
                         side,
                         price: Some(price),
-                        trigger_price: order.trigger_px.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+                        trigger_price: order
+                            .trigger_px
+                            .as_ref()
+                            .and_then(|p| Decimal::from_str(p).ok()),
                         amount: orig_amount,
                         cost: Some(price * filled),
-                        average: if filled > Decimal::ZERO { Some(price) } else { None },
+                        average: if filled > Decimal::ZERO {
+                            Some(price)
+                        } else {
+                            None
+                        },
                         filled,
                         remaining: Some(amount),
                         status,
                         fee: None,
                         trades: Vec::new(),
                         fees: Vec::new(),
-                        stop_price: order.trigger_px.as_ref().and_then(|p| Decimal::from_str(p).ok()),
+                        stop_price: order
+                            .trigger_px
+                            .as_ref()
+                            .and_then(|p| Decimal::from_str(p).ok()),
                         take_profit_price: None,
                         stop_loss_price: None,
                         info: serde_json::to_value(update).unwrap_or_default(),
@@ -536,10 +564,18 @@ impl HyperliquidWs {
             let entry = position_by_coin.entry(coin.clone()).or_default();
             // Adjust size based on direction
             let signed_size = if fill.dir.contains("Long") {
-                if fill.dir.contains("Open") { size } else { -size }
+                if fill.dir.contains("Open") {
+                    size
+                } else {
+                    -size
+                }
             } else {
                 // Short positions
-                if fill.dir.contains("Open") { -size } else { size }
+                if fill.dir.contains("Open") {
+                    -size
+                } else {
+                    size
+                }
             };
             entry.0 += signed_size;
             entry.1 += closed_pnl;
@@ -610,21 +646,21 @@ impl HyperliquidWs {
                 if let Ok(data) = serde_json::from_value::<HyperliquidAllMidsMsg>(json) {
                     messages.extend(Self::parse_ticker_message(&data.data));
                 }
-            }
+            },
             "l2Book" => {
                 if let Ok(data) = serde_json::from_value::<HyperliquidL2BookMsg>(json) {
                     if let Some(msg) = Self::parse_order_book_message(&data.data) {
                         messages.push(msg);
                     }
                 }
-            }
+            },
             "trades" => {
                 if let Ok(data) = serde_json::from_value::<HyperliquidTradesMsg>(json) {
                     if let Some(msg) = Self::parse_trades_message(&data.data) {
                         messages.push(msg);
                     }
                 }
-            }
+            },
             "candle" => {
                 if let Ok(data) = serde_json::from_value::<HyperliquidCandleMsg>(json) {
                     if let Some(tf) = timeframe {
@@ -633,7 +669,7 @@ impl HyperliquidWs {
                         }
                     }
                 }
-            }
+            },
             // === Private Channels ===
             "userEvents" => {
                 if let Ok(data) = serde_json::from_value::<HyperliquidUserEventsMsg>(json) {
@@ -650,28 +686,29 @@ impl HyperliquidWs {
                         messages.push(Self::parse_funding_as_balance(funding));
                     }
                 }
-            }
+            },
             "userFills" => {
                 if let Ok(data) = serde_json::from_value::<HyperliquidUserFillsMsg>(json) {
                     if !data.data.fills.is_empty() {
                         messages.extend(Self::parse_user_fills(&data.data.fills));
                     }
                 }
-            }
+            },
             "orderUpdates" => {
                 if let Ok(data) = serde_json::from_value::<HyperliquidOrderUpdatesMsg>(json) {
                     messages.extend(Self::parse_order_updates(&data.data));
                 }
-            }
+            },
             "error" => {
                 if let Some(error_msg) = json.get("data").and_then(|d| d.as_str()) {
                     messages.push(WsMessage::Error(error_msg.to_string()));
                 }
-            }
+            },
             "subscriptionResponse" => {
                 // Subscription confirmation
                 if let Some(sub_data) = json.get("data") {
-                    let channel = sub_data.get("subscription")
+                    let channel = sub_data
+                        .get("subscription")
                         .and_then(|s| s.get("type"))
                         .and_then(|t| t.as_str())
                         .unwrap_or("unknown");
@@ -680,10 +717,10 @@ impl HyperliquidWs {
                         symbol: None,
                     });
                 }
-            }
+            },
             _ => {
                 // Unknown channel - ignore or log
-            }
+            },
         }
 
         messages
@@ -709,16 +746,16 @@ impl HyperliquidWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 20, // Hyperliquid keepAlive: 20000ms
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
 
         // Send subscription message
-        let sub_msg = serde_json::to_string(&subscription)
-            .map_err(|e| CcxtError::ParseError {
-                data_type: "subscription".to_string(),
-                message: e.to_string(),
-            })?;
+        let sub_msg = serde_json::to_string(&subscription).map_err(|e| CcxtError::ParseError {
+            data_type: "subscription".to_string(),
+            message: e.to_string(),
+        })?;
 
         ws_client.send(&sub_msg)?;
 
@@ -739,20 +776,20 @@ impl HyperliquidWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         let messages = Self::process_message(&msg, timeframe);
                         for ws_msg in messages {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -791,10 +828,16 @@ impl WsExchange for HyperliquidWs {
             }
         });
 
-        client.subscribe_channel(subscription, &format!("ticker:{symbol}"), None).await
+        client
+            .subscribe_channel(subscription, &format!("ticker:{symbol}"), None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
 
         let coin = Self::symbol_to_coin(symbol);
@@ -807,7 +850,9 @@ impl WsExchange for HyperliquidWs {
             }
         });
 
-        client.subscribe_channel(subscription, &format!("orderBook:{symbol}"), None).await
+        client
+            .subscribe_channel(subscription, &format!("orderBook:{symbol}"), None)
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -823,10 +868,16 @@ impl WsExchange for HyperliquidWs {
             }
         });
 
-        client.subscribe_channel(subscription, &format!("trades:{symbol}"), None).await
+        client
+            .subscribe_channel(subscription, &format!("trades:{symbol}"), None)
+            .await
     }
 
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = self.clone();
 
         let coin = Self::symbol_to_coin(symbol);
@@ -841,7 +892,13 @@ impl WsExchange for HyperliquidWs {
             }
         });
 
-        client.subscribe_channel(subscription, &format!("candle:{symbol}:{interval}"), Some(timeframe)).await
+        client
+            .subscribe_channel(
+                subscription,
+                &format!("candle:{symbol}:{interval}"),
+                Some(timeframe),
+            )
+            .await
     }
 
     // === Private Streams ===
@@ -864,7 +921,10 @@ impl WsExchange for HyperliquidWs {
     ///     }
     /// }
     /// ```
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let address = self.wallet_address.as_ref().ok_or_else(|| {
             CcxtError::AuthenticationError {
                 message: "Wallet address required for watch_orders. Use with_address() or set_wallet_address().".to_string(),
@@ -881,7 +941,9 @@ impl WsExchange for HyperliquidWs {
             }
         });
 
-        client.subscribe_channel(subscription, &format!("orderUpdates:{address}"), None).await
+        client
+            .subscribe_channel(subscription, &format!("orderUpdates:{address}"), None)
+            .await
     }
 
     /// Watch user trade fills for the configured wallet address
@@ -891,7 +953,10 @@ impl WsExchange for HyperliquidWs {
     ///
     /// # Requirements
     /// - Wallet address must be set via `with_address()` or `set_wallet_address()`
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let address = self.wallet_address.as_ref().ok_or_else(|| {
             CcxtError::AuthenticationError {
                 message: "Wallet address required for watch_my_trades. Use with_address() or set_wallet_address().".to_string(),
@@ -908,7 +973,9 @@ impl WsExchange for HyperliquidWs {
             }
         });
 
-        client.subscribe_channel(subscription, &format!("userFills:{address}"), None).await
+        client
+            .subscribe_channel(subscription, &format!("userFills:{address}"), None)
+            .await
     }
 
     /// Watch position changes for the configured wallet address
@@ -922,7 +989,10 @@ impl WsExchange for HyperliquidWs {
     ///
     /// # Requirements
     /// - Wallet address must be set via `with_address()` or `set_wallet_address()`
-    async fn watch_positions(&self, _symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        _symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let address = self.wallet_address.as_ref().ok_or_else(|| {
             CcxtError::AuthenticationError {
                 message: "Wallet address required for watch_positions. Use with_address() or set_wallet_address().".to_string(),
@@ -941,7 +1011,9 @@ impl WsExchange for HyperliquidWs {
             }
         });
 
-        client.subscribe_channel(subscription, &format!("userEvents:{address}"), None).await
+        client
+            .subscribe_channel(subscription, &format!("userEvents:{address}"), None)
+            .await
     }
 
     /// Watch balance changes for the configured wallet address
@@ -989,7 +1061,9 @@ impl WsExchange for HyperliquidWs {
             }
         });
 
-        client.subscribe_channel(subscription, &format!("userEvents:balance:{address}"), None).await
+        client
+            .subscribe_channel(subscription, &format!("userEvents:balance:{address}"), None)
+            .await
     }
 
     async fn ws_connect(&mut self) -> CcxtResult<()> {
@@ -1075,19 +1149,19 @@ struct HyperliquidCandleMsg {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct HyperliquidCandle {
-    t: i64,  // Start time
+    t: i64, // Start time
     #[serde(rename = "T")]
     #[serde(default)]
-    end_time: Option<i64>,  // End time
-    s: String,  // Symbol
-    i: String,  // Interval
-    o: String,  // Open
-    c: String,  // Close
-    h: String,  // High
-    l: String,  // Low
-    v: String,  // Volume
+    end_time: Option<i64>, // End time
+    s: String, // Symbol
+    i: String, // Interval
+    o: String, // Open
+    c: String, // Close
+    h: String, // High
+    l: String, // Low
+    v: String, // Volume
     #[serde(default)]
-    n: Option<i32>,  // Number of trades
+    n: Option<i32>, // Number of trades
 }
 
 // === Private Channel Message Types ===
@@ -1139,18 +1213,18 @@ struct HyperliquidUserFillsData {
 #[serde(rename_all = "camelCase")]
 struct HyperliquidFill {
     coin: String,
-    px: String,      // Price
-    sz: String,      // Size
-    side: String,    // "B" for buy, "A" for sell
+    px: String,   // Price
+    sz: String,   // Size
+    side: String, // "B" for buy, "A" for sell
     time: i64,
     start_position: String,
-    dir: String,     // Direction: "Open Long", "Close Long", "Open Short", "Close Short"
+    dir: String, // Direction: "Open Long", "Close Long", "Open Short", "Close Short"
     closed_pnl: String,
-    hash: String,    // Transaction hash
-    oid: i64,        // Order ID
-    crossed: bool,   // true = taker
-    fee: String,     // Fee amount
-    tid: i64,        // Trade ID
+    hash: String,  // Transaction hash
+    oid: i64,      // Order ID
+    crossed: bool, // true = taker
+    fee: String,   // Fee amount
+    tid: i64,      // Trade ID
     #[serde(default)]
     fee_token: Option<String>,
     #[serde(default)]
@@ -1163,8 +1237,8 @@ struct HyperliquidFill {
 struct HyperliquidFunding {
     time: i64,
     coin: String,
-    usdc: String,    // Funding payment in USDC
-    szi: String,     // Position size
+    usdc: String, // Funding payment in USDC
+    szi: String,  // Position size
     funding_rate: String,
 }
 
@@ -1172,7 +1246,7 @@ struct HyperliquidFunding {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HyperliquidLiquidation {
-    lid: i64,        // Liquidation ID
+    lid: i64, // Liquidation ID
     liquidator: String,
     liquidated_user: String,
     liquidated_ntl_pos: String,
@@ -1200,7 +1274,7 @@ struct HyperliquidOrderUpdatesMsg {
 #[serde(rename_all = "camelCase")]
 struct HyperliquidOrderUpdate {
     order: HyperliquidOrderData,
-    status: String,        // "open", "filled", "canceled", "triggered", "rejected", "marginCanceled"
+    status: String, // "open", "filled", "canceled", "triggered", "rejected", "marginCanceled"
     status_timestamp: i64,
 }
 
@@ -1209,24 +1283,24 @@ struct HyperliquidOrderUpdate {
 #[serde(rename_all = "camelCase")]
 struct HyperliquidOrderData {
     coin: String,
-    side: String,          // "B" or "A"
+    side: String, // "B" or "A"
     limit_px: String,
     sz: String,
     oid: i64,
     timestamp: i64,
-    orig_sz: String,       // Original size
+    orig_sz: String, // Original size
     #[serde(default)]
     cloid: Option<String>, // Client order ID
     #[serde(default)]
-    order_type: Option<String>,  // "Limit", "Stop Market", "Take Profit Market", etc.
+    order_type: Option<String>, // "Limit", "Stop Market", "Take Profit Market", etc.
     #[serde(default)]
-    tif: Option<String>,   // Time in force: "Gtc", "Ioc", "Alo"
+    tif: Option<String>, // Time in force: "Gtc", "Ioc", "Alo"
     #[serde(default)]
     reduce_only: Option<bool>,
     #[serde(default)]
     trigger_px: Option<String>,
     #[serde(default)]
-    trigger_condition: Option<String>,  // "gt" or "lt"
+    trigger_condition: Option<String>, // "gt" or "lt"
 }
 
 /// Position data for watch_positions
@@ -1234,7 +1308,7 @@ struct HyperliquidOrderData {
 #[serde(rename_all = "camelCase")]
 struct HyperliquidPositionData {
     coin: String,
-    szi: String,           // Position size (negative for short)
+    szi: String, // Position size (negative for short)
     entry_px: Option<String>,
     position_value: String,
     unrealized_pnl: String,
@@ -1254,7 +1328,7 @@ struct HyperliquidPositionData {
 #[serde(rename_all = "camelCase")]
 struct HyperliquidLeverage {
     #[serde(rename = "type")]
-    leverage_type: String,  // "cross" or "isolated"
+    leverage_type: String, // "cross" or "isolated"
     value: i32,
 }
 
@@ -1271,7 +1345,10 @@ mod tests {
     #[test]
     fn test_coin_to_symbol() {
         assert_eq!(HyperliquidWs::coin_to_symbol("BTC", true), "BTC/USDC:USDC");
-        assert_eq!(HyperliquidWs::coin_to_symbol("PURR/USDC", false), "PURR/USDC");
+        assert_eq!(
+            HyperliquidWs::coin_to_symbol("PURR/USDC", false),
+            "PURR/USDC"
+        );
     }
 
     #[test]
@@ -1312,17 +1389,15 @@ mod tests {
 
     #[test]
     fn test_parse_trades_message() {
-        let trades = vec![
-            HyperliquidTrade {
-                coin: "BTC".to_string(),
-                side: "A".to_string(),
-                px: "68517.0".to_string(),
-                sz: "0.005".to_string(),
-                time: 1710125266669,
-                hash: "0xabc123".to_string(),
-                tid: 981894269203506,
-            }
-        ];
+        let trades = vec![HyperliquidTrade {
+            coin: "BTC".to_string(),
+            side: "A".to_string(),
+            px: "68517.0".to_string(),
+            sz: "0.005".to_string(),
+            time: 1710125266669,
+            hash: "0xabc123".to_string(),
+            tid: 981894269203506,
+        }];
 
         let result = HyperliquidWs::parse_trades_message(&trades);
 
@@ -1361,25 +1436,23 @@ mod tests {
 
     #[test]
     fn test_parse_user_fills() {
-        let fills = vec![
-            HyperliquidFill {
-                coin: "ETH".to_string(),
-                px: "3500.50".to_string(),
-                sz: "0.1".to_string(),
-                side: "B".to_string(),
-                time: 1710125266669,
-                start_position: "0.0".to_string(),
-                dir: "Open Long".to_string(),
-                closed_pnl: "0.0".to_string(),
-                hash: "0xabc123".to_string(),
-                oid: 12345,
-                crossed: true,
-                fee: "0.35".to_string(),
-                tid: 981894269203507,
-                fee_token: Some("USDC".to_string()),
-                builder_fee: None,
-            }
-        ];
+        let fills = vec![HyperliquidFill {
+            coin: "ETH".to_string(),
+            px: "3500.50".to_string(),
+            sz: "0.1".to_string(),
+            side: "B".to_string(),
+            time: 1710125266669,
+            start_position: "0.0".to_string(),
+            dir: "Open Long".to_string(),
+            closed_pnl: "0.0".to_string(),
+            hash: "0xabc123".to_string(),
+            oid: 12345,
+            crossed: true,
+            fee: "0.35".to_string(),
+            tid: 981894269203507,
+            fee_token: Some("USDC".to_string()),
+            builder_fee: None,
+        }];
 
         let messages = HyperliquidWs::parse_user_fills(&fills);
 
@@ -1397,27 +1470,25 @@ mod tests {
 
     #[test]
     fn test_parse_order_updates() {
-        let updates = vec![
-            HyperliquidOrderUpdate {
-                order: HyperliquidOrderData {
-                    coin: "BTC".to_string(),
-                    side: "B".to_string(),
-                    limit_px: "68500.0".to_string(),
-                    sz: "0.01".to_string(),
-                    oid: 123456789,
-                    timestamp: 1710125266669,
-                    orig_sz: "0.05".to_string(),
-                    cloid: Some("my-order-1".to_string()),
-                    order_type: Some("Limit".to_string()),
-                    tif: Some("Gtc".to_string()),
-                    reduce_only: Some(false),
-                    trigger_px: None,
-                    trigger_condition: None,
-                },
-                status: "open".to_string(),
-                status_timestamp: 1710125266670,
-            }
-        ];
+        let updates = vec![HyperliquidOrderUpdate {
+            order: HyperliquidOrderData {
+                coin: "BTC".to_string(),
+                side: "B".to_string(),
+                limit_px: "68500.0".to_string(),
+                sz: "0.01".to_string(),
+                oid: 123456789,
+                timestamp: 1710125266669,
+                orig_sz: "0.05".to_string(),
+                cloid: Some("my-order-1".to_string()),
+                order_type: Some("Limit".to_string()),
+                tif: Some("Gtc".to_string()),
+                reduce_only: Some(false),
+                trigger_px: None,
+                trigger_condition: None,
+            },
+            status: "open".to_string(),
+            status_timestamp: 1710125266670,
+        }];
 
         let messages = HyperliquidWs::parse_order_updates(&updates);
 
@@ -1437,27 +1508,25 @@ mod tests {
 
     #[test]
     fn test_parse_order_updates_filled() {
-        let updates = vec![
-            HyperliquidOrderUpdate {
-                order: HyperliquidOrderData {
-                    coin: "ETH".to_string(),
-                    side: "A".to_string(),
-                    limit_px: "3500.0".to_string(),
-                    sz: "0.0".to_string(),  // Fully filled
-                    oid: 987654321,
-                    timestamp: 1710125266669,
-                    orig_sz: "1.0".to_string(),
-                    cloid: None,
-                    order_type: None,
-                    tif: None,
-                    reduce_only: None,
-                    trigger_px: None,
-                    trigger_condition: None,
-                },
-                status: "filled".to_string(),
-                status_timestamp: 1710125266680,
-            }
-        ];
+        let updates = vec![HyperliquidOrderUpdate {
+            order: HyperliquidOrderData {
+                coin: "ETH".to_string(),
+                side: "A".to_string(),
+                limit_px: "3500.0".to_string(),
+                sz: "0.0".to_string(), // Fully filled
+                oid: 987654321,
+                timestamp: 1710125266669,
+                orig_sz: "1.0".to_string(),
+                cloid: None,
+                order_type: None,
+                tif: None,
+                reduce_only: None,
+                trigger_px: None,
+                trigger_condition: None,
+            },
+            status: "filled".to_string(),
+            status_timestamp: 1710125266680,
+        }];
 
         let messages = HyperliquidWs::parse_order_updates(&updates);
 
@@ -1630,12 +1699,12 @@ mod tests {
                 WsMessage::MyTrade(event) => {
                     assert_eq!(event.symbol, "ARB/USDC:USDC");
                     has_my_trade = true;
-                }
+                },
                 WsMessage::Position(event) => {
                     assert!(!event.positions.is_empty());
                     has_position = true;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -1764,16 +1833,16 @@ mod tests {
                 WsMessage::MyTrade(event) => {
                     assert_eq!(event.symbol, "SOL/USDC:USDC");
                     has_my_trade = true;
-                }
+                },
                 WsMessage::Position(_) => {
                     has_position = true;
-                }
+                },
                 WsMessage::Balance(event) => {
                     let usdc = event.balances.currencies.get("USDC").unwrap();
                     assert_eq!(usdc.free, Some(Decimal::from_str("5.50").unwrap()));
                     has_balance = true;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 

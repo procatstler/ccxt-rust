@@ -17,9 +17,9 @@ use std::sync::RwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, TimeInForce, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, TimeInForce, Timeframe, Trade, OHLCV,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -86,7 +86,10 @@ impl Blofin {
         api_urls.insert("private".into(), Self::BASE_URL.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://github.com/user-attachments/assets/518cdf80-f05d-4821-a3e3-d48ceb41d73b".into()),
+            logo: Some(
+                "https://github.com/user-attachments/assets/518cdf80-f05d-4821-a3e3-d48ceb41d73b"
+                    .into(),
+            ),
             api: api_urls,
             www: Some("https://www.blofin.com".into()),
             doc: vec!["https://blofin.com/docs".into()],
@@ -154,15 +157,24 @@ impl Blofin {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
-        let password = self.config.password().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Password required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
+        let password = self
+            .config
+            .password()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Password required".into(),
+            })?;
 
         let timestamp = Utc::now().timestamp_millis().to_string();
         let mut request = format!("/api/{}/{path}", Self::VERSION);
@@ -194,8 +206,8 @@ impl Blofin {
 
         // Sign: request + method + timestamp + timestamp + body
         let auth_string = format!("{request}{method}{timestamp}{timestamp}{sign_body}");
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(auth_string.as_bytes());
         let signature = general_purpose::STANDARD.encode(mac.finalize().into_bytes());
         headers.insert("ACCESS-SIGN".into(), signature);
@@ -209,7 +221,7 @@ impl Blofin {
                     None
                 };
                 self.private_client.post(&url, body, Some(headers)).await
-            }
+            },
             "DELETE" => self.private_client.delete(&url, None, Some(headers)).await,
             _ => Err(CcxtError::NotSupported {
                 feature: format!("HTTP method: {method}"),
@@ -414,9 +426,8 @@ impl Exchange for Blofin {
     }
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
-        let response: BlofinResponse<Vec<BlofinMarket>> = self
-            .public_get("market/instruments", None)
-            .await?;
+        let response: BlofinResponse<Vec<BlofinMarket>> =
+            self.public_get("market/instruments", None).await?;
 
         let mut markets = Vec::new();
 
@@ -500,21 +511,22 @@ impl Exchange for Blofin {
         let mut params = HashMap::new();
         params.insert("instId".into(), market_id);
 
-        let response: BlofinResponse<Vec<BlofinTicker>> = self
-            .public_get("market/tickers", Some(params))
-            .await?;
+        let response: BlofinResponse<Vec<BlofinTicker>> =
+            self.public_get("market/tickers", Some(params)).await?;
 
-        let ticker_data = response.data.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No ticker data returned".into(),
-        })?;
+        let ticker_data = response
+            .data
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No ticker data returned".into(),
+            })?;
 
         Ok(self.parse_ticker(ticker_data, symbol))
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>> {
-        let response: BlofinResponse<Vec<BlofinTicker>> = self
-            .public_get("market/tickers", None)
-            .await?;
+        let response: BlofinResponse<Vec<BlofinTicker>> =
+            self.public_get("market/tickers", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap();
         let mut tickers = HashMap::new();
@@ -552,13 +564,15 @@ impl Exchange for Blofin {
             params.insert("sz".into(), l.to_string());
         }
 
-        let response: BlofinResponse<Vec<BlofinOrderBook>> = self
-            .public_get("market/books", Some(params))
-            .await?;
+        let response: BlofinResponse<Vec<BlofinOrderBook>> =
+            self.public_get("market/books", Some(params)).await?;
 
-        let book_data = response.data.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No order book data returned".into(),
-        })?;
+        let book_data = response
+            .data
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No order book data returned".into(),
+            })?;
 
         let bids: Vec<OrderBookEntry> = book_data
             .bids
@@ -589,6 +603,7 @@ impl Exchange for Blofin {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -614,9 +629,8 @@ impl Exchange for Blofin {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: BlofinResponse<Vec<BlofinTrade>> = self
-            .public_get("market/trades", Some(params))
-            .await?;
+        let response: BlofinResponse<Vec<BlofinTrade>> =
+            self.public_get("market/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .data
@@ -666,9 +680,12 @@ impl Exchange for Blofin {
                 })?
         };
 
-        let interval = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let interval = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params = HashMap::new();
         params.insert("instId".into(), market_id);
@@ -680,9 +697,8 @@ impl Exchange for Blofin {
             params.insert("limit".into(), l.min(1440).to_string());
         }
 
-        let response: BlofinResponse<Vec<Vec<String>>> = self
-            .public_get("market/candles", Some(params))
-            .await?;
+        let response: BlofinResponse<Vec<Vec<String>>> =
+            self.public_get("market/candles", Some(params)).await?;
 
         let ohlcv: Vec<OHLCV> = response
             .data
@@ -735,17 +751,27 @@ impl Exchange for Blofin {
 
         let mut params = HashMap::new();
         params.insert("instId".into(), market_id);
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.to_string());
-        params.insert("orderType".into(), match order_type {
-            OrderType::Limit => "limit",
-            OrderType::Market => "market",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.to_string());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .to_string(),
+        );
+        params.insert(
+            "orderType".into(),
+            match order_type {
+                OrderType::Limit => "limit",
+                OrderType::Market => "market",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .to_string(),
+        );
         params.insert("size".into(), amount.to_string());
 
         if order_type == OrderType::Limit {
@@ -755,13 +781,15 @@ impl Exchange for Blofin {
             params.insert("price".into(), price_val.to_string());
         }
 
-        let response: BlofinResponse<Vec<BlofinOrder>> = self
-            .private_request("POST", "trade/order", params)
-            .await?;
+        let response: BlofinResponse<Vec<BlofinOrder>> =
+            self.private_request("POST", "trade/order", params).await?;
 
-        let order_data = response.data.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No order data returned".into(),
-        })?;
+        let order_data = response
+            .data
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No order data returned".into(),
+            })?;
 
         Ok(self.parse_order(order_data, symbol))
     }
@@ -785,9 +813,12 @@ impl Exchange for Blofin {
             .private_request("POST", "trade/cancel-order", params)
             .await?;
 
-        let order_data = response.data.first().ok_or_else(|| CcxtError::ExchangeError {
-            message: "No order data returned".into(),
-        })?;
+        let order_data = response
+            .data
+            .first()
+            .ok_or_else(|| CcxtError::ExchangeError {
+                message: "No order data returned".into(),
+            })?;
 
         Ok(self.parse_order(order_data, symbol))
     }

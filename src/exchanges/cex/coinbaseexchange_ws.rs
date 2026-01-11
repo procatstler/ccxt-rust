@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, TakerOrMaker, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, TakerOrMaker, Ticker, Timeframe, Trade, WsExchange, WsMessage,
+    WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://ws-feed.exchange.coinbase.com";
@@ -57,7 +57,8 @@ impl CoinbaseExchangeWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &CoinbaseExchangeTickerMessage) -> WsTickerEvent {
         let unified_symbol = Self::to_unified_symbol(&data.product_id);
-        let timestamp = data.time
+        let timestamp = data
+            .time
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis())
@@ -88,7 +89,10 @@ impl CoinbaseExchangeWs {
             info: serde_json::to_value(data).unwrap_or_default(),
         };
 
-        WsTickerEvent { symbol: unified_symbol, ticker }
+        WsTickerEvent {
+            symbol: unified_symbol,
+            ticker,
+        }
     }
 
     /// 호가창 스냅샷 파싱
@@ -96,7 +100,9 @@ impl CoinbaseExchangeWs {
         let unified_symbol = Self::to_unified_symbol(&data.product_id);
         let timestamp = Utc::now().timestamp_millis();
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter()
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     Some(OrderBookEntry {
@@ -109,7 +115,9 @@ impl CoinbaseExchangeWs {
             })
             .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter()
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
             .filter_map(|entry| {
                 if entry.len() >= 2 {
                     Some(OrderBookEntry {
@@ -129,6 +137,7 @@ impl CoinbaseExchangeWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -139,9 +148,13 @@ impl CoinbaseExchangeWs {
     }
 
     /// L2 업데이트 파싱
-    fn parse_l2_update(data: &CoinbaseExchangeL2UpdateMessage, cache: &mut OrderBook) -> WsOrderBookEvent {
+    fn parse_l2_update(
+        data: &CoinbaseExchangeL2UpdateMessage,
+        cache: &mut OrderBook,
+    ) -> WsOrderBookEvent {
         let unified_symbol = Self::to_unified_symbol(&data.product_id);
-        let timestamp = data.time
+        let timestamp = data
+            .time
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis())
@@ -151,10 +164,9 @@ impl CoinbaseExchangeWs {
         for change in &data.changes {
             if change.len() >= 3 {
                 let side = &change[0];
-                if let (Ok(price), Ok(size)) = (
-                    change[1].parse::<Decimal>(),
-                    change[2].parse::<Decimal>()
-                ) {
+                if let (Ok(price), Ok(size)) =
+                    (change[1].parse::<Decimal>(), change[2].parse::<Decimal>())
+                {
                     let entries = if side == "buy" {
                         &mut cache.bids
                     } else {
@@ -164,7 +176,10 @@ impl CoinbaseExchangeWs {
                     // 기존 가격 레벨 업데이트 또는 제거
                     entries.retain(|e| e.price != price);
                     if size > Decimal::ZERO {
-                        entries.push(OrderBookEntry { price, amount: size });
+                        entries.push(OrderBookEntry {
+                            price,
+                            amount: size,
+                        });
                     }
 
                     // 정렬
@@ -190,7 +205,8 @@ impl CoinbaseExchangeWs {
     /// 체결 메시지 파싱
     fn parse_match(data: &CoinbaseExchangeMatchMessage) -> WsTradeEvent {
         let unified_symbol = Self::to_unified_symbol(&data.product_id);
-        let timestamp = data.time
+        let timestamp = data
+            .time
             .as_ref()
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .map(|dt| dt.timestamp_millis())
@@ -220,7 +236,10 @@ impl CoinbaseExchangeWs {
     }
 
     /// 메시지 처리
-    fn process_message(msg: &str, order_book_cache: &mut HashMap<String, OrderBook>) -> Option<WsMessage> {
+    fn process_message(
+        msg: &str,
+        order_book_cache: &mut HashMap<String, OrderBook>,
+    ) -> Option<WsMessage> {
         if let Ok(base) = serde_json::from_str::<CoinbaseExchangeBaseMessage>(msg) {
             match base.message_type.as_deref() {
                 Some("subscriptions") => {
@@ -228,40 +247,47 @@ impl CoinbaseExchangeWs {
                         channel: "subscriptions".to_string(),
                         symbol: None,
                     });
-                }
+                },
                 Some("ticker") => {
-                    if let Ok(ticker_msg) = serde_json::from_str::<CoinbaseExchangeTickerMessage>(msg) {
+                    if let Ok(ticker_msg) =
+                        serde_json::from_str::<CoinbaseExchangeTickerMessage>(msg)
+                    {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_msg)));
                     }
-                }
+                },
                 Some("snapshot") => {
-                    if let Ok(snapshot_msg) = serde_json::from_str::<CoinbaseExchangeSnapshotMessage>(msg) {
+                    if let Ok(snapshot_msg) =
+                        serde_json::from_str::<CoinbaseExchangeSnapshotMessage>(msg)
+                    {
                         let event = Self::parse_order_book_snapshot(&snapshot_msg);
                         // 캐시 초기화
                         order_book_cache.insert(event.symbol.clone(), event.order_book.clone());
                         return Some(WsMessage::OrderBook(event));
                     }
-                }
+                },
                 Some("l2update") => {
-                    if let Ok(update_msg) = serde_json::from_str::<CoinbaseExchangeL2UpdateMessage>(msg) {
+                    if let Ok(update_msg) =
+                        serde_json::from_str::<CoinbaseExchangeL2UpdateMessage>(msg)
+                    {
                         let unified_symbol = Self::to_unified_symbol(&update_msg.product_id);
                         if let Some(cache) = order_book_cache.get_mut(&unified_symbol) {
                             let event = Self::parse_l2_update(&update_msg, cache);
                             return Some(WsMessage::OrderBook(event));
                         }
                     }
-                }
+                },
                 Some("match") | Some("last_match") => {
-                    if let Ok(match_msg) = serde_json::from_str::<CoinbaseExchangeMatchMessage>(msg) {
+                    if let Ok(match_msg) = serde_json::from_str::<CoinbaseExchangeMatchMessage>(msg)
+                    {
                         return Some(WsMessage::Trade(Self::parse_match(&match_msg)));
                     }
-                }
+                },
                 Some("error") => {
                     if let Some(message) = base.message {
                         return Some(WsMessage::Error(message));
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -284,6 +310,7 @@ impl CoinbaseExchangeWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -301,7 +328,10 @@ impl CoinbaseExchangeWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channels.join(","), product_ids.join(","));
-            self.subscriptions.write().await.insert(key, channels.join(","));
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channels.join(","));
         }
 
         // 이벤트 처리 태스크
@@ -313,20 +343,20 @@ impl CoinbaseExchangeWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
                         let mut cache = order_book_cache.write().await;
                         if let Some(ws_msg) = Self::process_message(&msg, &mut cache) {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -346,52 +376,83 @@ impl WsExchange for CoinbaseExchangeWs {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let coinbase_symbol = Self::format_symbol(symbol);
-        client.subscribe_stream(vec![coinbase_symbol], vec!["ticker".to_string()]).await
+        client
+            .subscribe_stream(vec![coinbase_symbol], vec!["ticker".to_string()])
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let coinbase_symbols: Vec<String> = symbols.iter()
-            .map(|s| Self::format_symbol(s))
-            .collect();
-        client.subscribe_stream(coinbase_symbols, vec!["ticker".to_string()]).await
+        let coinbase_symbols: Vec<String> =
+            symbols.iter().map(|s| Self::format_symbol(s)).collect();
+        client
+            .subscribe_stream(coinbase_symbols, vec!["ticker".to_string()])
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let coinbase_symbol = Self::format_symbol(symbol);
-        client.subscribe_stream(vec![coinbase_symbol], vec!["level2".to_string()]).await
+        client
+            .subscribe_stream(vec![coinbase_symbol], vec!["level2".to_string()])
+            .await
     }
 
-    async fn watch_order_book_for_symbols(&self, symbols: &[&str], _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book_for_symbols(
+        &self,
+        symbols: &[&str],
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let coinbase_symbols: Vec<String> = symbols.iter()
-            .map(|s| Self::format_symbol(s))
-            .collect();
-        client.subscribe_stream(coinbase_symbols, vec!["level2".to_string()]).await
+        let coinbase_symbols: Vec<String> =
+            symbols.iter().map(|s| Self::format_symbol(s)).collect();
+        client
+            .subscribe_stream(coinbase_symbols, vec!["level2".to_string()])
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let coinbase_symbol = Self::format_symbol(symbol);
-        client.subscribe_stream(vec![coinbase_symbol], vec!["matches".to_string()]).await
+        client
+            .subscribe_stream(vec![coinbase_symbol], vec!["matches".to_string()])
+            .await
     }
 
-    async fn watch_trades_for_symbols(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades_for_symbols(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let coinbase_symbols: Vec<String> = symbols.iter()
-            .map(|s| Self::format_symbol(s))
-            .collect();
-        client.subscribe_stream(coinbase_symbols, vec!["matches".to_string()]).await
+        let coinbase_symbols: Vec<String> =
+            symbols.iter().map(|s| Self::format_symbol(s)).collect();
+        client
+            .subscribe_stream(coinbase_symbols, vec!["matches".to_string()])
+            .await
     }
 
-    async fn watch_ohlcv(&self, _symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        _symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(crate::errors::CcxtError::NotSupported {
             feature: "Coinbase Exchange WebSocket does not support OHLCV streaming".into(),
         })
     }
 
-    async fn watch_ohlcv_for_symbols(&self, _symbols: &[&str], _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv_for_symbols(
+        &self,
+        _symbols: &[&str],
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         Err(crate::errors::CcxtError::NotSupported {
             feature: "Coinbase Exchange WebSocket does not support OHLCV streaming".into(),
         })

@@ -5,8 +5,8 @@
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+use super::{Balances, Order, OrderBook, Position, Ticker, Timeframe, Trade, OHLCV};
 use crate::errors::CcxtResult;
-use super::{OrderBook, Position, Ticker, Trade, OHLCV, Order, Balances, Timeframe};
 
 /// WebSocket 티커 이벤트
 #[derive(Debug, Clone)]
@@ -92,9 +92,15 @@ pub enum WsMessage {
     /// 인증 성공
     Authenticated,
     /// 구독 완료
-    Subscribed { channel: String, symbol: Option<String> },
+    Subscribed {
+        channel: String,
+        symbol: Option<String>,
+    },
     /// 구독 해제 완료
-    Unsubscribed { channel: String, symbol: Option<String> },
+    Unsubscribed {
+        channel: String,
+        symbol: Option<String>,
+    },
 }
 
 /// WebSocket 거래소 인터페이스
@@ -106,7 +112,10 @@ pub trait WsExchange: Send + Sync {
     async fn watch_ticker(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>>;
 
     /// 복수 티커 구독
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = symbols;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchTickers".into(),
@@ -114,10 +123,18 @@ pub trait WsExchange: Send + Sync {
     }
 
     /// 호가창 구독
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>>;
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>>;
 
     /// 복수 호가창 구독
-    async fn watch_order_book_for_symbols(&self, symbols: &[&str], limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book_for_symbols(
+        &self,
+        symbols: &[&str],
+        limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = (symbols, limit);
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchOrderBookForSymbols".into(),
@@ -128,7 +145,10 @@ pub trait WsExchange: Send + Sync {
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>>;
 
     /// 복수 체결 내역 구독
-    async fn watch_trades_for_symbols(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_trades_for_symbols(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = symbols;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchTradesForSymbols".into(),
@@ -136,10 +156,18 @@ pub trait WsExchange: Send + Sync {
     }
 
     /// OHLCV 구독
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>>;
+    async fn watch_ohlcv(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>>;
 
     /// 복수 OHLCV 구독
-    async fn watch_ohlcv_for_symbols(&self, symbols: &[&str], timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv_for_symbols(
+        &self,
+        symbols: &[&str],
+        timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = (symbols, timeframe);
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchOhlcvForSymbols".into(),
@@ -149,7 +177,10 @@ pub trait WsExchange: Send + Sync {
     // === Futures/Derivatives Streams ===
 
     /// 마크 가격 구독 (선물/무기한)
-    async fn watch_mark_price(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_mark_price(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchMarkPrice".into(),
@@ -157,7 +188,10 @@ pub trait WsExchange: Send + Sync {
     }
 
     /// 복수 마크 가격 구독
-    async fn watch_mark_prices(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_mark_prices(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = symbols;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchMarkPrices".into(),
@@ -165,7 +199,10 @@ pub trait WsExchange: Send + Sync {
     }
 
     /// 포지션 구독 (인증 필요)
-    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_positions(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = symbols;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchPositions".into(),
@@ -182,7 +219,10 @@ pub trait WsExchange: Send + Sync {
     }
 
     /// 주문 변경 구독 (인증 필요)
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchOrders".into(),
@@ -190,7 +230,10 @@ pub trait WsExchange: Send + Sync {
     }
 
     /// 내 체결 내역 구독 (인증 필요)
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let _ = symbol;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchMyTrades".into(),

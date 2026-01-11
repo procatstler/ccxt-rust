@@ -5,19 +5,19 @@
 #![allow(dead_code)]
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::RwLock;
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market,
-    MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
-    OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
+    Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Market, MarketLimits,
+    MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus,
+    OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
 
 /// OceanEx exchange
@@ -142,20 +142,24 @@ impl Oceanex {
     ) -> CcxtResult<T> {
         self.rate_limiter.throttle(1.0).await;
 
-        let api_key = self.config.api_key().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let secret = self.config.secret().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .config
+            .api_key()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let secret = self
+            .config
+            .secret()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "Secret required".into(),
+            })?;
 
         // Build JWT token
         let jwt_token = self.build_jwt(api_key, &params, secret)?;
         let url = format!("{path}?user_jwt={jwt_token}");
 
-        let headers = HashMap::from([
-            ("Content-Type".into(), "application/json".into()),
-        ]);
+        let headers = HashMap::from([("Content-Type".into(), "application/json".into())]);
 
         match method {
             "GET" => self.private_client.get(&url, None, Some(headers)).await,
@@ -201,10 +205,8 @@ impl Oceanex {
         Ticker {
             symbol: symbol.to_string(),
             timestamp,
-            datetime: timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             high: ticker.high,
             low: ticker.low,
             bid: ticker.buy,
@@ -266,10 +268,8 @@ impl Oceanex {
             id: data.id.to_string(),
             client_order_id: None,
             timestamp,
-            datetime: timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             last_trade_timestamp: None,
             last_update_timestamp: None,
             status,
@@ -343,10 +343,8 @@ impl Oceanex {
             id: trade.id.to_string(),
             order: None,
             timestamp,
-            datetime: timestamp.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t)
-                    .map(|dt| dt.to_rfc3339())
-            }),
+            datetime: timestamp
+                .and_then(|t| chrono::DateTime::from_timestamp_millis(t).map(|dt| dt.to_rfc3339())),
             symbol: symbol.to_string(),
             trade_type: Some("limit".into()),
             side,
@@ -428,9 +426,8 @@ impl Exchange for Oceanex {
         let mut params = HashMap::new();
         params.insert("show_details".into(), "true".into());
 
-        let response: OceanexResponse<Vec<OceanexMarket>> = self
-            .public_get("/v1/markets", Some(params))
-            .await?;
+        let response: OceanexResponse<Vec<OceanexMarket>> =
+            self.public_get("/v1/markets", Some(params)).await?;
 
         let mut markets = Vec::new();
 
@@ -489,12 +486,27 @@ impl Exchange for Oceanex {
                     quote: Some(price_precision),
                 },
                 limits: MarketLimits {
-                    leverage: MinMax { min: None, max: None },
-                    amount: MinMax { min: None, max: None },
-                    price: MinMax { min: None, max: None },
+                    leverage: MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    amount: MinMax {
+                        min: None,
+                        max: None,
+                    },
+                    price: MinMax {
+                        min: None,
+                        max: None,
+                    },
                     cost: market_info.minimum_trading_amount.parse().ok().map_or_else(
-                        || MinMax { min: None, max: None },
-                        |min| MinMax { min: Some(min), max: None },
+                        || MinMax {
+                            min: None,
+                            max: None,
+                        },
+                        |min| MinMax {
+                            min: Some(min),
+                            max: None,
+                        },
                     ),
                 },
                 margin_modes: None,
@@ -540,9 +552,8 @@ impl Exchange for Oceanex {
         let mut params = HashMap::new();
         params.insert("markets".into(), market_ids.join(","));
 
-        let response: OceanexResponse<Vec<OceanexTickerMulti>> = self
-            .public_get("/v1/tickers_multi", Some(params))
-            .await?;
+        let response: OceanexResponse<Vec<OceanexTickerMulti>> =
+            self.public_get("/v1/tickers_multi", Some(params)).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
         let mut tickers = HashMap::new();
@@ -575,9 +586,8 @@ impl Exchange for Oceanex {
             params.insert("limit".into(), l.to_string());
         }
 
-        let response: OceanexResponse<OceanexOrderBook> = self
-            .public_get("/v1/order_book", Some(params))
-            .await?;
+        let response: OceanexResponse<OceanexOrderBook> =
+            self.public_get("/v1/order_book", Some(params)).await?;
 
         let data = response.data;
         let bids: Vec<OrderBookEntry> = data
@@ -601,11 +611,11 @@ impl Exchange for Oceanex {
         Ok(OrderBook {
             symbol: symbol.to_string(),
             timestamp: Some(data.timestamp * 1000),
-            datetime: chrono::DateTime::from_timestamp(data.timestamp, 0)
-                .map(|dt| dt.to_rfc3339()),
+            datetime: chrono::DateTime::from_timestamp(data.timestamp, 0).map(|dt| dt.to_rfc3339()),
             nonce: None,
             bids,
             asks,
+            checksum: None,
         })
     }
 
@@ -628,9 +638,8 @@ impl Exchange for Oceanex {
             params.insert("limit".into(), l.min(1000).to_string());
         }
 
-        let response: OceanexResponse<Vec<OceanexTrade>> = self
-            .public_get("/v1/trades", Some(params))
-            .await?;
+        let response: OceanexResponse<Vec<OceanexTrade>> =
+            self.public_get("/v1/trades", Some(params)).await?;
 
         let trades: Vec<Trade> = response
             .data
@@ -655,9 +664,12 @@ impl Exchange for Oceanex {
             symbol: symbol.to_string(),
         })?;
 
-        let period = self.timeframes.get(&timeframe).ok_or_else(|| CcxtError::BadRequest {
-            message: format!("Unsupported timeframe: {timeframe:?}"),
-        })?;
+        let period = self
+            .timeframes
+            .get(&timeframe)
+            .ok_or_else(|| CcxtError::BadRequest {
+                message: format!("Unsupported timeframe: {timeframe:?}"),
+            })?;
 
         let mut params: HashMap<String, String> = HashMap::new();
         params.insert("market".into(), market.id.clone());
@@ -671,7 +683,11 @@ impl Exchange for Oceanex {
 
         let response: OceanexResponse<Vec<Vec<serde_json::Value>>> = self
             .public_client
-            .post("/v1/k", Some(serde_json::to_value(&params).unwrap_or_default()), None)
+            .post(
+                "/v1/k",
+                Some(serde_json::to_value(&params).unwrap_or_default()),
+                None,
+            )
             .await?;
 
         let ohlcv: Vec<OHLCV> = response
@@ -723,17 +739,27 @@ impl Exchange for Oceanex {
 
         let mut params = HashMap::new();
         params.insert("market".into(), market.id.clone());
-        params.insert("side".into(), match side {
-            OrderSide::Buy => "buy",
-            OrderSide::Sell => "sell",
-        }.into());
-        params.insert("ord_type".into(), match order_type {
-            OrderType::Limit => "limit",
-            OrderType::Market => "market",
-            _ => return Err(CcxtError::NotSupported {
-                feature: format!("Order type: {order_type:?}"),
-            }),
-        }.into());
+        params.insert(
+            "side".into(),
+            match side {
+                OrderSide::Buy => "buy",
+                OrderSide::Sell => "sell",
+            }
+            .into(),
+        );
+        params.insert(
+            "ord_type".into(),
+            match order_type {
+                OrderType::Limit => "limit",
+                OrderType::Market => "market",
+                _ => {
+                    return Err(CcxtError::NotSupported {
+                        feature: format!("Order type: {order_type:?}"),
+                    })
+                },
+            }
+            .into(),
+        );
         params.insert("volume".into(), amount.to_string());
 
         if order_type == OrderType::Limit {
@@ -743,9 +769,8 @@ impl Exchange for Oceanex {
             params.insert("price".into(), price_val.to_string());
         }
 
-        let response: OceanexResponse<OceanexOrder> = self
-            .private_request("POST", "/v1/orders", params)
-            .await?;
+        let response: OceanexResponse<OceanexOrder> =
+            self.private_request("POST", "/v1/orders", params).await?;
 
         Ok(self.parse_order(&response.data, symbol))
     }
@@ -769,13 +794,15 @@ impl Exchange for Oceanex {
         let mut params = HashMap::new();
         params.insert("ids".into(), format!("[{id}]"));
 
-        let response: OceanexResponse<Vec<OceanexOrder>> = self
-            .private_request("GET", "/v1/orders", params)
-            .await?;
+        let response: OceanexResponse<Vec<OceanexOrder>> =
+            self.private_request("GET", "/v1/orders", params).await?;
 
-        let order = response.data.first().ok_or_else(|| CcxtError::OrderNotFound {
-            order_id: id.to_string(),
-        })?;
+        let order = response
+            .data
+            .first()
+            .ok_or_else(|| CcxtError::OrderNotFound {
+                order_id: id.to_string(),
+            })?;
 
         Ok(self.parse_order(order, symbol))
     }
@@ -839,17 +866,14 @@ impl Exchange for Oceanex {
     }
 
     async fn fetch_time(&self) -> CcxtResult<i64> {
-        let response: OceanexResponse<i64> = self
-            .public_get("/v1/timestamp", None)
-            .await?;
+        let response: OceanexResponse<i64> = self.public_get("/v1/timestamp", None).await?;
 
         Ok(response.data * 1000) // Convert to milliseconds
     }
 
     async fn fetch_trading_fees(&self) -> CcxtResult<HashMap<String, crate::types::TradingFee>> {
-        let response: OceanexResponse<Vec<OceanexTradingFee>> = self
-            .public_get("/v1/fees/trading", None)
-            .await?;
+        let response: OceanexResponse<Vec<OceanexTradingFee>> =
+            self.public_get("/v1/fees/trading", None).await?;
 
         let markets_by_id = self.markets_by_id.read().unwrap().clone();
         let mut fees = HashMap::new();
@@ -892,9 +916,7 @@ impl Exchange for Oceanex {
         _body: Option<&str>,
     ) -> SignedRequest {
         let mut url = format!("{}{}", Self::BASE_URL, path);
-        let headers = HashMap::from([
-            ("Content-Type".into(), "application/json".into()),
-        ]);
+        let headers = HashMap::from([("Content-Type".into(), "application/json".into())]);
 
         if api == "private" {
             let api_key = self.config.api_key().unwrap_or_default();

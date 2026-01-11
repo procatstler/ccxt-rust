@@ -12,8 +12,8 @@ use tokio::sync::{mpsc, RwLock};
 use crate::client::{WsClient, WsConfig, WsEvent};
 use crate::errors::CcxtResult;
 use crate::types::{
-    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade,
-    WsExchange, WsMessage, WsTickerEvent, WsOrderBookEvent, WsTradeEvent,
+    OrderBook, OrderBookEntry, Ticker, Timeframe, Trade, WsExchange, WsMessage, WsOrderBookEvent,
+    WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://ws.korbit.co.kr/v1/user/push";
@@ -74,7 +74,9 @@ impl KorbitWs {
     /// 티커 메시지 파싱
     fn parse_ticker(data: &KorbitWsTickerData) -> WsTickerEvent {
         let symbol = Self::to_unified_symbol(&data.currency_pair);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
         let ticker = Ticker {
             symbol: symbol.clone(),
@@ -111,29 +113,39 @@ impl KorbitWs {
     /// 호가창 메시지 파싱
     fn parse_order_book(data: &KorbitWsOrderBookData) -> WsOrderBookEvent {
         let symbol = Self::to_unified_symbol(&data.currency_pair);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let bids: Vec<OrderBookEntry> = data.bids.iter().filter_map(|b| {
-            if b.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: b[0].parse().ok()?,
-                    amount: b[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let bids: Vec<OrderBookEntry> = data
+            .bids
+            .iter()
+            .filter_map(|b| {
+                if b.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: b[0].parse().ok()?,
+                        amount: b[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let asks: Vec<OrderBookEntry> = data.asks.iter().filter_map(|a| {
-            if a.len() >= 2 {
-                Some(OrderBookEntry {
-                    price: a[0].parse().ok()?,
-                    amount: a[1].parse().ok()?,
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let asks: Vec<OrderBookEntry> = data
+            .asks
+            .iter()
+            .filter_map(|a| {
+                if a.len() >= 2 {
+                    Some(OrderBookEntry {
+                        price: a[0].parse().ok()?,
+                        amount: a[1].parse().ok()?,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let order_book = OrderBook {
             symbol: symbol.clone(),
@@ -146,6 +158,7 @@ impl KorbitWs {
             nonce: None,
             bids,
             asks,
+            checksum: None,
         };
 
         WsOrderBookEvent {
@@ -158,9 +171,19 @@ impl KorbitWs {
     /// 체결 메시지 파싱
     fn parse_trade(data: &KorbitWsTradeData) -> WsTradeEvent {
         let symbol = Self::to_unified_symbol(&data.currency_pair);
-        let timestamp = data.timestamp.unwrap_or_else(|| Utc::now().timestamp_millis());
-        let price = data.price.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
-        let amount = data.amount.as_ref().and_then(|v| v.parse().ok()).unwrap_or_default();
+        let timestamp = data
+            .timestamp
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let price = data
+            .price
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
+        let amount = data
+            .amount
+            .as_ref()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default();
 
         let trades = vec![Trade {
             id: data.tid.map(|id| id.to_string()).unwrap_or_default(),
@@ -204,22 +227,22 @@ impl KorbitWs {
                         return Some(WsMessage::Ticker(Self::parse_ticker(&ticker_data)));
                     }
                 }
-            }
+            },
             "korbit:orderbook" => {
                 if let Some(data) = response.data {
                     if let Ok(book_data) = serde_json::from_value::<KorbitWsOrderBookData>(data) {
                         return Some(WsMessage::OrderBook(Self::parse_order_book(&book_data)));
                     }
                 }
-            }
+            },
             "korbit:transaction" => {
                 if let Some(data) = response.data {
                     if let Ok(trade_data) = serde_json::from_value::<KorbitWsTradeData>(data) {
                         return Some(WsMessage::Trade(Self::parse_trade(&trade_data)));
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -242,6 +265,7 @@ impl KorbitWs {
             max_reconnect_attempts: 10,
             ping_interval_secs: 30,
             connect_timeout_secs: 30,
+            ..Default::default()
         });
 
         let mut ws_rx = ws_client.connect().await?;
@@ -254,7 +278,10 @@ impl KorbitWs {
         // 구독 저장
         {
             let key = format!("{}:{}", channel, symbol.unwrap_or(""));
-            self.subscriptions.write().await.insert(key, channel.to_string());
+            self.subscriptions
+                .write()
+                .await
+                .insert(key, channel.to_string());
         }
 
         // 이벤트 처리 태스크
@@ -265,19 +292,21 @@ impl KorbitWs {
                 match event {
                     WsEvent::Connected => {
                         let _ = tx.send(WsMessage::Connected);
-                    }
+                    },
                     WsEvent::Disconnected => {
                         let _ = tx.send(WsMessage::Disconnected);
-                    }
+                    },
                     WsEvent::Message(msg) => {
-                        if let Some(ws_msg) = Self::process_message(&msg, subscribed_symbol.as_deref()) {
+                        if let Some(ws_msg) =
+                            Self::process_message(&msg, subscribed_symbol.as_deref())
+                        {
                             let _ = tx.send(ws_msg);
                         }
-                    }
+                    },
                     WsEvent::Error(err) => {
                         let _ = tx.send(WsMessage::Error(err));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         });
@@ -305,12 +334,18 @@ impl WsExchange for KorbitWs {
                 "channels": [format!("ticker:{}", formatted)]
             }
         });
-        client.subscribe_stream(subscribe_msg, "ticker", Some(&formatted)).await
+        client
+            .subscribe_stream(subscribe_msg, "ticker", Some(&formatted))
+            .await
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
-        let channels: Vec<String> = symbols.iter()
+        let channels: Vec<String> = symbols
+            .iter()
             .map(|s| format!("ticker:{}", Self::format_symbol(s)))
             .collect();
         let subscribe_msg = serde_json::json!({
@@ -321,10 +356,16 @@ impl WsExchange for KorbitWs {
                 "channels": channels
             }
         });
-        client.subscribe_stream(subscribe_msg, "tickers", None).await
+        client
+            .subscribe_stream(subscribe_msg, "tickers", None)
+            .await
     }
 
-    async fn watch_order_book(&self, symbol: &str, _limit: Option<u32>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_order_book(
+        &self,
+        symbol: &str,
+        _limit: Option<u32>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let mut client = Self::new();
         let formatted = Self::format_symbol(symbol);
         let subscribe_msg = serde_json::json!({
@@ -335,7 +376,9 @@ impl WsExchange for KorbitWs {
                 "channels": [format!("orderbook:{}", formatted)]
             }
         });
-        client.subscribe_stream(subscribe_msg, "orderbook", Some(&formatted)).await
+        client
+            .subscribe_stream(subscribe_msg, "orderbook", Some(&formatted))
+            .await
     }
 
     async fn watch_trades(&self, symbol: &str) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
@@ -349,10 +392,16 @@ impl WsExchange for KorbitWs {
                 "channels": [format!("transaction:{}", formatted)]
             }
         });
-        client.subscribe_stream(subscribe_msg, "transaction", Some(&formatted)).await
+        client
+            .subscribe_stream(subscribe_msg, "transaction", Some(&formatted))
+            .await
     }
 
-    async fn watch_ohlcv(&self, _symbol: &str, _timeframe: Timeframe) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_ohlcv(
+        &self,
+        _symbol: &str,
+        _timeframe: Timeframe,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         // Korbit doesn't support OHLCV via WebSocket
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchOhlcv".into(),
@@ -381,7 +430,10 @@ impl WsExchange for KorbitWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(crate::errors::CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -392,7 +444,10 @@ impl WsExchange for KorbitWs {
         })
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        _symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(crate::errors::CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),

@@ -18,15 +18,15 @@ use tokio_tungstenite::{
 
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 use sha2::Sha256;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderEvent,
-    WsTickerEvent, WsTradeEvent, WsOrderBookEvent, WsOhlcvEvent, OHLCV,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOhlcvEvent, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent, OHLCV,
 };
 use std::str::FromStr;
 
@@ -210,20 +210,29 @@ impl DeltaWs {
 
     /// Authenticate for private channels
     async fn authenticate(&self) -> CcxtResult<()> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key required".into(),
-        })?;
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "Secret required".into(),
-        })?;
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key required".into(),
+            })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "Secret required".into(),
+                })?;
 
         let timestamp = Utc::now().timestamp().to_string();
 
         // Signature: HMAC-SHA256(GET + timestamp + /live)
         let signature_payload = format!("GET{timestamp}/live");
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(signature_payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
@@ -267,17 +276,22 @@ impl DeltaWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -295,48 +309,48 @@ impl DeltaWs {
         match msg_type {
             "v2/ticker" => {
                 Self::handle_ticker(data, subscriptions).await;
-            }
+            },
             "l2_orderbook" | "l2_updates" => {
                 Self::handle_orderbook(data, subscriptions, orderbook_cache).await;
-            }
+            },
             "all_trades" => {
                 Self::handle_trades(data, subscriptions).await;
-            }
+            },
             "candlestick" => {
                 Self::handle_ohlcv(data, subscriptions).await;
-            }
+            },
             "orders" => {
                 Self::handle_orders(data, subscriptions).await;
-            }
+            },
             "margins" | "portfolio_margins" => {
                 Self::handle_balance(data, subscriptions).await;
-            }
+            },
             _ => {
                 // Check if it's a channel message with different structure
                 if let Some(channel) = data.get("channel").and_then(|v| v.as_str()) {
                     match channel {
                         ch if ch.starts_with("v2/ticker") => {
                             Self::handle_ticker(data, subscriptions).await;
-                        }
+                        },
                         ch if ch.starts_with("l2_orderbook") || ch.starts_with("l2_updates") => {
                             Self::handle_orderbook(data, subscriptions, orderbook_cache).await;
-                        }
+                        },
                         ch if ch.starts_with("all_trades") => {
                             Self::handle_trades(data, subscriptions).await;
-                        }
+                        },
                         ch if ch.starts_with("candlestick") => {
                             Self::handle_ohlcv(data, subscriptions).await;
-                        }
+                        },
                         ch if ch.starts_with("orders") => {
                             Self::handle_orders(data, subscriptions).await;
-                        }
+                        },
                         ch if ch.starts_with("margins") || ch.starts_with("portfolio_margins") => {
                             Self::handle_balance(data, subscriptions).await;
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
-            }
+            },
         }
     }
 
@@ -345,9 +359,7 @@ impl DeltaWs {
         data: &Value,
         subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
     ) {
-        let market_id = data.get("symbol")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let market_id = data.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
 
         let symbol = Self::parse_symbol_static(market_id);
         let key = format!("ticker:{symbol}");
@@ -362,9 +374,13 @@ impl DeltaWs {
             datetime: Some(Utc::now().to_rfc3339()),
             high: ticker_data.get("high").and_then(Self::parse_decimal_opt),
             low: ticker_data.get("low").and_then(Self::parse_decimal_opt),
-            bid: ticker_data.get("best_bid").and_then(Self::parse_decimal_opt),
+            bid: ticker_data
+                .get("best_bid")
+                .and_then(Self::parse_decimal_opt),
             bid_volume: None,
-            ask: ticker_data.get("best_ask").and_then(Self::parse_decimal_opt),
+            ask: ticker_data
+                .get("best_ask")
+                .and_then(Self::parse_decimal_opt),
             ask_volume: None,
             vwap: None,
             open: ticker_data.get("open").and_then(Self::parse_decimal_opt),
@@ -372,22 +388,26 @@ impl DeltaWs {
             last: ticker_data.get("close").and_then(Self::parse_decimal_opt),
             previous_close: None,
             change: None,
-            percentage: ticker_data.get("price_change_percent_24h")
+            percentage: ticker_data
+                .get("price_change_percent_24h")
                 .and_then(Self::parse_decimal_opt),
             average: None,
             base_volume: ticker_data.get("volume").and_then(Self::parse_decimal_opt),
-            quote_volume: ticker_data.get("turnover").and_then(Self::parse_decimal_opt),
-            index_price: ticker_data.get("spot_price").and_then(Self::parse_decimal_opt),
-            mark_price: ticker_data.get("mark_price").and_then(Self::parse_decimal_opt),
+            quote_volume: ticker_data
+                .get("turnover")
+                .and_then(Self::parse_decimal_opt),
+            index_price: ticker_data
+                .get("spot_price")
+                .and_then(Self::parse_decimal_opt),
+            mark_price: ticker_data
+                .get("mark_price")
+                .and_then(Self::parse_decimal_opt),
             info: data.clone(),
         };
 
         let subs = subscriptions.read().await;
         if let Some(sender) = subs.get(&key) {
-            let _ = sender.send(WsMessage::Ticker(WsTickerEvent {
-                symbol,
-                ticker,
-            }));
+            let _ = sender.send(WsMessage::Ticker(WsTickerEvent { symbol, ticker }));
         }
     }
 
@@ -396,9 +416,7 @@ impl DeltaWs {
         data: &Value,
         subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
     ) {
-        let market_id = data.get("symbol")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let market_id = data.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
 
         let symbol = Self::parse_symbol_static(market_id);
         let key = format!("trades:{symbol}");
@@ -418,11 +436,13 @@ impl DeltaWs {
             let price = Self::parse_decimal(trade_data.get("price").unwrap_or(&json!(0)));
             let amount = Self::parse_decimal(trade_data.get("size").unwrap_or(&json!(0)));
 
-            let timestamp = trade_data.get("timestamp")
+            let timestamp = trade_data
+                .get("timestamp")
                 .and_then(|v| v.as_i64())
                 .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-            let trade_id = trade_data.get("id")
+            let trade_id = trade_data
+                .get("id")
                 .and_then(|v| {
                     if v.is_i64() {
                         Some(v.as_i64().unwrap().to_string())
@@ -434,12 +454,7 @@ impl DeltaWs {
                 })
                 .unwrap_or_else(|| timestamp.to_string());
 
-            let mut trade = Trade::new(
-                trade_id,
-                symbol.clone(),
-                price,
-                amount,
-            );
+            let mut trade = Trade::new(trade_id, symbol.clone(), price, amount);
 
             trade = trade.with_timestamp(timestamp);
 
@@ -455,10 +470,7 @@ impl DeltaWs {
         if !trades.is_empty() {
             let subs = subscriptions.read().await;
             if let Some(sender) = subs.get(&key) {
-                let _ = sender.send(WsMessage::Trade(WsTradeEvent {
-                    symbol,
-                    trades,
-                }));
+                let _ = sender.send(WsMessage::Trade(WsTradeEvent { symbol, trades }));
             }
         }
     }
@@ -469,9 +481,7 @@ impl DeltaWs {
         subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
         orderbook_cache: &Arc<RwLock<HashMap<String, OrderBook>>>,
     ) {
-        let market_id = data.get("symbol")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let market_id = data.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
 
         let symbol = Self::parse_symbol_static(market_id);
         let key = format!("orderbook:{symbol}");
@@ -517,6 +527,7 @@ impl DeltaWs {
                 symbol: symbol.clone(),
                 bids,
                 asks,
+                checksum: None,
                 timestamp,
                 datetime: None,
                 nonce: None,
@@ -535,6 +546,7 @@ impl DeltaWs {
                     symbol: symbol.clone(),
                     bids,
                     asks,
+                    checksum: None,
                     timestamp,
                     datetime: None,
                     nonce: None,
@@ -563,14 +575,13 @@ impl DeltaWs {
         data: &Value,
         subscriptions: &Arc<RwLock<HashMap<String, mpsc::UnboundedSender<WsMessage>>>>,
     ) {
-        let market_id = data.get("symbol")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let market_id = data.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
 
         let symbol = Self::parse_symbol_static(market_id);
 
         // Extract resolution from channel name or message
-        let resolution = data.get("resolution")
+        let resolution = data
+            .get("resolution")
             .and_then(|v| v.as_str())
             .unwrap_or("1h");
 
@@ -578,10 +589,12 @@ impl DeltaWs {
 
         let candle_data = data.get("data").unwrap_or(data);
 
-        let timestamp = candle_data.get("time")
+        let timestamp = candle_data
+            .get("time")
             .or_else(|| candle_data.get("timestamp"))
             .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| Utc::now().timestamp()) * 1000;
+            .unwrap_or_else(|| Utc::now().timestamp())
+            * 1000;
 
         let ohlcv = OHLCV {
             timestamp,
@@ -646,7 +659,11 @@ impl DeltaWs {
     }
 
     /// Apply delta updates to orderbook side
-    fn apply_deltas(book_side: &mut Vec<OrderBookEntry>, updates: &Vec<OrderBookEntry>, is_bid: bool) {
+    fn apply_deltas(
+        book_side: &mut Vec<OrderBookEntry>,
+        updates: &Vec<OrderBookEntry>,
+        is_bid: bool,
+    ) {
         for update in updates {
             // Find existing entry at this price
             let pos = book_side.iter().position(|e| e.price == update.price);
@@ -687,12 +704,18 @@ impl DeltaWs {
 
     /// Generate signature for authentication
     pub fn sign(&self, message: &str) -> CcxtResult<String> {
-        let api_secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret required for signing".into(),
-        })?;
+        let api_secret =
+            self.api_secret
+                .as_ref()
+                .ok_or_else(|| CcxtError::AuthenticationError {
+                    message: "API secret required for signing".into(),
+                })?;
 
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError { message: "Invalid secret key".into() })?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes()).map_err(|_| {
+            CcxtError::AuthenticationError {
+                message: "Invalid secret key".into(),
+            }
+        })?;
         mac.update(message.as_bytes());
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
@@ -700,7 +723,9 @@ impl DeltaWs {
     /// Parse order update data to unified Order type
     pub fn parse_order(&self, data: &DeltaOrderUpdateData) -> Option<WsMessage> {
         let order_id = data.id.map(|id| id.to_string())?;
-        let symbol = data.product_symbol.as_ref()
+        let symbol = data
+            .product_symbol
+            .as_ref()
             .map(|s| Self::parse_symbol_static(s))
             .unwrap_or_default();
 
@@ -727,17 +752,25 @@ impl DeltaWs {
             _ => OrderStatus::Open,
         };
 
-        let amount = data.size.as_ref()
+        let amount = data
+            .size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
-        let unfilled = data.unfilled_size.as_ref()
+        let unfilled = data
+            .unfilled_size
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or_default();
         let filled = amount - unfilled;
-        let price = data.limit_price.as_ref()
+        let price = data
+            .limit_price
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
 
-        let timestamp = data.created_at.as_ref()
+        let timestamp = data
+            .created_at
+            .as_ref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp_millis())
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -748,7 +781,9 @@ impl DeltaWs {
             timestamp: Some(timestamp),
             datetime: data.created_at.clone(),
             last_trade_timestamp: None,
-            last_update_timestamp: data.updated_at.as_ref()
+            last_update_timestamp: data
+                .updated_at
+                .as_ref()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.timestamp_millis()),
             status,
@@ -781,9 +816,13 @@ impl DeltaWs {
     pub fn parse_balance(&self, data: &DeltaBalanceUpdateData) -> Option<WsMessage> {
         let currency = data.asset_symbol.as_ref()?.to_uppercase();
 
-        let total = data.balance.as_ref()
+        let total = data
+            .balance
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
-        let free = data.available_balance.as_ref()
+        let free = data
+            .available_balance
+            .as_ref()
             .and_then(|s| Decimal::from_str(s).ok());
         let used = match (total, free) {
             (Some(t), Some(f)) => Some(t - f),
@@ -803,9 +842,7 @@ impl DeltaWs {
         };
         balances.currencies.insert(currency.clone(), balance);
 
-        Some(WsMessage::Balance(WsBalanceEvent {
-            balances,
-        }))
+        Some(WsMessage::Balance(WsBalanceEvent { balances }))
     }
 
     /// Handle orders messages
@@ -815,8 +852,11 @@ impl DeltaWs {
     ) {
         let order_data = data.get("data").unwrap_or(data);
 
-        if let Ok(order_update) = serde_json::from_value::<DeltaOrderUpdateData>(order_data.clone()) {
-            let symbol = order_update.product_symbol.as_ref()
+        if let Ok(order_update) = serde_json::from_value::<DeltaOrderUpdateData>(order_data.clone())
+        {
+            let symbol = order_update
+                .product_symbol
+                .as_ref()
                 .map(|s| Self::parse_symbol_static(s))
                 .unwrap_or_default();
 
@@ -846,7 +886,9 @@ impl DeltaWs {
     ) {
         let balance_data = data.get("data").unwrap_or(data);
 
-        if let Ok(balance_update) = serde_json::from_value::<DeltaBalanceUpdateData>(balance_data.clone()) {
+        if let Ok(balance_update) =
+            serde_json::from_value::<DeltaBalanceUpdateData>(balance_data.clone())
+        {
             let ws = DeltaWs::new();
             if let Some(ws_message) = ws.parse_balance(&balance_update) {
                 let subs = subscriptions.read().await;
@@ -921,12 +963,13 @@ impl WsExchange for DeltaWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let market_ids: Vec<String> = symbols.iter()
-            .map(|s| self.format_symbol(s))
-            .collect();
+        let market_ids: Vec<String> = symbols.iter().map(|s| self.format_symbol(s)).collect();
 
         for symbol in symbols {
             let key = format!("ticker:{symbol}");
@@ -966,9 +1009,7 @@ impl WsExchange for DeltaWs {
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let market_ids: Vec<String> = symbols.iter()
-            .map(|s| self.format_symbol(s))
-            .collect();
+        let market_ids: Vec<String> = symbols.iter().map(|s| self.format_symbol(s)).collect();
 
         for symbol in symbols {
             let key = format!("orderbook:{symbol}");
@@ -1003,9 +1044,7 @@ impl WsExchange for DeltaWs {
     ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let market_ids: Vec<String> = symbols.iter()
-            .map(|s| self.format_symbol(s))
-            .collect();
+        let market_ids: Vec<String> = symbols.iter().map(|s| self.format_symbol(s)).collect();
 
         for symbol in symbols {
             let key = format!("trades:{symbol}");
@@ -1048,9 +1087,7 @@ impl WsExchange for DeltaWs {
         let (tx, rx) = mpsc::unbounded_channel();
         let resolution = Self::timeframe_to_resolution(timeframe);
 
-        let market_ids: Vec<String> = symbols.iter()
-            .map(|s| self.format_symbol(s))
-            .collect();
+        let market_ids: Vec<String> = symbols.iter().map(|s| self.format_symbol(s)).collect();
 
         for symbol in symbols {
             let key = format!("ohlcv:{symbol}:{resolution}");
@@ -1086,7 +1123,10 @@ impl WsExchange for DeltaWs {
         Ok(rx)
     }
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private streams".to_string(),
@@ -1161,7 +1201,10 @@ mod tests {
 
     #[test]
     fn test_parse_decimal() {
-        assert_eq!(DeltaWs::parse_decimal(&json!("123.45")), Decimal::new(12345, 2));
+        assert_eq!(
+            DeltaWs::parse_decimal(&json!("123.45")),
+            Decimal::new(12345, 2)
+        );
         assert_eq!(DeltaWs::parse_decimal(&json!(100)), Decimal::from(100));
     }
 
@@ -1259,7 +1302,10 @@ mod tests {
             };
 
             if let Some(WsMessage::Order(event)) = ws.parse_order(&order_data) {
-                assert_eq!(event.order.status, expected_status, "Failed for state: {state}");
+                assert_eq!(
+                    event.order.status, expected_status,
+                    "Failed for state: {state}"
+                );
             }
         }
     }
@@ -1284,7 +1330,10 @@ mod tests {
             };
 
             if let Some(WsMessage::Order(event)) = ws.parse_order(&order_data) {
-                assert_eq!(event.order.order_type, expected_type, "Failed for type: {order_type}");
+                assert_eq!(
+                    event.order.order_type, expected_type,
+                    "Failed for type: {order_type}"
+                );
             }
         }
     }

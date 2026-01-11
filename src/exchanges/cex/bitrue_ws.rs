@@ -24,14 +24,14 @@ use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType,
-    Ticker, TimeInForce, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage,
-    WsOrderEvent, WsOrderBookEvent, WsTickerEvent, WsTradeEvent,
+    Balance, Balances, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker,
+    TimeInForce, Timeframe, Trade, WsBalanceEvent, WsExchange, WsMessage, WsOrderBookEvent,
+    WsOrderEvent, WsTickerEvent, WsTradeEvent,
 };
 
 const WS_PUBLIC_URL: &str = "wss://ws.bitrue.com/market/ws";
@@ -137,14 +137,18 @@ impl BitrueWs {
 
     /// Generate HMAC-SHA256 signature
     fn sign(&self, message: &str) -> CcxtResult<String> {
-        let secret = self.api_secret.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API secret not set".to_string(),
-        })?;
-
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| CcxtError::AuthenticationError {
-                message: format!("Failed to create HMAC: {e}"),
+        let secret = self
+            .api_secret
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API secret not set".to_string(),
             })?;
+
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| {
+            CcxtError::AuthenticationError {
+                message: format!("Failed to create HMAC: {e}"),
+            }
+        })?;
         mac.update(message.as_bytes());
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
@@ -157,16 +161,20 @@ impl BitrueWs {
         symbol: Option<&str>,
         tx: mpsc::UnboundedSender<WsMessage>,
     ) -> CcxtResult<()> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| CcxtError::AuthenticationError {
-            message: "API key not set".to_string(),
-        })?;
-
-        let (ws_stream, _) = connect_async(WS_PRIVATE_URL)
-            .await
-            .map_err(|e| CcxtError::NetworkError {
-                url: WS_PRIVATE_URL.to_string(),
-                message: format!("Private WebSocket connection failed: {e}"),
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| CcxtError::AuthenticationError {
+                message: "API key not set".to_string(),
             })?;
+
+        let (ws_stream, _) =
+            connect_async(WS_PRIVATE_URL)
+                .await
+                .map_err(|e| CcxtError::NetworkError {
+                    url: WS_PRIVATE_URL.to_string(),
+                    message: format!("Private WebSocket connection failed: {e}"),
+                })?;
 
         let (mut write, mut read) = ws_stream.split();
 
@@ -204,7 +212,7 @@ impl BitrueWs {
                             message: format!("Authentication failed: {text}"),
                         });
                     }
-                }
+                },
                 Ok(Message::Binary(bin)) => {
                     if let Ok(text) = String::from_utf8(bin.to_vec()) {
                         let parsed: Value = serde_json::from_str(&text).unwrap_or_default();
@@ -214,14 +222,14 @@ impl BitrueWs {
                             });
                         }
                     }
-                }
+                },
                 Err(e) => {
                     return Err(CcxtError::NetworkError {
                         url: WS_PRIVATE_URL.to_string(),
                         message: format!("Failed to receive auth response: {e}"),
                     });
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -269,7 +277,7 @@ impl BitrueWs {
                                 }
                             }
                         }
-                    }
+                    },
                     Ok(Message::Binary(bin)) => {
                         if let Ok(text) = String::from_utf8(bin.to_vec()) {
                             if let Some(ws_msg) = Self::process_private_message(&text) {
@@ -281,13 +289,13 @@ impl BitrueWs {
                                 }
                             }
                         }
-                    }
+                    },
                     Ok(Message::Ping(data)) => {
                         let _ = write.send(Message::Pong(data)).await;
-                    }
+                    },
                     Ok(Message::Close(_)) => break,
                     Err(_) => break,
-                    _ => {}
+                    _ => {},
                 }
             }
         });
@@ -300,7 +308,9 @@ impl BitrueWs {
         let parsed: Value = serde_json::from_str(text).ok()?;
 
         // Handle different event types
-        let event_type = parsed.get("e").and_then(|v| v.as_str())
+        let event_type = parsed
+            .get("e")
+            .and_then(|v| v.as_str())
             .or_else(|| parsed.get("event").and_then(|v| v.as_str()))?;
 
         match event_type {
@@ -309,12 +319,14 @@ impl BitrueWs {
                     let order = Self::parse_order(&data);
                     return Some(WsMessage::Order(WsOrderEvent { order }));
                 }
-            }
+            },
             "outboundAccountPosition" | "ACCOUNT_UPDATE" => {
                 if let Some(balances_arr) = parsed.get("B").and_then(|v| v.as_array()) {
                     let mut currencies = HashMap::new();
                     for b in balances_arr {
-                        if let Ok(data) = serde_json::from_value::<BitrueBalanceUpdateData>(b.clone()) {
+                        if let Ok(data) =
+                            serde_json::from_value::<BitrueBalanceUpdateData>(b.clone())
+                        {
                             let balance = Self::parse_balance(&data);
                             if let Some(currency) = &data.asset {
                                 currencies.insert(currency.clone(), balance);
@@ -329,9 +341,10 @@ impl BitrueWs {
                     };
                     return Some(WsMessage::Balance(WsBalanceEvent { balances }));
                 }
-            }
+            },
             "balanceUpdate" => {
-                if let Ok(data) = serde_json::from_value::<BitrueBalanceUpdateData>(parsed.clone()) {
+                if let Ok(data) = serde_json::from_value::<BitrueBalanceUpdateData>(parsed.clone())
+                {
                     let balance = Self::parse_balance(&data);
                     let mut currencies = HashMap::new();
                     if let Some(currency) = &data.asset {
@@ -345,8 +358,8 @@ impl BitrueWs {
                     };
                     return Some(WsMessage::Balance(WsBalanceEvent { balances }));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         None
@@ -354,53 +367,75 @@ impl BitrueWs {
 
     /// Parse order from update data
     fn parse_order(data: &BitrueOrderUpdateData) -> Order {
-        let symbol = data.symbol.as_ref()
+        let symbol = data
+            .symbol
+            .as_ref()
             .map(|s| Self::parse_symbol_static(s))
             .unwrap_or_default();
 
-        let status = data.status.as_ref().map(|s| match s.as_str() {
-            "NEW" => OrderStatus::Open,
-            "PARTIALLY_FILLED" => OrderStatus::Open,
-            "FILLED" => OrderStatus::Closed,
-            "CANCELED" => OrderStatus::Canceled,
-            "REJECTED" => OrderStatus::Rejected,
-            "EXPIRED" => OrderStatus::Expired,
-            _ => OrderStatus::Open,
-        }).unwrap_or(OrderStatus::Open);
+        let status = data
+            .status
+            .as_ref()
+            .map(|s| match s.as_str() {
+                "NEW" => OrderStatus::Open,
+                "PARTIALLY_FILLED" => OrderStatus::Open,
+                "FILLED" => OrderStatus::Closed,
+                "CANCELED" => OrderStatus::Canceled,
+                "REJECTED" => OrderStatus::Rejected,
+                "EXPIRED" => OrderStatus::Expired,
+                _ => OrderStatus::Open,
+            })
+            .unwrap_or(OrderStatus::Open);
 
-        let side = data.side.as_ref().map(|s| match s.as_str() {
-            "BUY" => OrderSide::Buy,
-            "SELL" => OrderSide::Sell,
-            _ => OrderSide::Buy,
-        }).unwrap_or(OrderSide::Buy);
+        let side = data
+            .side
+            .as_ref()
+            .map(|s| match s.as_str() {
+                "BUY" => OrderSide::Buy,
+                "SELL" => OrderSide::Sell,
+                _ => OrderSide::Buy,
+            })
+            .unwrap_or(OrderSide::Buy);
 
-        let order_type = data.order_type.as_ref().map(|t| match t.as_str() {
-            "LIMIT" => OrderType::Limit,
-            "MARKET" => OrderType::Market,
-            "STOP_LOSS" => OrderType::StopLoss,
-            "STOP_LOSS_LIMIT" => OrderType::StopLossLimit,
-            "TAKE_PROFIT" => OrderType::TakeProfit,
-            "TAKE_PROFIT_LIMIT" => OrderType::TakeProfitLimit,
-            _ => OrderType::Limit,
-        }).unwrap_or(OrderType::Limit);
+        let order_type = data
+            .order_type
+            .as_ref()
+            .map(|t| match t.as_str() {
+                "LIMIT" => OrderType::Limit,
+                "MARKET" => OrderType::Market,
+                "STOP_LOSS" => OrderType::StopLoss,
+                "STOP_LOSS_LIMIT" => OrderType::StopLossLimit,
+                "TAKE_PROFIT" => OrderType::TakeProfit,
+                "TAKE_PROFIT_LIMIT" => OrderType::TakeProfitLimit,
+                _ => OrderType::Limit,
+            })
+            .unwrap_or(OrderType::Limit);
 
-        let time_in_force = data.time_in_force.as_ref().and_then(|tif| match tif.as_str() {
-            "GTC" => Some(TimeInForce::GTC),
-            "IOC" => Some(TimeInForce::IOC),
-            "FOK" => Some(TimeInForce::FOK),
-            _ => None,
-        });
+        let time_in_force = data
+            .time_in_force
+            .as_ref()
+            .and_then(|tif| match tif.as_str() {
+                "GTC" => Some(TimeInForce::GTC),
+                "IOC" => Some(TimeInForce::IOC),
+                "FOK" => Some(TimeInForce::FOK),
+                _ => None,
+            });
 
-        let price = data.price.as_ref()
-            .and_then(|p| p.parse::<Decimal>().ok());
-        let amount = data.quantity.as_ref()
+        let price = data.price.as_ref().and_then(|p| p.parse::<Decimal>().ok());
+        let amount = data
+            .quantity
+            .as_ref()
             .and_then(|q| q.parse::<Decimal>().ok())
             .unwrap_or_default();
-        let filled = data.filled_quantity.as_ref()
+        let filled = data
+            .filled_quantity
+            .as_ref()
             .and_then(|f| f.parse::<Decimal>().ok())
             .unwrap_or_default();
         let remaining = amount - filled;
-        let cost = data.cumulative_quote_qty.as_ref()
+        let cost = data
+            .cumulative_quote_qty
+            .as_ref()
             .and_then(|c| c.parse::<Decimal>().ok());
 
         let timestamp = data.event_time.or(data.trade_time);
@@ -446,10 +481,8 @@ impl BitrueWs {
 
     /// Parse balance from update data
     fn parse_balance(data: &BitrueBalanceUpdateData) -> Balance {
-        let free = data.free.as_ref()
-            .and_then(|f| f.parse::<Decimal>().ok());
-        let used = data.locked.as_ref()
-            .and_then(|l| l.parse::<Decimal>().ok());
+        let free = data.free.as_ref().and_then(|f| f.parse::<Decimal>().ok());
+        let used = data.locked.as_ref().and_then(|l| l.parse::<Decimal>().ok());
         let total = match (free, used) {
             (Some(f), Some(u)) => Some(f + u),
             (Some(f), None) => Some(f),
@@ -526,25 +559,37 @@ impl BitrueWs {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                Self::handle_message_static(&data, &subscriptions, &orderbook_cache, &ws).await;
+                                Self::handle_message_static(
+                                    &data,
+                                    &subscriptions,
+                                    &orderbook_cache,
+                                    &ws,
+                                )
+                                .await;
                             }
-                        }
+                        },
                         Some(Ok(Message::Binary(bin))) => {
                             // Try to parse as UTF-8 text
                             if let Ok(text) = String::from_utf8(bin.to_vec()) {
                                 if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                                    Self::handle_message_static(&data, &subscriptions, &orderbook_cache, &ws).await;
+                                    Self::handle_message_static(
+                                        &data,
+                                        &subscriptions,
+                                        &orderbook_cache,
+                                        &ws,
+                                    )
+                                    .await;
                                 }
                             }
-                        }
+                        },
                         Some(Ok(Message::Ping(data))) => {
                             let mut ws_guard = ws.write().await;
                             let _ = ws_guard.send(Message::Pong(data)).await;
-                        }
+                        },
                         Some(Ok(Message::Close(_))) => break,
                         Some(Err(_)) => break,
                         None => break,
-                        _ => {}
+                        _ => {},
                     }
                 }
             }
@@ -608,6 +653,7 @@ impl BitrueWs {
                 symbol: symbol.clone(),
                 bids,
                 asks,
+                checksum: None,
                 timestamp,
                 datetime: None,
                 nonce: None,
@@ -637,11 +683,13 @@ impl BitrueWs {
             for item in arr {
                 if let Some(entry_arr) = item.as_array() {
                     if entry_arr.len() >= 2 {
-                        let price: Decimal = entry_arr[0].as_str()
+                        let price: Decimal = entry_arr[0]
+                            .as_str()
                             .and_then(|s| s.parse().ok())
                             .or_else(|| entry_arr[0].as_f64().and_then(Decimal::from_f64))
                             .unwrap_or_default();
-                        let amount: Decimal = entry_arr[1].as_str()
+                        let amount: Decimal = entry_arr[1]
+                            .as_str()
                             .and_then(|s| s.parse().ok())
                             .or_else(|| entry_arr[1].as_f64().and_then(Decimal::from_f64))
                             .unwrap_or_default();
@@ -673,17 +721,31 @@ impl BitrueWs {
             if let Some(trades) = tick.get("data").and_then(|v| v.as_array()) {
                 for trade_data in trades {
                     let timestamp = trade_data.get("ts").and_then(|v| v.as_i64());
-                    let side = trade_data.get("side").and_then(|v| v.as_str())
-                        .map(|s| if s == "BUY" { "buy" } else { "sell" });
+                    let side = trade_data.get("side").and_then(|v| v.as_str()).map(|s| {
+                        if s == "BUY" {
+                            "buy"
+                        } else {
+                            "sell"
+                        }
+                    });
 
-                    let price: Decimal = trade_data.get("price").and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok()).unwrap_or_default();
-                    let amount: Decimal = trade_data.get("vol").and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok()).unwrap_or_default();
+                    let price: Decimal = trade_data
+                        .get("price")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default();
+                    let amount: Decimal = trade_data
+                        .get("vol")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default();
 
                     let trade = Trade::new(
-                        trade_data.get("id").and_then(|v| v.as_str())
-                            .map(String::from).unwrap_or_default(),
+                        trade_data
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .map(String::from)
+                            .unwrap_or_default(),
                         symbol.clone(),
                         price,
                         amount,
@@ -732,12 +794,30 @@ impl BitrueWs {
 
             let ticker = Ticker {
                 symbol: symbol.clone(),
-                high: tick.get("high").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                low: tick.get("low").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                last: tick.get("close").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                bid: tick.get("bid").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                ask: tick.get("ask").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-                base_volume: tick.get("vol").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
+                high: tick
+                    .get("high")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                low: tick
+                    .get("low")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                last: tick
+                    .get("close")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                bid: tick
+                    .get("bid")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                ask: tick
+                    .get("ask")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
+                base_volume: tick
+                    .get("vol")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok()),
                 timestamp,
                 ..Default::default()
             };
@@ -776,12 +856,13 @@ impl Default for BitrueWs {
 #[async_trait]
 impl WsExchange for BitrueWs {
     async fn ws_connect(&mut self) -> CcxtResult<()> {
-        let (ws_stream, _) = connect_async(WS_PUBLIC_URL)
-            .await
-            .map_err(|e| CcxtError::NetworkError {
-                url: WS_PUBLIC_URL.to_string(),
-                message: format!("WebSocket connection failed: {e}"),
-            })?;
+        let (ws_stream, _) =
+            connect_async(WS_PUBLIC_URL)
+                .await
+                .map_err(|e| CcxtError::NetworkError {
+                    url: WS_PUBLIC_URL.to_string(),
+                    message: format!("WebSocket connection failed: {e}"),
+                })?;
 
         self.ws_stream = Some(Arc::new(RwLock::new(ws_stream)));
         self.start_message_loop();
@@ -824,7 +905,10 @@ impl WsExchange for BitrueWs {
         Ok(rx)
     }
 
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_tickers(
+        &self,
+        symbols: &[&str],
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         for symbol in symbols {
@@ -945,7 +1029,10 @@ impl WsExchange for BitrueWs {
 
     // === Private Channel Methods ===
 
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -953,11 +1040,15 @@ impl WsExchange for BitrueWs {
         }
 
         let (tx, rx) = mpsc::unbounded_channel();
-        self.subscribe_private_stream("executionReport", symbol, tx).await?;
+        self.subscribe_private_stream("executionReport", symbol, tx)
+            .await?;
         Ok(rx)
     }
 
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+    async fn watch_my_trades(
+        &self,
+        symbol: Option<&str>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
         if self.api_key.is_none() || self.api_secret.is_none() {
             return Err(CcxtError::AuthenticationError {
                 message: "API credentials required for private channels".into(),
@@ -966,7 +1057,8 @@ impl WsExchange for BitrueWs {
 
         // Bitrue sends trade info as part of order execution reports
         let (tx, rx) = mpsc::unbounded_channel();
-        self.subscribe_private_stream("executionReport", symbol, tx).await?;
+        self.subscribe_private_stream("executionReport", symbol, tx)
+            .await?;
         Ok(rx)
     }
 
@@ -978,7 +1070,8 @@ impl WsExchange for BitrueWs {
         }
 
         let (tx, rx) = mpsc::unbounded_channel();
-        self.subscribe_private_stream("outboundAccountPosition", None, tx).await?;
+        self.subscribe_private_stream("outboundAccountPosition", None, tx)
+            .await?;
         Ok(rx)
     }
 
@@ -1116,7 +1209,10 @@ mod tests {
             };
 
             let order = BitrueWs::parse_order(&data);
-            assert_eq!(order.status, expected_status, "Status mismatch for {status_str}");
+            assert_eq!(
+                order.status, expected_status,
+                "Status mismatch for {status_str}"
+            );
         }
     }
 
