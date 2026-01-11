@@ -3,7 +3,7 @@
 //! Demonstrates using the Backpack exchange WebSocket API
 //! Run with: cargo run --example backpack_ws_example
 
-use ccxt_rust::exchanges::foreign::BackpackWs;
+use ccxt_rust::exchanges::BackpackWs;
 use ccxt_rust::types::{WsExchange, WsMessage};
 use std::time::Duration;
 

@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             WsMessage::Error(err) => {
-                eprintln!("Error: {}", err);
+                eprintln!("Error: {err}");
                 break;
             }
             WsMessage::Disconnected => {

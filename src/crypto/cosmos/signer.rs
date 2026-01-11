@@ -8,6 +8,8 @@
 //! - Direct (Protobuf): 권장 방식, 더 효율적
 //! - Amino (Legacy): 레거시 호환성
 //!
+
+#![allow(dead_code)]
 //! # 참조
 //!
 //! - [Cosmos SDK Signing](https://docs.cosmos.network/main/core/encoding)
@@ -71,7 +73,7 @@ impl CosmosSignature {
         use base64::Engine;
         let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)
             .map_err(|e| CcxtError::InvalidSignature {
-                message: format!("Invalid base64: {}", e),
+                message: format!("Invalid base64: {e}"),
             })?;
         Self::from_bytes(&bytes)
     }
@@ -86,7 +88,7 @@ impl CosmosSignature {
         let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
         let bytes = hex::decode(hex_str)
             .map_err(|e| CcxtError::InvalidSignature {
-                message: format!("Invalid hex: {}", e),
+                message: format!("Invalid hex: {e}"),
             })?;
         Self::from_bytes(&bytes)
     }
@@ -121,7 +123,7 @@ pub fn sign_bytes(private_key: &[u8; 32], data: &[u8]) -> CcxtResult<CosmosSigna
 pub fn sign_hash(private_key: &[u8; 32], hash: &[u8]) -> CcxtResult<CosmosSignature> {
     let signing_key = SigningKey::from_bytes(private_key.into())
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid private key: {}", e),
+            message: format!("Invalid private key: {e}"),
         })?;
 
     let signature: K256Signature = signing_key.sign(hash);
@@ -195,7 +197,7 @@ pub fn sign_amino(
     // 정렬된 JSON (Amino 요구사항)
     let json_bytes = serde_json::to_vec(&sign_doc)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("JSON serialization failed: {}", e),
+            message: format!("JSON serialization failed: {e}"),
         })?;
 
     sign_bytes(private_key, &json_bytes)
@@ -219,7 +221,7 @@ pub fn verify_signature(
 ) -> CcxtResult<bool> {
     let verifying_key = VerifyingKey::from_sec1_bytes(public_key)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid public key: {}", e),
+            message: format!("Invalid public key: {e}"),
         })?;
 
     // SHA-256 해시
@@ -229,7 +231,7 @@ pub fn verify_signature(
     let sig_bytes = signature.to_bytes();
     let k256_sig = K256Signature::from_slice(&sig_bytes)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid signature format: {}", e),
+            message: format!("Invalid signature format: {e}"),
         })?;
 
     Ok(verifying_key.verify(&hash, &k256_sig).is_ok())
@@ -243,13 +245,13 @@ pub fn verify_hash_signature(
 ) -> CcxtResult<bool> {
     let verifying_key = VerifyingKey::from_sec1_bytes(public_key)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid public key: {}", e),
+            message: format!("Invalid public key: {e}"),
         })?;
 
     let sig_bytes = signature.to_bytes();
     let k256_sig = K256Signature::from_slice(&sig_bytes)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid signature format: {}", e),
+            message: format!("Invalid signature format: {e}"),
         })?;
 
     Ok(verifying_key.verify(hash, &k256_sig).is_ok())

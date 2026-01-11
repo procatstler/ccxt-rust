@@ -129,7 +129,7 @@ impl StarkNetTypedData {
     /// 타입 인코딩 문자열 생성
     fn encode_type(&self, type_name: &str) -> CcxtResult<String> {
         let fields = self.types.get(type_name).ok_or_else(|| CcxtError::InvalidSignature {
-            message: format!("Type not found: {}", type_name),
+            message: format!("Type not found: {type_name}"),
         })?;
 
         let field_strings: Vec<String> = fields
@@ -146,7 +146,7 @@ impl StarkNetTypedData {
         let mut values = vec![type_hash];
 
         let fields = self.types.get(type_name).ok_or_else(|| CcxtError::InvalidSignature {
-            message: format!("Type not found: {}", type_name),
+            message: format!("Type not found: {type_name}"),
         })?;
 
         for field in fields {
@@ -167,13 +167,13 @@ impl StarkNetTypedData {
 
         // 홀수 길이면 앞에 0을 추가
         let hex_str = if hex_str.len() % 2 != 0 {
-            format!("0{}", hex_str)
+            format!("0{hex_str}")
         } else {
             hex_str.to_string()
         };
 
         let bytes = hex::decode(&hex_str).map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid hex: {}", e),
+            message: format!("Invalid hex: {e}"),
         })?;
 
         let mut padded = [0u8; 32];
@@ -197,7 +197,7 @@ impl StarkNetTypedData {
                         } else if s.chars().all(|c| c.is_ascii_digit()) {
                             // 순수 숫자 문자열 - felt로 파싱
                             let n: u64 = s.parse().map_err(|e| CcxtError::InvalidSignature {
-                                message: format!("Invalid number: {}", e),
+                                message: format!("Invalid number: {e}"),
                             })?;
                             Ok(u64_to_felt(n))
                         } else {
@@ -210,18 +210,18 @@ impl StarkNetTypedData {
                             Ok(u64_to_felt(u))
                         } else {
                             Err(CcxtError::InvalidSignature {
-                                message: format!("Number too large: {}", n),
+                                message: format!("Number too large: {n}"),
                             })
                         }
                     }
                     _ => Err(CcxtError::InvalidSignature {
-                        message: format!("Expected felt, got {:?}", value),
+                        message: format!("Expected felt, got {value:?}"),
                     }),
                 }
             }
             "string" | "shortstring" => {
                 let s = value.as_str().ok_or_else(|| CcxtError::InvalidSignature {
-                    message: format!("Expected string, got {:?}", value),
+                    message: format!("Expected string, got {value:?}"),
                 })?;
                 Ok(string_to_felt(s))
             }
@@ -232,7 +232,7 @@ impl StarkNetTypedData {
                             Ok(u64_to_felt(u))
                         } else {
                             Err(CcxtError::InvalidSignature {
-                                message: format!("Number too large: {}", n),
+                                message: format!("Number too large: {n}"),
                             })
                         }
                     }
@@ -242,19 +242,19 @@ impl StarkNetTypedData {
                             Self::parse_hex_to_felt(s)
                         } else {
                             let n: u64 = s.parse().map_err(|e| CcxtError::InvalidSignature {
-                                message: format!("Invalid number: {}", e),
+                                message: format!("Invalid number: {e}"),
                             })?;
                             Ok(u64_to_felt(n))
                         }
                     }
                     _ => Err(CcxtError::InvalidSignature {
-                        message: format!("Expected number, got {:?}", value),
+                        message: format!("Expected number, got {value:?}"),
                     }),
                 }
             }
             "bool" => {
                 let b = value.as_bool().ok_or_else(|| CcxtError::InvalidSignature {
-                    message: format!("Expected bool, got {:?}", value),
+                    message: format!("Expected bool, got {value:?}"),
                 })?;
                 Ok(if b { Felt::ONE } else { Felt::ZERO })
             }
@@ -264,7 +264,7 @@ impl StarkNetTypedData {
                     self.hash_struct(field_type, value)
                 } else {
                     Err(CcxtError::InvalidSignature {
-                        message: format!("Unsupported type: {}", field_type),
+                        message: format!("Unsupported type: {field_type}"),
                     })
                 }
             }

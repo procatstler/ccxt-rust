@@ -6,6 +6,8 @@
 //!
 //! - [StarkNet Poseidon Hash](https://docs.starknet.io/documentation/architecture_and_concepts/Hashing/hash-functions/)
 
+#![allow(dead_code)]
+
 use starknet_crypto::{poseidon_hash as stark_poseidon_hash, poseidon_hash_many as stark_poseidon_hash_many, pedersen_hash as stark_pedersen_hash};
 use starknet_types_core::felt::Felt;
 

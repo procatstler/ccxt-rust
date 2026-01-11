@@ -319,7 +319,7 @@ fn parse_decimal_to_quantum(value: &str, decimals: u32) -> String {
     frac.truncate(decimals as usize);
 
     // 정수부와 소수부 결합
-    let result = format!("{}{}", integer_part, frac);
+    let result = format!("{integer_part}{frac}");
 
     // 앞의 0 제거
     result.trim_start_matches('0').to_string()

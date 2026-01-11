@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn test_wallet_debug() {
         let wallet = CosmosWallet::dydx_testnet(TEST_MNEMONIC, 0).unwrap();
-        let debug_str = format!("{:?}", wallet);
+        let debug_str = format!("{wallet:?}");
 
         // 개인키는 출력되지 않아야 함
         assert!(!debug_str.contains("private"));

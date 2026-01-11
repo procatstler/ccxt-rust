@@ -3,7 +3,7 @@
 //! Demonstrates how to use the HollaEx WebSocket implementation
 //! to receive real-time market data.
 
-use ccxt_rust::exchanges::foreign::HollaexWs;
+use ccxt_rust::exchanges::HollaexWs;
 use ccxt_rust::types::{WsExchange, WsMessage};
 
 #[tokio::main]
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 WsMessage::Error(err) => {
-                    eprintln!("[OrderBook] Error: {}", err);
+                    eprintln!("[OrderBook] Error: {err}");
                 }
                 WsMessage::Disconnected => {
                     println!("[OrderBook] Disconnected");
@@ -87,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 WsMessage::Error(err) => {
-                    eprintln!("[Trades] Error: {}", err);
+                    eprintln!("[Trades] Error: {err}");
                 }
                 WsMessage::Disconnected => {
                     println!("[Trades] Disconnected");
@@ -125,7 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 WsMessage::Error(err) => {
-                    eprintln!("[Multi] Error: {}", err);
+                    eprintln!("[Multi] Error: {err}");
                 }
                 WsMessage::Disconnected => {
                     println!("[Multi] Disconnected");

@@ -6,6 +6,8 @@
 //!
 //! - [StarkNet Signatures](https://docs.starknet.io/documentation/architecture_and_concepts/Accounts/signature_verification/)
 
+#![allow(dead_code)]
+
 use crate::errors::{CcxtError, CcxtResult};
 use starknet_crypto::{sign, verify, get_public_key as stark_get_public_key};
 use starknet_types_core::felt::Felt;
@@ -65,7 +67,7 @@ pub fn sign_hash(
 
     let signature = sign(private_key, message_hash, &k)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("StarkNet signing failed: {:?}", e),
+            message: format!("StarkNet signing failed: {e:?}"),
         })?;
 
     Ok(StarkNetSignature {
@@ -92,7 +94,7 @@ pub fn verify_signature(
 ) -> CcxtResult<bool> {
     let result = verify(public_key, message_hash, &signature.r, &signature.s)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("StarkNet verification failed: {:?}", e),
+            message: format!("StarkNet verification failed: {e:?}"),
         })?;
 
     Ok(result)
@@ -135,13 +137,13 @@ fn parse_hex_to_bytes32(hex_str: &str) -> CcxtResult<[u8; 32]> {
 
     // 홀수 길이면 앞에 0을 추가
     let hex_str = if hex_str.len() % 2 != 0 {
-        format!("0{}", hex_str)
+        format!("0{hex_str}")
     } else {
         hex_str.to_string()
     };
 
     let bytes = hex::decode(&hex_str).map_err(|e| CcxtError::InvalidSignature {
-        message: format!("Invalid hex: {}", e),
+        message: format!("Invalid hex: {e}"),
     })?;
 
     if bytes.len() > 32 {

@@ -7,6 +7,8 @@
 //! - [StarkNet Account Derivation](https://docs.starknet.io/documentation/architecture_and_concepts/Accounts/)
 //! - [Paradex Account System](https://docs.paradex.trade/developers/authentication)
 
+#![allow(dead_code)]
+
 use crate::errors::{CcxtError, CcxtResult};
 use super::poseidon::{poseidon_hash_many, string_to_felt};
 use super::curve::get_public_key;
@@ -192,7 +194,7 @@ fn parse_hex_to_felt(hex_str: &str) -> CcxtResult<Felt> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
 
     let bytes = hex::decode(hex_str).map_err(|e| CcxtError::InvalidSignature {
-        message: format!("Invalid hex: {}", e),
+        message: format!("Invalid hex: {e}"),
     })?;
 
     if bytes.len() > 32 {

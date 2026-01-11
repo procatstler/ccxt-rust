@@ -3,7 +3,7 @@
 //! Demonstrates how to use the Coinone WebSocket implementation
 //! to receive real-time market data.
 
-use ccxt_rust::exchanges::foreign::CoinoneWs;
+use ccxt_rust::exchanges::CoinoneWs;
 use ccxt_rust::types::{WsExchange, WsMessage};
 
 #[tokio::main]
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 WsMessage::Error(err) => {
-                    eprintln!("[Ticker] Error: {}", err);
+                    eprintln!("[Ticker] Error: {err}");
                 }
                 WsMessage::Disconnected => {
                     println!("[Ticker] Disconnected");
@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 WsMessage::Error(err) => {
-                    eprintln!("[OrderBook] Error: {}", err);
+                    eprintln!("[OrderBook] Error: {err}");
                 }
                 WsMessage::Disconnected => {
                     println!("[OrderBook] Disconnected");
@@ -127,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 WsMessage::Error(err) => {
-                    eprintln!("[Trades] Error: {}", err);
+                    eprintln!("[Trades] Error: {err}");
                 }
                 WsMessage::Disconnected => {
                     println!("[Trades] Disconnected");

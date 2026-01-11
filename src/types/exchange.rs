@@ -153,8 +153,27 @@ pub enum ExchangeId {
     Bit2c,
     // Indian exchanges
     Bitbns,
+    Zebpay,
+    // Taiwan exchanges
+    Bitopro,
+    // Philippine exchanges
+    Coinsph,
     // Brazilian exchanges
     Novadax,
+    // Global derivatives exchanges
+    Deepcoin,
+    // Japan exchanges (additional)
+    Bittrade,
+    // DEX exchanges
+    Apex,
+    // Derivatives exchanges
+    Oxfun,
+    // DEX exchanges (additional)
+    Defx,
+    // DEX derivatives
+    Derive,
+    // Crypto derivatives exchange
+    CoinCatch,
 }
 
 impl ExchangeId {
@@ -261,7 +280,17 @@ impl ExchangeId {
             ExchangeId::Paymium => "paymium",
             ExchangeId::Bit2c => "bit2c",
             ExchangeId::Bitbns => "bitbns",
+            ExchangeId::Zebpay => "zebpay",
+            ExchangeId::Bitopro => "bitopro",
+            ExchangeId::Coinsph => "coinsph",
             ExchangeId::Novadax => "novadax",
+            ExchangeId::Deepcoin => "deepcoin",
+            ExchangeId::Bittrade => "bittrade",
+            ExchangeId::Apex => "apex",
+            ExchangeId::Oxfun => "oxfun",
+            ExchangeId::Defx => "defx",
+            ExchangeId::Derive => "derive",
+            ExchangeId::CoinCatch => "coincatch",
         }
     }
 }

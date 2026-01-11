@@ -5,7 +5,7 @@
 //! Run with: cargo run --example krakenfutures_ws_example
 
 use ccxt_rust::client::ExchangeConfig;
-use ccxt_rust::exchanges::foreign::KrakenFuturesWs;
+use ccxt_rust::exchanges::KrakenFuturesWs;
 use ccxt_rust::types::{WsExchange, WsMessage};
 
 #[tokio::main]
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         break;
                     }
                 }
-                WsMessage::Error(err) => eprintln!("Error: {}", err),
+                WsMessage::Error(err) => eprintln!("Error: {err}"),
                 _ => {}
             }
         }
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         break;
                     }
                 }
-                WsMessage::Error(err) => eprintln!("Error: {}", err),
+                WsMessage::Error(err) => eprintln!("Error: {err}"),
                 _ => {}
             }
         }
@@ -113,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         break;
                     }
                 }
-                WsMessage::Error(err) => eprintln!("Error: {}", err),
+                WsMessage::Error(err) => eprintln!("Error: {err}"),
                 _ => {}
             }
         }

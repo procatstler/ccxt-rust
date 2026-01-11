@@ -6,7 +6,7 @@ use ccxt_rust::{Exchange, ExchangeConfig, ExchangeId, RateLimiter};
 #[tokio::test]
 async fn test_exchange_trait_exists() {
     // Exchange trait이 정의되어 있어야 함
-    fn assert_exchange_trait<T: Exchange>() {}
+    fn _assert_exchange_trait<T: Exchange>() {}
 }
 
 /// Exchange trait의 기본 메서드들이 정의되어 있는지 확인
@@ -193,4 +193,41 @@ async fn test_kucoin_futures_features() {
     assert!(exchange.has().fetch_open_interest);
     assert!(exchange.has().fetch_liquidations);
     assert!(exchange.has().fetch_index_price);
+}
+
+// === Foreign Exchange Tests ===
+
+/// BTCTurk 거래소 테스트
+#[tokio::test]
+async fn test_btcturk_creation() {
+    use ccxt_rust::exchanges::Btcturk;
+
+    let config = ExchangeConfig::new();
+    let exchange = Btcturk::new(config).unwrap();
+
+    assert_eq!(exchange.id(), ExchangeId::Btcturk);
+    assert_eq!(exchange.name(), "BTCTurk");
+    assert!(exchange.has().spot);
+    assert!(exchange.has().fetch_ticker);
+    assert!(exchange.has().fetch_order_book);
+    assert!(exchange.has().fetch_trades);
+    assert!(exchange.has().fetch_ohlcv);
+}
+
+/// DigiFinex 거래소 테스트
+#[tokio::test]
+async fn test_digifinex_creation() {
+    use ccxt_rust::exchanges::Digifinex;
+
+    let config = ExchangeConfig::new();
+    let exchange = Digifinex::new(config).unwrap();
+
+    assert_eq!(exchange.id(), ExchangeId::Digifinex);
+    assert_eq!(exchange.name(), "DigiFinex");
+    assert!(exchange.has().spot);
+    assert!(exchange.has().margin);
+    assert!(exchange.has().fetch_ticker);
+    assert!(exchange.has().fetch_order_book);
+    assert!(exchange.has().fetch_trades);
+    assert!(exchange.has().fetch_ohlcv);
 }

@@ -8,6 +8,8 @@
 //! 1. 공개키 (33 bytes, 압축)
 //! 2. SHA-256 해시
 //! 3. RIPEMD-160 해시 (20 bytes)
+
+#![allow(dead_code)]
 //! 4. Bech32 인코딩 (prefix + data)
 //!
 //! # 예시
@@ -112,17 +114,17 @@ pub fn public_key_to_address(public_key: &[u8; 33], prefix: &str) -> CcxtResult<
     let sha256_hash = Sha256::digest(public_key);
 
     // Step 2: RIPEMD-160
-    let ripemd_hash = Ripemd160::digest(&sha256_hash);
+    let ripemd_hash = Ripemd160::digest(sha256_hash);
 
     // Step 3: Bech32 인코딩
     let hrp = Hrp::parse(prefix)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid address prefix '{}': {}", prefix, e),
+            message: format!("Invalid address prefix '{prefix}': {e}"),
         })?;
 
     let address = bech32::encode::<Bech32>(hrp, ripemd_hash.as_slice())
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Bech32 encoding failed: {}", e),
+            message: format!("Bech32 encoding failed: {e}"),
         })?;
 
     Ok(address)
@@ -156,7 +158,7 @@ pub fn private_key_to_address(private_key: &[u8; 32], prefix: &str) -> CcxtResul
 pub fn validate_address(address: &str, expected_prefix: Option<&str>) -> CcxtResult<(String, Vec<u8>)> {
     let (hrp, data) = bech32::decode(address)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid Bech32 address: {}", e),
+            message: format!("Invalid Bech32 address: {e}"),
         })?;
 
     let prefix = hrp.to_string();
@@ -164,7 +166,7 @@ pub fn validate_address(address: &str, expected_prefix: Option<&str>) -> CcxtRes
     if let Some(expected) = expected_prefix {
         if prefix != expected {
             return Err(CcxtError::InvalidSignature {
-                message: format!("Expected prefix '{}', got '{}'", expected, prefix),
+                message: format!("Expected prefix '{expected}', got '{prefix}'"),
             });
         }
     }
@@ -196,12 +198,12 @@ pub fn convert_address_prefix(address: &str, new_prefix: &str) -> CcxtResult<Str
 
     let hrp = Hrp::parse(new_prefix)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid prefix '{}': {}", new_prefix, e),
+            message: format!("Invalid prefix '{new_prefix}': {e}"),
         })?;
 
     let new_address = bech32::encode::<Bech32>(hrp, &data)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Bech32 encoding failed: {}", e),
+            message: format!("Bech32 encoding failed: {e}"),
         })?;
 
     Ok(new_address)

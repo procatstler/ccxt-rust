@@ -177,7 +177,7 @@ impl Eip712TypedData {
         let mut encoded = type_hash.to_vec();
 
         let fields = self.types.get(type_name).ok_or_else(|| CcxtError::InvalidSignature {
-            message: format!("Type not found: {}", type_name),
+            message: format!("Type not found: {type_name}"),
         })?;
 
         for field in fields {
@@ -197,14 +197,14 @@ impl Eip712TypedData {
         // 동적 타입 (string, bytes)
         if field_type == "string" {
             let s = value.as_str().ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Expected string, got {:?}", value),
+                message: format!("Expected string, got {value:?}"),
             })?;
             return Ok(keccak256(s.as_bytes()));
         }
 
         if field_type == "bytes" {
             let hex_str = value.as_str().ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Expected hex string for bytes, got {:?}", value),
+                message: format!("Expected hex string for bytes, got {value:?}"),
             })?;
             let bytes = parse_hex_bytes(hex_str)?;
             return Ok(keccak256(&bytes));
@@ -213,7 +213,7 @@ impl Eip712TypedData {
         // 고정 크기 bytes (bytes1~bytes32)
         if field_type.starts_with("bytes") && !field_type.contains('[') {
             let hex_str = value.as_str().ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Expected hex string, got {:?}", value),
+                message: format!("Expected hex string, got {value:?}"),
             })?;
             return parse_bytes32(hex_str);
         }
@@ -226,7 +226,7 @@ impl Eip712TypedData {
         // address
         if field_type == "address" {
             let addr = value.as_str().ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Expected address string, got {:?}", value),
+                message: format!("Expected address string, got {value:?}"),
             })?;
             let address = parse_address(addr)?;
             return Ok(pad_address(&address));
@@ -235,16 +235,15 @@ impl Eip712TypedData {
         // bool
         if field_type == "bool" {
             let b = value.as_bool().ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Expected bool, got {:?}", value),
+                message: format!("Expected bool, got {value:?}"),
             })?;
             return Ok(pad_bool(b));
         }
 
         // 배열 타입
-        if field_type.ends_with("[]") {
-            let base_type = &field_type[..field_type.len() - 2];
+        if let Some(base_type) = field_type.strip_suffix("[]") {
             let arr = value.as_array().ok_or_else(|| CcxtError::InvalidSignature {
-                message: format!("Expected array, got {:?}", value),
+                message: format!("Expected array, got {value:?}"),
             })?;
 
             let mut encoded_elements = Vec::new();
@@ -261,7 +260,7 @@ impl Eip712TypedData {
         }
 
         Err(CcxtError::InvalidSignature {
-            message: format!("Unsupported type: {}", field_type),
+            message: format!("Unsupported type: {field_type}"),
         })
     }
 }
@@ -314,7 +313,7 @@ pub fn encode_type(type_name: &str, types: &HashMap<String, Vec<TypedDataField>>
 
 fn format_type(type_name: &str, types: &HashMap<String, Vec<TypedDataField>>) -> CcxtResult<String> {
     let fields = types.get(type_name).ok_or_else(|| CcxtError::InvalidSignature {
-        message: format!("Type not found: {}", type_name),
+        message: format!("Type not found: {type_name}"),
     })?;
 
     let field_strings: Vec<String> = fields
@@ -362,7 +361,7 @@ pub fn hash_type(type_name: &str, types: &HashMap<String, Vec<TypedDataField>>) 
 fn parse_address(address: &str) -> CcxtResult<[u8; 20]> {
     let hex_str = address.strip_prefix("0x").unwrap_or(address);
     let bytes = hex::decode(hex_str).map_err(|e| CcxtError::InvalidSignature {
-        message: format!("Invalid address hex: {}", e),
+        message: format!("Invalid address hex: {e}"),
     })?;
 
     if bytes.len() != 20 {
@@ -379,7 +378,7 @@ fn parse_address(address: &str) -> CcxtResult<[u8; 20]> {
 fn parse_bytes32(hex_str: &str) -> CcxtResult<[u8; 32]> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     let bytes = hex::decode(hex_str).map_err(|e| CcxtError::InvalidSignature {
-        message: format!("Invalid hex: {}", e),
+        message: format!("Invalid hex: {e}"),
     })?;
 
     if bytes.len() > 32 {
@@ -396,7 +395,7 @@ fn parse_bytes32(hex_str: &str) -> CcxtResult<[u8; 32]> {
 fn parse_hex_bytes(hex_str: &str) -> CcxtResult<Vec<u8>> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     hex::decode(hex_str).map_err(|e| CcxtError::InvalidSignature {
-        message: format!("Invalid hex: {}", e),
+        message: format!("Invalid hex: {e}"),
     })
 }
 
@@ -409,7 +408,7 @@ fn encode_integer(value: &serde_json::Value) -> CcxtResult<[u8; 32]> {
                 Ok(super::keccak::pad_i256(i))
             } else {
                 Err(CcxtError::InvalidSignature {
-                    message: format!("Number too large: {}", n),
+                    message: format!("Number too large: {n}"),
                 })
             }
         }
@@ -419,13 +418,13 @@ fn encode_integer(value: &serde_json::Value) -> CcxtResult<[u8; 32]> {
                 parse_bytes32(s)
             } else {
                 let n: u64 = s.parse().map_err(|e| CcxtError::InvalidSignature {
-                    message: format!("Invalid integer string: {}", e),
+                    message: format!("Invalid integer string: {e}"),
                 })?;
                 Ok(pad_u256(n))
             }
         }
         _ => Err(CcxtError::InvalidSignature {
-            message: format!("Expected number, got {:?}", value),
+            message: format!("Expected number, got {value:?}"),
         }),
     }
 }

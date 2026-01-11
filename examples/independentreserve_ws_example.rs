@@ -2,7 +2,7 @@
 //!
 //! Demonstrates real-time market data streaming from IndependentReserve
 
-use ccxt_rust::exchanges::foreign::IndependentReserveWs;
+use ccxt_rust::exchanges::IndependentReserveWs;
 use ccxt_rust::types::{WsExchange, WsMessage};
 
 #[tokio::main]
@@ -30,46 +30,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::select! {
         _ = async {
             while let Some(msg) = trades_rx.recv().await {
-                match msg {
-                    WsMessage::Trade(event) => {
-                        println!("Trade: {}", event.symbol);
-                        for trade in &event.trades {
-                            println!("  ID: {}", trade.id);
-                            println!("  Price: {}", trade.price);
-                            println!("  Amount: {}", trade.amount);
-                            println!("  Side: {:?}", trade.side);
-                            println!("  Time: {:?}", trade.datetime);
-                            println!();
-                        }
+                if let WsMessage::Trade(event) = msg {
+                    println!("Trade: {}", event.symbol);
+                    for trade in &event.trades {
+                        println!("  ID: {}", trade.id);
+                        println!("  Price: {}", trade.price);
+                        println!("  Amount: {}", trade.amount);
+                        println!("  Side: {:?}", trade.side);
+                        println!("  Time: {:?}", trade.datetime);
+                        println!();
                     }
-                    _ => {}
                 }
             }
         } => {},
         _ = async {
             while let Some(msg) = orderbook_rx.recv().await {
-                match msg {
-                    WsMessage::OrderBook(event) => {
-                        let ob = &event.order_book;
-                        println!("OrderBook: {} ({})", event.symbol, if event.is_snapshot { "snapshot" } else { "delta" });
+                if let WsMessage::OrderBook(event) = msg {
+                    let ob = &event.order_book;
+                    println!("OrderBook: {} ({})", event.symbol, if event.is_snapshot { "snapshot" } else { "delta" });
 
-                        // Display top 5 bids and asks
-                        println!("  Top 5 Bids:");
-                        for (i, bid) in ob.bids.iter().take(5).enumerate() {
-                            println!("    {}: {} @ {}", i+1, bid.amount, bid.price);
-                        }
-
-                        println!("  Top 5 Asks:");
-                        for (i, ask) in ob.asks.iter().take(5).enumerate() {
-                            println!("    {}: {} @ {}", i+1, ask.amount, ask.price);
-                        }
-
-                        if let Some(spread) = ob.spread() {
-                            println!("  Spread: {}", spread);
-                        }
-                        println!();
+                    // Display top 5 bids and asks
+                    println!("  Top 5 Bids:");
+                    for (i, bid) in ob.bids.iter().take(5).enumerate() {
+                        println!("    {}: {} @ {}", i+1, bid.amount, bid.price);
                     }
-                    _ => {}
+
+                    println!("  Top 5 Asks:");
+                    for (i, ask) in ob.asks.iter().take(5).enumerate() {
+                        println!("    {}: {} @ {}", i+1, ask.amount, ask.price);
+                    }
+
+                    if let Some(spread) = ob.spread() {
+                        println!("  Spread: {spread}");
+                    }
+                    println!();
                 }
             }
         } => {},

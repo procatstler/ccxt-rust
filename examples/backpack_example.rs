@@ -3,7 +3,7 @@
 //! Demonstrates using the Backpack exchange REST API
 //! Run with: cargo run --example backpack_example
 
-use ccxt_rust::exchanges::foreign::Backpack;
+use ccxt_rust::exchanges::Backpack;
 use ccxt_rust::types::Exchange;
 use ccxt_rust::ExchangeConfig;
 
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  24h Low: {:?}", ticker.low);
             println!("  Volume: {:?}", ticker.base_volume);
         }
-        Err(e) => println!("  Error: {}", e),
+        Err(e) => println!("  Error: {e}"),
     }
     println!();
 
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("    {} @ {}", ask.amount, ask.price);
             }
         }
-        Err(e) => println!("  Error: {}", e),
+        Err(e) => println!("  Error: {e}"),
     }
     println!();
 
@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
         }
-        Err(e) => println!("  Error: {}", e),
+        Err(e) => println!("  Error: {e}"),
     }
 
     println!("\nDone!");

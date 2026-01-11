@@ -2,6 +2,8 @@
 //!
 //! EVM 호환 체인을 위한 지갑 관리 기능을 제공합니다.
 
+#![allow(dead_code)]
+
 use crate::errors::CcxtResult;
 use crate::crypto::common::{Signature, Signer, TypedDataHasher};
 use super::keccak::keccak256;
@@ -230,7 +232,7 @@ mod tests {
     #[test]
     fn test_wallet_debug() {
         let wallet = EvmWallet::from_private_key(TEST_PRIVATE_KEY).unwrap();
-        let debug_str = format!("{:?}", wallet);
+        let debug_str = format!("{wallet:?}");
 
         // 개인키가 노출되지 않는지 확인
         assert!(debug_str.contains("address"));

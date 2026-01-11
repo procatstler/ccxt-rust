@@ -81,7 +81,7 @@ impl std::fmt::Debug for CosmosKeyPair {
 pub fn mnemonic_to_seed(mnemonic_str: &str, passphrase: &str) -> CcxtResult<[u8; 64]> {
     let mnemonic = Mnemonic::parse_normalized(mnemonic_str)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid mnemonic: {}", e),
+            message: format!("Invalid mnemonic: {e}"),
         })?;
 
     let seed = mnemonic.to_seed(passphrase);
@@ -111,15 +111,15 @@ pub fn derive_private_key_from_seed(
     index: u32,
 ) -> CcxtResult<[u8; 32]> {
     // BIP-44 경로: m/44'/{coin_type}'/{account}'/0/{index}
-    let path_str = format!("m/44'/{}'/{}'/0/{}", coin_type, account, index);
+    let path_str = format!("m/44'/{coin_type}'/{account}'/0/{index}");
     let path: DerivationPath = path_str.parse()
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid derivation path: {}", e),
+            message: format!("Invalid derivation path: {e}"),
         })?;
 
     let xprv = XPrv::derive_from_path(seed, &path)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Key derivation failed: {}", e),
+            message: format!("Key derivation failed: {e}"),
         })?;
 
     let mut private_key = [0u8; 32];
@@ -162,7 +162,7 @@ pub fn derive_private_key(
 pub fn private_key_to_public_key(private_key: &[u8; 32]) -> CcxtResult<[u8; 33]> {
     let signing_key = SigningKey::from_bytes(private_key.into())
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid private key: {}", e),
+            message: format!("Invalid private key: {e}"),
         })?;
 
     let verifying_key = signing_key.verifying_key();
@@ -178,7 +178,7 @@ pub fn parse_private_key(hex_str: &str) -> CcxtResult<[u8; 32]> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     let bytes = hex::decode(hex_str)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid hex: {}", e),
+            message: format!("Invalid hex: {e}"),
         })?;
 
     if bytes.len() != 32 {

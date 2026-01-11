@@ -2,13 +2,14 @@
 //!
 //! Ethereum ECDSA 서명 및 주소 파생을 위한 유틸리티를 제공합니다.
 
+#![allow(dead_code)]
+
 use crate::errors::{CcxtError, CcxtResult};
 use crate::crypto::common::Signature;
 use super::keccak::keccak256;
 
 use k256::{
     ecdsa::{RecoveryId, Signature as K256Signature, SigningKey, VerifyingKey},
-    elliptic_curve::sec1::ToEncodedPoint,
     SecretKey,
 };
 
@@ -16,7 +17,7 @@ use k256::{
 pub fn signing_key_from_bytes(private_key: &[u8]) -> CcxtResult<SigningKey> {
     let secret_key = SecretKey::from_slice(private_key)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid private key: {}", e),
+            message: format!("Invalid private key: {e}"),
         })?;
     Ok(SigningKey::from(secret_key))
 }
@@ -35,7 +36,7 @@ pub fn sign_hash(signing_key: &SigningKey, hash: &[u8; 32]) -> CcxtResult<Signat
     let (sig, recovery_id) = signing_key
         .sign_prehash_recoverable(hash)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Signing failed: {}", e),
+            message: format!("Signing failed: {e}"),
         })?;
 
     let sig_bytes = sig.to_bytes();
@@ -85,13 +86,13 @@ pub fn recover_address(hash: &[u8; 32], signature: &Signature) -> CcxtResult<Str
 
     let sig = K256Signature::from_slice(&sig_bytes)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Invalid signature: {}", e),
+            message: format!("Invalid signature: {e}"),
         })?;
 
     // 공개키 복구
     let verifying_key = VerifyingKey::recover_from_prehash(hash, &sig, recovery_id)
         .map_err(|e| CcxtError::InvalidSignature {
-            message: format!("Recovery failed: {}", e),
+            message: format!("Recovery failed: {e}"),
         })?;
 
     // 공개키에서 주소 계산
@@ -183,7 +184,7 @@ pub fn is_valid_address(address: &str) -> bool {
 
     // 체크섬 검사
     let checksummed = to_checksum_address(&format!("0x{}", address.to_lowercase()));
-    format!("0x{}", address) == checksummed
+    format!("0x{address}") == checksummed
 }
 
 /// Hex 문자열에서 개인키 파싱
@@ -191,7 +192,7 @@ pub fn parse_private_key(hex_str: &str) -> CcxtResult<[u8; 32]> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
 
     let bytes = hex::decode(hex_str).map_err(|e| CcxtError::InvalidSignature {
-        message: format!("Invalid hex: {}", e),
+        message: format!("Invalid hex: {e}"),
     })?;
 
     if bytes.len() != 32 {

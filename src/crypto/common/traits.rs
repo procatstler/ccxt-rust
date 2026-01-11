@@ -54,7 +54,7 @@ impl Signature {
     pub fn from_hex(hex_str: &str) -> CcxtResult<Self> {
         let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
         let bytes = hex::decode(hex_str).map_err(|e| crate::errors::CcxtError::InvalidSignature {
-            message: format!("Invalid hex: {}", e),
+            message: format!("Invalid hex: {e}"),
         })?;
 
         if bytes.len() != 65 {
@@ -113,6 +113,7 @@ pub struct AuthToken {
     pub expires_at: i64,
 }
 
+#[allow(dead_code)]
 impl AuthToken {
     /// 새 인증 토큰 생성
     pub fn new(token: String, expires_at: i64) -> Self {

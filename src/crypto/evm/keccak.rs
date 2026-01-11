@@ -2,6 +2,8 @@
 //!
 //! Ethereum에서 사용하는 Keccak256 해시 함수를 제공합니다.
 
+#![allow(dead_code)]
+
 use sha3::{Digest, Keccak256};
 
 /// 데이터의 Keccak256 해시를 계산합니다.

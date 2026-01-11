@@ -3,7 +3,7 @@
 //! Demonstrates using the Toobit exchange WebSocket API
 //! Run with: cargo run --example toobit_ws_example
 
-use ccxt_rust::exchanges::foreign::ToobitWs;
+use ccxt_rust::exchanges::ToobitWs;
 use ccxt_rust::types::{WsExchange, WsMessage};
 use ccxt_rust::ExchangeConfig;
 use std::time::Duration;
@@ -50,10 +50,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     WsMessage::Error(e) => {
-                        println!("Error: {}", e);
+                        println!("Error: {e}");
                     }
                     other => {
-                        println!("Other message: {:?}", other);
+                        println!("Other message: {other:?}");
                     }
                 }
             }
@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     WsMessage::Error(e) => {
-                        println!("Error: {}", e);
+                        println!("Error: {e}");
                     }
                     _ => {}
                 }
@@ -140,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     WsMessage::Error(e) => {
-                        println!("Error: {}", e);
+                        println!("Error: {e}");
                     }
                     _ => {}
                 }

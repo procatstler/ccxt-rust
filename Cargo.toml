@@ -2,8 +2,15 @@
 name = "ccxt-rust"
 version = "0.1.0"
 edition = "2021"
-description = "CCXT cryptocurrency exchange library ported to Rust"
+rust-version = "1.70"
+description = "CCXT cryptocurrency exchange library ported to Rust - unified API for 100+ crypto exchanges"
 license = "MIT"
+repository = "https://github.com/onlyhyde/trading"
+homepage = "https://github.com/onlyhyde/trading/tree/main/ccxt-rust"
+documentation = "https://docs.rs/ccxt-rust"
+readme = "README.md"
+keywords = ["cryptocurrency", "exchange", "trading", "api", "websocket"]
+categories = ["api-bindings", "asynchronous", "web-programming"]
 
 [dependencies]
 # 내부 의존성
