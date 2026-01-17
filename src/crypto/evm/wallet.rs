@@ -45,9 +45,9 @@ impl EvmWallet {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let wallet = EvmWallet::from_private_key(
-    ///     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-    /// )?;
+    /// // Load private key from environment variable or secure storage
+    /// let private_key = std::env::var("ETH_PRIVATE_KEY")?;
+    /// let wallet = EvmWallet::from_private_key(&private_key)?;
     /// ```
     pub fn from_private_key(private_key: &str) -> CcxtResult<Self> {
         let key_bytes = parse_private_key(private_key)?;
