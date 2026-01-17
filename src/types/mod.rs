@@ -44,7 +44,8 @@ mod position;
 // Account types
 mod account;
 
-// WebSocket types
+// WebSocket types (native only - uses tokio)
+#[cfg(feature = "native")]
 mod ws_exchange;
 
 // Sub-traits module
@@ -76,7 +77,8 @@ pub use position::*;
 // Account exports
 pub use account::*;
 
-// WebSocket exports
+// WebSocket exports (native only)
+#[cfg(feature = "native")]
 pub use ws_exchange::*;
 
 // Sub-trait re-exports for convenience

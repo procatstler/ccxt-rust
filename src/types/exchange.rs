@@ -51,10 +51,11 @@ use super::{
     Trade,
     Transaction,
     TransferEntry,
-    // WebSocket types
-    WsMessage,
     OHLCV,
 };
+// WebSocket types (native only)
+#[cfg(feature = "native")]
+use super::WsMessage;
 use crate::errors::CcxtResult;
 
 /// Exchange ID - identifies the exchange
@@ -1470,7 +1471,10 @@ pub trait Exchange: Send + Sync {
     }
 
     // === WebSocket API (Real-time Data) ===
+    // These methods are only available in native builds (not WASM)
+    // because they depend on tokio channels
 
+    #[cfg(feature = "native")]
     /// Watch ticker updates for a symbol
     async fn watch_ticker(
         &self,
@@ -1482,6 +1486,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch ticker updates for multiple symbols
     async fn watch_tickers(
         &self,
@@ -1493,6 +1498,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch order book updates for a symbol
     async fn watch_order_book(
         &self,
@@ -1505,6 +1511,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch order book updates for multiple symbols
     async fn watch_order_book_for_symbols(
         &self,
@@ -1517,6 +1524,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch trade updates for a symbol
     async fn watch_trades(
         &self,
@@ -1528,6 +1536,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch trade updates for multiple symbols
     async fn watch_trades_for_symbols(
         &self,
@@ -1539,6 +1548,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch OHLCV candle updates for a symbol
     async fn watch_ohlcv(
         &self,
@@ -1551,6 +1561,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch OHLCV candle updates for multiple symbols
     async fn watch_ohlcv_for_symbols(
         &self,
@@ -1563,6 +1574,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch balance updates (requires authentication)
     async fn watch_balance(&self) -> CcxtResult<tokio::sync::mpsc::UnboundedReceiver<WsMessage>> {
         Err(crate::errors::CcxtError::NotSupported {
@@ -1570,6 +1582,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch order updates (requires authentication)
     async fn watch_orders(
         &self,
@@ -1581,6 +1594,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch order updates for multiple symbols (requires authentication)
     async fn watch_orders_for_symbols(
         &self,
@@ -1592,6 +1606,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch my trade updates (requires authentication)
     async fn watch_my_trades(
         &self,
@@ -1603,6 +1618,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch my trade updates for multiple symbols (requires authentication)
     async fn watch_my_trades_for_symbols(
         &self,
@@ -1614,6 +1630,7 @@ pub trait Exchange: Send + Sync {
         })
     }
 
+    #[cfg(feature = "native")]
     /// Watch position updates (requires authentication)
     async fn watch_positions(
         &self,

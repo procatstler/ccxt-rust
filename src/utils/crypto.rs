@@ -110,11 +110,12 @@ pub fn create_jwt_hs256(secret: &str, payload: serde_json::Value, expiry_seconds
     format!("{message}.{signature_b64}")
 }
 
-/// JWT 생성 using jsonwebtoken crate (RS256)
+/// JWT 생성 using jsonwebtoken crate (RS256) - native only
 ///
 /// # Arguments
 /// * `private_key_pem` - RSA private key in PEM format
 /// * `payload` - JWT claims
+#[cfg(feature = "native")]
 pub fn create_jwt_rs256(
     private_key_pem: &str,
     claims: &impl serde::Serialize,
@@ -129,11 +130,12 @@ pub fn create_jwt_rs256(
     encode(&header, claims, &key).map_err(|e| JwtError::EncodingError(e.to_string()))
 }
 
-/// JWT 생성 (ES256)
+/// JWT 생성 (ES256) - native only
 ///
 /// # Arguments
 /// * `private_key_pem` - EC private key in PEM format
 /// * `claims` - JWT claims
+#[cfg(feature = "native")]
 pub fn create_jwt_es256(
     private_key_pem: &str,
     claims: &impl serde::Serialize,
@@ -148,7 +150,8 @@ pub fn create_jwt_es256(
     encode(&header, claims, &key).map_err(|e| JwtError::EncodingError(e.to_string()))
 }
 
-/// JWT 검증 (RS256)
+/// JWT 검증 (RS256) - native only
+#[cfg(feature = "native")]
 pub fn verify_jwt_rs256<T: serde::de::DeserializeOwned>(
     token: &str,
     public_key_pem: &str,

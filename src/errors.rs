@@ -404,12 +404,15 @@ impl From<reqwest::Error> for CcxtError {
             CcxtError::RequestTimeout {
                 url: err.url().map(|u| u.to_string()).unwrap_or_default(),
             }
-        } else if err.is_connect() {
-            CcxtError::NetworkError {
-                url: err.url().map(|u| u.to_string()).unwrap_or_default(),
-                message: "Connection failed".into(),
-            }
         } else {
+            // is_connect() only available in native reqwest
+            #[cfg(feature = "native")]
+            if err.is_connect() {
+                return CcxtError::NetworkError {
+                    url: err.url().map(|u| u.to_string()).unwrap_or_default(),
+                    message: "Connection failed".into(),
+                };
+            }
             CcxtError::NetworkError {
                 url: err.url().map(|u| u.to_string()).unwrap_or_default(),
                 message: err.to_string(),

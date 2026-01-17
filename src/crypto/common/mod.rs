@@ -5,24 +5,32 @@
 //! ## 모듈 구성
 //!
 //! - [`traits`]: 서명 및 해싱 인터페이스 (Signer, TypedDataHasher)
-//! - [`rsa`]: RSA 서명 유틸리티 (RSA-SHA256, RSA-SHA512)
+//! - [`rsa`]: RSA 서명 유틸리티 (RSA-SHA256, RSA-SHA512) - native only
 //! - [`totp`]: TOTP 2FA 유틸리티 (RFC 6238)
-//! - [`jwt`]: JWT 인코딩/디코딩 유틸리티
+//! - [`jwt`]: JWT 인코딩/디코딩 유틸리티 - native only
 
 mod traits;
+
+// Native-only modules (require ring/jsonwebtoken)
+#[cfg(feature = "native")]
 pub mod jwt;
+#[cfg(feature = "native")]
 pub mod rsa;
+
+// Works on all platforms
 pub mod totp;
 
 pub use traits::{Signature, Signer, TypedDataHasher};
 
-// RSA 편의 함수 재export
+// RSA 편의 함수 재export (native only)
+#[cfg(feature = "native")]
 pub use rsa::{rsa_sign_sha256, rsa_sign_sha256_base64, rsa_sign_sha512, rsa_sign_sha512_base64};
 
 // TOTP 편의 함수 재export
 pub use totp::{generate_totp, verify_totp};
 
-// JWT 편의 함수 재export
+// JWT 편의 함수 재export (native only)
+#[cfg(feature = "native")]
 pub use jwt::{
     decode_jwt_hs256, decode_jwt_rs256, encode_jwt_hs256, encode_jwt_rs256, parse_jwt_claims,
 };

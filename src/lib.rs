@@ -155,8 +155,17 @@ pub mod types;
 pub mod exchanges;
 pub mod utils;
 
-// Re-exports for convenience
-pub use client::{ExchangeConfig, HttpClient, RateLimiter, WsClient, WsConfig, WsEvent};
+// WASM bindings (only when wasm feature is enabled)
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
+// Re-exports for convenience (requires native or wasm feature)
+#[cfg(any(feature = "native", feature = "wasm"))]
+pub use client::{ExchangeConfig, HttpClient, WsClient, WsConfig, WsEvent};
+
+// RateLimiter only available in native builds
+#[cfg(feature = "native")]
+pub use client::RateLimiter;
 pub use errors::{CcxtError, CcxtResult};
 pub use types::{
     // Core trading types
@@ -214,14 +223,18 @@ pub use types::{
     TransactionStatus,
     TransactionType,
     TriggerType,
-    // WebSocket types
+    OHLCV,
+};
+
+// WebSocket types (native only)
+#[cfg(feature = "native")]
+pub use types::{
     WsExchange,
     WsMessage,
     WsOhlcvEvent,
     WsOrderBookEvent,
     WsTickerEvent,
     WsTradeEvent,
-    OHLCV,
 };
 pub use utils::Precise;
 
@@ -230,12 +243,17 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Prelude module for convenient imports
 pub mod prelude {
-    pub use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
+    #[cfg(any(feature = "native", feature = "wasm"))]
+    pub use crate::client::{ExchangeConfig, HttpClient};
+    #[cfg(feature = "native")]
+    pub use crate::client::RateLimiter;
     pub use crate::errors::{CcxtError, CcxtResult};
     pub use crate::types::{
         Balance, Exchange, ExchangeId, Market, Order, OrderBook, OrderSide, OrderType, Ticker,
-        Timeframe, Trade, WsExchange, WsMessage, OHLCV,
+        Timeframe, Trade, OHLCV,
     };
+    #[cfg(feature = "native")]
+    pub use crate::types::{WsExchange, WsMessage};
     pub use rust_decimal::Decimal;
 }
 

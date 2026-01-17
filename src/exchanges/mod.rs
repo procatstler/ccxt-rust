@@ -6,14 +6,18 @@
 //!
 //! - `cex` (default): Centralized exchange support (Binance, OKX, etc.)
 //! - `dex`: Decentralized exchange support (Hyperliquid, dYdX, Paradex, etc.)
+//! - `native`: Required for exchange implementations (uses tokio runtime)
+//!
+//! Note: Exchange implementations require the `native` feature and are not
+//! available in WASM builds. For WASM, use the crypto utilities and types directly.
 
-#[cfg(feature = "cex")]
+#[cfg(all(feature = "cex", feature = "native"))]
 pub mod cex;
-#[cfg(feature = "dex")]
+#[cfg(all(feature = "dex", feature = "native"))]
 pub mod dex;
 
-// CEX re-exports (requires "cex" feature, enabled by default)
-#[cfg(feature = "cex")]
+// CEX re-exports (requires "cex" and "native" features)
+#[cfg(all(feature = "cex", feature = "native"))]
 pub use cex::{
     Alpaca, AlpacaWs, Ascendex, AscendexWs, Backpack, BackpackWs, Bequant, BequantWs, Bigone,
     BigoneWs, Binance, BinanceCoinM, BinanceCoinmWs, BinanceFutures, BinanceFuturesWs, BinanceUs,
@@ -40,8 +44,8 @@ pub use cex::{
     Xt, XtWs, Yobit, YobitWs, Zaif, ZaifWs, Zebpay, ZebpayWs, Zonda, ZondaWs,
 };
 
-// DEX re-exports (requires "dex" feature)
-#[cfg(feature = "dex")]
+// DEX re-exports (requires "dex" and "native" features)
+#[cfg(all(feature = "dex", feature = "native"))]
 pub use dex::{
     Apex, ApexWs, Defx, DefxWs, Derive, DeriveWs, Dydx, DydxV4, DydxV4Ws, DydxWs, Hyperliquid,
     HyperliquidWs, Paradex, ParadexWs, Wavesexchange, WavesexchangeWs,
