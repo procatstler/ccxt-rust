@@ -36,9 +36,118 @@ tokio = { version = "1.0", features = ["full"] }
 
 | Feature | Default | Description |
 |---------|:-------:|-------------|
-| `cex` | ✅ | Centralized exchanges |
-| `dex` | ❌ | Decentralized exchanges + crypto primitives |
-| `full` | ❌ | All features |
+| `cex` | ✅ | Centralized exchange support (Binance, OKX, etc.) |
+| `dex` | ❌ | Decentralized exchange support (Hyperliquid, dYdX, Paradex) + crypto primitives |
+| `native` | ✅ | Native Rust build with tokio runtime |
+| `wasm` | ❌ | WebAssembly build for browser environments |
+| `full` | ❌ | All features enabled (native) |
+
+### Examples
+
+```toml
+# CEX only (default, smaller binary)
+ccxt-rust = "0.1"
+
+# DEX support (includes EVM, StarkNet, Cosmos crypto)
+ccxt-rust = { version = "0.1", features = ["dex"] }
+
+# All features
+ccxt-rust = { version = "0.1", features = ["full"] }
+
+# DEX only (no CEX)
+ccxt-rust = { version = "0.1", default-features = false, features = ["dex"] }
+```
+
+## WebAssembly (Browser) Support
+
+ccxt-rust can be compiled to WebAssembly for use in browsers.
+
+### Build WASM Package
+
+```bash
+# Install wasm-pack
+cargo install wasm-pack
+
+# Build for web
+wasm-pack build --target web --no-default-features --features "wasm,cex"
+```
+
+### Browser Usage
+
+```html
+<script type="module">
+import init, { WasmBinance, WasmUpbit, version } from './pkg/ccxt_rust.js';
+
+async function main() {
+    await init();
+    console.log('ccxt-rust version:', version());
+
+    // Create exchange instance
+    const binance = new WasmBinance();
+
+    // Fetch ticker
+    const ticker = await binance.fetchTicker('BTC/USDT');
+    console.log('BTC/USDT:', ticker.last);
+
+    // Fetch order book
+    const orderbook = await binance.fetchOrderBook('BTC/USDT', 10);
+    console.log('Bids:', orderbook.getBids());
+    console.log('Asks:', orderbook.getAsks());
+}
+
+main();
+</script>
+```
+
+### Available WASM Exchanges
+
+| Exchange | REST Class | WebSocket Class | REST Methods | WS Methods |
+|----------|------------|-----------------|--------------|------------|
+| Binance | `WasmBinance` | `WasmBinanceWs` | `fetchTicker`, `fetchOrderBook`, `fetchMarkets`, `fetchTickers`, `fetchTrades`, `fetchOhlcv` | `watchTicker`, `watchOrderBook`, `watchTrades` |
+| Upbit | `WasmUpbit` | `WasmUpbitWs` | `fetchTicker`, `fetchOrderBook`, `fetchMarkets`, `fetchTickers`, `fetchTrades`, `fetchOhlcv` | `watchTicker`, `watchOrderBook` |
+| Bybit | `WasmBybit` | `WasmBybitWs` | `fetchTicker`, `fetchOrderBook`, `fetchMarkets`, `fetchTickers`, `fetchTrades`, `fetchOhlcv` | `watchTicker`, `watchOrderBook` |
+| OKX | `WasmOkx` | - | `fetchTicker`, `fetchOrderBook`, `fetchMarkets`, `fetchTickers`, `fetchTrades`, `fetchOhlcv` | - |
+| Kraken | `WasmKraken` | - | `fetchTicker`, `fetchOrderBook`, `fetchMarkets`, `fetchTickers`, `fetchTrades`, `fetchOhlcv` | - |
+
+### WASM WebSocket Example
+
+```javascript
+import { WasmBinanceWs } from './pkg/ccxt_rust.js';
+
+// Create WebSocket client
+const ws = new WasmBinanceWs();
+
+// Watch ticker with callback
+ws.watchTicker('BTC/USDT', (msg) => {
+    if (msg.message_type === 'ticker') {
+        const data = JSON.parse(msg.data);
+        console.log('BTC/USDT:', data.c); // Last price
+    } else if (msg.message_type === 'connected') {
+        console.log('WebSocket connected');
+    }
+});
+```
+
+### WASM Utilities
+
+```javascript
+import {
+    hmacSha256,      // HMAC-SHA256 signing
+    hmacSha512,      // HMAC-SHA512 signing
+    sha256,          // SHA256 hash
+    sha512,          // SHA512 hash
+    base64Encode,    // Base64 encode
+    base64Decode,    // Base64 decode
+    urlEncode,       // URL encode
+    generateUuid,    // Generate UUID v4
+    getCurrentTimestamp,  // Current timestamp (ms)
+    getSupportedExchanges // List of supported exchanges
+} from './pkg/ccxt_rust.js';
+```
+
+> **Note**: WASM builds have some limitations compared to native builds:
+> - No private trading APIs (for security reasons)
+> - Subject to CORS restrictions (may need a proxy server)
 
 ## Quick Start
 
