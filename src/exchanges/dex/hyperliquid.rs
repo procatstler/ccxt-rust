@@ -660,6 +660,8 @@ impl Hyperliquid {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             taker: Some(Decimal::new(45, 5)), // 0.00045 = 0.045%
             maker: Some(Decimal::new(15, 5)), // 0.00015 = 0.015%
             precision: MarketPrecision {
@@ -756,6 +758,8 @@ impl Hyperliquid {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             taker: Some(Decimal::new(7, 4)), // 0.0007 = 0.07%
             maker: Some(Decimal::new(4, 4)), // 0.0004 = 0.04%
             precision: MarketPrecision {

@@ -614,6 +614,8 @@ impl Exchange for KrakenFutures {
                 expiry_datetime: instrument.last_trading_time.clone(),
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(8),
                     price: Some(8),

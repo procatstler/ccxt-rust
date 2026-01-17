@@ -563,6 +563,8 @@ impl Exchange for Timex {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: None,
                     price: None,

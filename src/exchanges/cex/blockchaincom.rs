@@ -631,6 +631,8 @@ impl Exchange for BlockchainCom {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(info.base_currency_scale),
                     price: Some(info.counter_currency_scale),

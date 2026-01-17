@@ -527,6 +527,8 @@ impl Exchange for Hollaex {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(
                         pair_data

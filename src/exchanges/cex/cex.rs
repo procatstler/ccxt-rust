@@ -424,6 +424,8 @@ impl Exchange for Cex {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(pair_info.min_lot_size_s2),
                     price: Some(pair_info.min_price_increment),

@@ -48,70 +48,52 @@ impl Blofin {
         let private_client = HttpClient::new(Self::BASE_URL, &config)?;
         let rate_limiter = RateLimiter::new(Self::RATE_LIMIT_MS);
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: false,
-            margin: false,
-            swap: true,
-            future: false,
-            option: true,
-            fetch_markets: true,
-            fetch_currencies: false,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: false,
-            fetch_order: false,
-            fetch_orders: false,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: false,
-            fetch_deposit_address: false,
-            ws: false,
-            ..Default::default()
+        // Exchange features - using macro for concise declaration
+        let features = feature_flags! {
+            swap, option,
+            fetch_markets,
+            fetch_ticker, fetch_tickers,
+            fetch_order_book, fetch_trades, fetch_ohlcv,
+            fetch_balance,
+            create_order, create_limit_order, create_market_order,
+            cancel_order,
+            fetch_open_orders, fetch_closed_orders,
+            fetch_my_trades,
+            fetch_deposits, fetch_withdrawals,
+            ws, watch_ticker, watch_tickers, watch_order_book,
+            watch_trades, watch_ohlcv, watch_balance, watch_orders, watch_my_trades,
+            watch_positions,
         };
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("public".into(), Self::BASE_URL.into());
-        api_urls.insert("private".into(), Self::BASE_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some(
-                "https://github.com/user-attachments/assets/518cdf80-f05d-4821-a3e3-d48ceb41d73b"
-                    .into(),
-            ),
-            api: api_urls,
-            www: Some("https://www.blofin.com".into()),
-            doc: vec!["https://blofin.com/docs".into()],
-            fees: None,
+        // API URLs - using macro for concise declaration
+        let urls = exchange_urls! {
+            logo: "https://github.com/user-attachments/assets/518cdf80-f05d-4821-a3e3-d48ceb41d73b",
+            www: "https://www.blofin.com",
+            api: {
+                "public" => Self::BASE_URL,
+                "private" => Self::BASE_URL,
+            },
+            doc: ["https://blofin.com/docs"],
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "1m".into());
-        timeframes.insert(Timeframe::Minute3, "3m".into());
-        timeframes.insert(Timeframe::Minute5, "5m".into());
-        timeframes.insert(Timeframe::Minute15, "15m".into());
-        timeframes.insert(Timeframe::Minute30, "30m".into());
-        timeframes.insert(Timeframe::Hour1, "1H".into());
-        timeframes.insert(Timeframe::Hour2, "2H".into());
-        timeframes.insert(Timeframe::Hour4, "4H".into());
-        timeframes.insert(Timeframe::Hour6, "6H".into());
-        timeframes.insert(Timeframe::Hour8, "8H".into());
-        timeframes.insert(Timeframe::Hour12, "12H".into());
-        timeframes.insert(Timeframe::Day1, "1D".into());
-        timeframes.insert(Timeframe::Day3, "3D".into());
-        timeframes.insert(Timeframe::Week1, "1W".into());
-        timeframes.insert(Timeframe::Month1, "1M".into());
+        // Timeframes - using macro for concise declaration
+        let timeframes = timeframe_map! {
+            Minute1 => "1m",
+            Minute3 => "3m",
+            Minute5 => "5m",
+            Minute15 => "15m",
+            Minute30 => "30m",
+            Hour1 => "1H",
+            Hour2 => "2H",
+            Hour4 => "4H",
+            Hour6 => "6H",
+            Hour8 => "8H",
+            Hour12 => "12H",
+            Day1 => "1D",
+            Day3 => "3D",
+            Week1 => "1W",
+            Month1 => "1M",
+        };
 
         Ok(Self {
             config,
@@ -476,6 +458,8 @@ impl Exchange for Blofin {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: instrument.lot_sz.parse().ok(),
                     price: instrument.tick_sz.parse().ok(),

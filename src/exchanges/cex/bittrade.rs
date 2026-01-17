@@ -523,6 +523,8 @@ impl Exchange for Bittrade {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 taker: Some(Decimal::new(2, 3)), // 0.2%
                 maker: Some(Decimal::new(2, 3)), // 0.2%
                 percentage: true,

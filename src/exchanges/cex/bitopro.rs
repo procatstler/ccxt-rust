@@ -468,6 +468,8 @@ impl Exchange for Bitopro {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 taker: Some(Decimal::from_str("0.002").unwrap()),
                 maker: Some(Decimal::from_str("0.001").unwrap()),
                 precision: MarketPrecision {

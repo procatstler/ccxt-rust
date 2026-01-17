@@ -22,6 +22,7 @@ use crate::types::{
     OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, Transaction,
     OHLCV,
 };
+use crate::{exchange_urls, feature_flags, timeframe_map};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -46,69 +47,59 @@ impl CoinbaseExchange {
         let client = HttpClient::new(BASE_URL, &config)?;
         let rate_limiter = RateLimiter::new(RATE_LIMIT_MS);
 
-        let features = ExchangeFeatures {
-            cors: true,
-            spot: true,
-            margin: false,
-            swap: false,
-            future: false,
-            option: false,
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            fetch_order: true,
-            fetch_orders: true,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: true,
-            fetch_deposit_address: false,
-            ws: false,
-            watch_ticker: false,
-            watch_tickers: false,
-            watch_order_book: false,
-            watch_trades: false,
-            watch_ohlcv: false,
-            watch_balance: false,
-            watch_orders: false,
-            watch_my_trades: false,
-            ..Default::default()
+        let features = feature_flags! {
+            cors,
+            spot,
+            fetch_markets,
+            fetch_currencies,
+            fetch_ticker,
+            fetch_tickers,
+            fetch_order_book,
+            fetch_trades,
+            fetch_ohlcv,
+            fetch_balance,
+            create_order,
+            create_limit_order,
+            create_market_order,
+            cancel_order,
+            cancel_all_orders,
+            fetch_order,
+            fetch_orders,
+            fetch_open_orders,
+            fetch_closed_orders,
+            fetch_my_trades,
+            fetch_deposits,
+            fetch_withdrawals,
+            withdraw,
+            // WebSocket features
+            ws,
+            watch_ticker,
+            watch_tickers,
+            watch_order_book,
+            watch_trades,
         };
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("public".into(), BASE_URL.into());
-        api_urls.insert("private".into(), BASE_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some(
-                "https://github.com/ccxt/ccxt/assets/43336371/34a65553-88aa-4a38-a714-064bd228b97e"
-                    .into(),
-            ),
-            api: api_urls,
-            www: Some("https://coinbase.com/".into()),
-            doc: vec!["https://docs.cloud.coinbase.com/exchange/docs/".into()],
-            fees: Some("https://docs.pro.coinbase.com/#fees".into()),
+        let urls = exchange_urls! {
+            logo: "https://github.com/ccxt/ccxt/assets/43336371/34a65553-88aa-4a38-a714-064bd228b97e",
+            www: "https://coinbase.com/",
+            api: {
+                "public" => BASE_URL,
+                "private" => BASE_URL,
+            },
+            doc: [
+                "https://docs.cloud.coinbase.com/exchange/docs/",
+            ],
+            fees: "https://docs.pro.coinbase.com/#fees",
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "60".into());
-        timeframes.insert(Timeframe::Minute5, "300".into());
-        timeframes.insert(Timeframe::Minute15, "900".into());
-        timeframes.insert(Timeframe::Hour1, "3600".into());
-        timeframes.insert(Timeframe::Hour6, "21600".into());
-        timeframes.insert(Timeframe::Day1, "86400".into());
+        let timeframes = timeframe_map! {
+            Minute1 => "60",
+            Minute5 => "300",
+            Minute15 => "900",
+            Hour1 => "3600",
+            Hour6 => "21600",
+            Day1 => "86400",
+        };
 
         Ok(Self {
             config,
@@ -318,6 +309,8 @@ impl CoinbaseExchange {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             percentage: true,
             tier_based: true,
             precision: MarketPrecision {

@@ -986,6 +986,8 @@ impl Exchange for Bitmex {
                 expiry_datetime: inst.expiry.clone(),
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 taker: inst
                     .taker_fee
                     .map(|f| Decimal::from_f64_retain(f).unwrap_or_default()),

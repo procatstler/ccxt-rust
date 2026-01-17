@@ -453,6 +453,8 @@ impl Exchange for Bigone {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(market_data.base_scale),
                     price: Some(market_data.quote_scale),

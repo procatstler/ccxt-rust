@@ -837,6 +837,8 @@ impl Exchange for Deribit {
                             .strike
                             .map(|s| Decimal::from_f64_retain(s).unwrap_or_default()),
                         option_type: inst.option_type.clone(),
+                        underlying: None,
+                        underlying_id: None,
                         taker: Some(
                             Decimal::from_f64_retain(inst.taker_commission).unwrap_or_default(),
                         ),

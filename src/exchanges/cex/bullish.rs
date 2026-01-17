@@ -506,6 +506,8 @@ impl Exchange for Bullish {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: market_data
                         .quantity_precision

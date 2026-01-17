@@ -325,6 +325,8 @@ impl Exchange for Delta {
                 } else {
                     None
                 },
+                underlying: None,
+                underlying_id: None,
                 settle: Some(quote.clone()),
                 settle_id: Some(quote.clone()),
                 precision: MarketPrecision {

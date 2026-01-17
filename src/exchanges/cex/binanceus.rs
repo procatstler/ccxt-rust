@@ -545,6 +545,8 @@ impl Exchange for BinanceUs {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(symbol_info.base_asset_precision),
                     price: Some(symbol_info.quote_precision),

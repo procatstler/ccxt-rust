@@ -21,6 +21,7 @@ use crate::types::{
     MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderSide, OrderStatus, OrderType,
     SignedRequest, TakerOrMaker, Ticker, TimeInForce, Timeframe, Trade, Transaction, OHLCV,
 };
+use crate::{exchange_urls, feature_flags, timeframe_map};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -52,76 +53,67 @@ impl CoinbaseInternational {
         let client = HttpClient::new(base_url, &config)?;
         let rate_limiter = RateLimiter::new(RATE_LIMIT_MS);
 
-        let features = ExchangeFeatures {
-            cors: true,
-            spot: true,
-            margin: true,
-            swap: true,
-            future: true,
-            option: false,
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: false,
-            fetch_trades: false,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            fetch_order: true,
-            fetch_orders: false,
-            fetch_open_orders: true,
-            fetch_closed_orders: false,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: true,
-            fetch_deposit_address: true,
-            fetch_positions: true,
-            fetch_position: true,
-            set_margin: true,
-            create_stop_limit_order: true,
-            create_stop_market_order: true,
-            edit_order: true,
-            ws: false,
-            watch_ticker: false,
-            watch_tickers: false,
-            watch_order_book: false,
-            watch_trades: false,
-            watch_ohlcv: false,
-            watch_balance: false,
-            watch_orders: false,
-            watch_my_trades: false,
-            ..Default::default()
+        let features = feature_flags! {
+            cors,
+            spot,
+            margin,
+            swap,
+            future,
+            fetch_markets,
+            fetch_currencies,
+            fetch_ticker,
+            fetch_tickers,
+            fetch_ohlcv,
+            fetch_balance,
+            create_order,
+            create_limit_order,
+            create_market_order,
+            cancel_order,
+            cancel_all_orders,
+            fetch_order,
+            fetch_open_orders,
+            fetch_my_trades,
+            fetch_deposits,
+            fetch_withdrawals,
+            withdraw,
+            fetch_deposit_address,
+            fetch_positions,
+            fetch_position,
+            set_margin,
+            create_stop_limit_order,
+            create_stop_market_order,
+            edit_order,
+            // WebSocket features
+            ws,
+            watch_ticker,
+            watch_tickers,
+            watch_order_book,
+            watch_trades,
         };
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("public".into(), base_url.into());
-        api_urls.insert("private".into(), base_url.into());
-
-        let urls = ExchangeUrls {
-            logo: Some("https://github.com/ccxt/ccxt/assets/43336371/866ae638-6ab5-4ebf-ab2c-cdcce9545625".into()),
-            api: api_urls,
-            www: Some("https://international.coinbase.com".into()),
-            doc: vec![
-                "https://docs.cloud.coinbase.com/intx/docs".into(),
+        let urls = exchange_urls! {
+            logo: "https://github.com/ccxt/ccxt/assets/43336371/866ae638-6ab5-4ebf-ab2c-cdcce9545625",
+            www: "https://international.coinbase.com",
+            api: {
+                "public" => base_url,
+                "private" => base_url,
+            },
+            doc: [
+                "https://docs.cloud.coinbase.com/intx/docs",
             ],
-            fees: Some("https://help.coinbase.com/en/international-exchange/trading-deposits-withdrawals/international-exchange-fees".into()),
+            fees: "https://help.coinbase.com/en/international-exchange/trading-deposits-withdrawals/international-exchange-fees",
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "ONE_MINUTE".into());
-        timeframes.insert(Timeframe::Minute5, "FIVE_MINUTE".into());
-        timeframes.insert(Timeframe::Minute15, "FIFTEEN_MINUTE".into());
-        timeframes.insert(Timeframe::Minute30, "THIRTY_MINUTE".into());
-        timeframes.insert(Timeframe::Hour1, "ONE_HOUR".into());
-        timeframes.insert(Timeframe::Hour2, "TWO_HOUR".into());
-        timeframes.insert(Timeframe::Hour6, "SIX_HOUR".into());
-        timeframes.insert(Timeframe::Day1, "ONE_DAY".into());
+        let timeframes = timeframe_map! {
+            Minute1 => "ONE_MINUTE",
+            Minute5 => "FIVE_MINUTE",
+            Minute15 => "FIFTEEN_MINUTE",
+            Minute30 => "THIRTY_MINUTE",
+            Hour1 => "ONE_HOUR",
+            Hour2 => "TWO_HOUR",
+            Hour6 => "SIX_HOUR",
+            Day1 => "ONE_DAY",
+        };
 
         Ok(Self {
             config,
@@ -419,6 +411,8 @@ impl CoinbaseInternational {
             expiry_datetime: data.expiry.clone(),
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             percentage: true,
             tier_based: true,
             precision: MarketPrecision {

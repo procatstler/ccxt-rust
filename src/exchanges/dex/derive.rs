@@ -705,6 +705,8 @@ impl Exchange for Derive {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 taker: taker_fee,
                 maker: maker_fee,
                 percentage: true,

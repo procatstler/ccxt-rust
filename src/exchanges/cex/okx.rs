@@ -20,9 +20,9 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, ConvertCurrencyPair, ConvertQuote, ConvertTrade, Exchange, ExchangeFeatures,
-    ExchangeId, ExchangeUrls, FundingRate, FundingRateHistory, Leverage, Liquidation, MarginMode,
-    MarginModeInfo, Market, MarketLimits, MarketPrecision, MarketType, OpenInterest, Order,
-    OrderBook, OrderBookEntry, OrderRequest, OrderSide, OrderStatus, OrderType, Position,
+    ExchangeId, ExchangeUrls, FundingRate, FundingRateHistory, LedgerEntry, Leverage, Liquidation,
+    MarginMode, MarginModeInfo, Market, MarketLimits, MarketPrecision, MarketType, OpenInterest,
+    Order, OrderBook, OrderBookEntry, OrderRequest, OrderSide, OrderStatus, OrderType, Position,
     PositionSide, SignedRequest, Ticker, TimeInForce, Timeframe, Trade, Transaction,
     TransactionStatus, TransactionType, TransferEntry, WsExchange, WsMessage, OHLCV,
 };
@@ -59,84 +59,56 @@ impl Okx {
         let client = HttpClient::new(Self::BASE_URL, &config)?;
         let rate_limiter = RateLimiter::new(Self::RATE_LIMIT_MS);
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: true,
-            swap: true,
-            future: true,
-            option: true,
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            fetch_order: true,
-            fetch_orders: true,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: true,
-            fetch_deposit_address: true,
-            fetch_positions: true,
-            set_leverage: true,
-            fetch_leverage: true,
-            fetch_funding_rate: true,
-            fetch_funding_rates: true,
-            fetch_open_interest: true,
-            fetch_liquidations: true,
-            fetch_index_price: true,
-            ws: true,
-            watch_ticker: true,
-            watch_tickers: true,
-            watch_order_book: true,
-            watch_trades: true,
-            watch_ohlcv: true,
-            watch_balance: true,
-            watch_orders: true,
-            watch_my_trades: true,
-            watch_positions: true,
-            ..Default::default()
+        // Exchange features - using macro for concise declaration
+        let features = feature_flags! {
+            spot, margin, swap, future, option,
+            fetch_markets, fetch_currencies,
+            fetch_ticker, fetch_tickers,
+            fetch_order_book, fetch_trades, fetch_ohlcv,
+            fetch_balance,
+            create_order, create_limit_order, create_market_order,
+            cancel_order, cancel_all_orders,
+            fetch_order, fetch_orders, fetch_open_orders, fetch_closed_orders,
+            fetch_my_trades,
+            fetch_deposits, fetch_withdrawals, withdraw, fetch_deposit_address,
+            fetch_positions, set_leverage, fetch_leverage,
+            fetch_funding_rate, fetch_funding_rates,
+            fetch_open_interest, fetch_liquidations, fetch_index_price,
+            ws, watch_ticker, watch_tickers, watch_order_book,
+            watch_trades, watch_ohlcv, watch_balance, watch_orders, watch_my_trades,
+            watch_positions,
         };
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("public".into(), Self::BASE_URL.into());
-        api_urls.insert("private".into(), Self::BASE_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some("https://user-images.githubusercontent.com/1294454/152485636-38b19e4a-bece-4dec-979a-5982859ffc04.jpg".into()),
-            api: api_urls,
-            www: Some("https://www.okx.com".into()),
-            doc: vec![
-                "https://www.okx.com/docs-v5/en/".into(),
+        // API URLs - using macro for concise declaration
+        let urls = exchange_urls! {
+            logo: "https://user-images.githubusercontent.com/1294454/152485636-38b19e4a-bece-4dec-979a-5982859ffc04.jpg",
+            www: "https://www.okx.com",
+            api: {
+                "public" => Self::BASE_URL,
+                "private" => Self::BASE_URL,
+            },
+            doc: [
+                "https://www.okx.com/docs-v5/en/",
             ],
-            fees: Some("https://www.okx.com/fees".into()),
+            fees: "https://www.okx.com/fees",
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "1m".into());
-        timeframes.insert(Timeframe::Minute3, "3m".into());
-        timeframes.insert(Timeframe::Minute5, "5m".into());
-        timeframes.insert(Timeframe::Minute15, "15m".into());
-        timeframes.insert(Timeframe::Minute30, "30m".into());
-        timeframes.insert(Timeframe::Hour1, "1H".into());
-        timeframes.insert(Timeframe::Hour2, "2H".into());
-        timeframes.insert(Timeframe::Hour4, "4H".into());
-        timeframes.insert(Timeframe::Hour6, "6H".into());
-        timeframes.insert(Timeframe::Hour12, "12H".into());
-        timeframes.insert(Timeframe::Day1, "1D".into());
-        timeframes.insert(Timeframe::Week1, "1W".into());
-        timeframes.insert(Timeframe::Month1, "1M".into());
+        // Timeframes - using macro for concise declaration
+        let timeframes = timeframe_map! {
+            Minute1 => "1m",
+            Minute3 => "3m",
+            Minute5 => "5m",
+            Minute15 => "15m",
+            Minute30 => "30m",
+            Hour1 => "1H",
+            Hour2 => "2H",
+            Hour4 => "4H",
+            Hour6 => "6H",
+            Hour12 => "12H",
+            Day1 => "1D",
+            Week1 => "1W",
+            Month1 => "1M",
+        };
 
         Ok(Self {
             config,
@@ -761,6 +733,8 @@ impl Exchange for Okx {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: lot_sz.map(Self::count_decimals),
                     price: tick_sz.map(Self::count_decimals),
@@ -2237,6 +2211,66 @@ impl Exchange for Okx {
         Ok(transfers)
     }
 
+    /// Fetch account ledger (bills history)
+    async fn fetch_ledger(
+        &self,
+        code: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<LedgerEntry>> {
+        let mut params: HashMap<String, String> = HashMap::new();
+
+        if let Some(c) = code {
+            params.insert("ccy".into(), c.to_uppercase());
+        }
+        if let Some(s) = since {
+            params.insert("begin".into(), s.to_string());
+        }
+        if let Some(l) = limit {
+            params.insert("limit".into(), l.min(100).to_string());
+        }
+
+        let path = format!(
+            "/api/v5/account/bills?{}",
+            params
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("&")
+        );
+
+        let response: Vec<OkxLedgerEntry> = self
+            .private_request("GET", &path, None)
+            .await
+            .unwrap_or_default();
+
+        let ledger: Vec<LedgerEntry> = response
+            .iter()
+            .map(|item| {
+                let amount: Decimal = item.bal_chg.parse().unwrap_or_default();
+                let direction = if amount >= Decimal::ZERO { "in" } else { "out" };
+                let timestamp: i64 = item.ts.parse().unwrap_or_default();
+
+                let mut entry = LedgerEntry::new()
+                    .with_id(item.bill_id.clone())
+                    .with_type(item.bill_type.clone())
+                    .with_currency(item.ccy.clone())
+                    .with_amount(amount.abs());
+
+                entry.direction = Some(direction.to_string());
+                entry.timestamp = Some(timestamp);
+
+                if !item.bal.is_empty() {
+                    entry.after = item.bal.parse().ok();
+                }
+
+                entry
+            })
+            .collect();
+
+        Ok(ledger)
+    }
+
     // === Margin Trading ===
 
     async fn borrow_cross_margin(
@@ -2502,6 +2536,155 @@ impl Exchange for Okx {
             .collect();
 
         Ok(trades)
+    }
+
+    /// Fetch server time
+    async fn fetch_time(&self) -> CcxtResult<i64> {
+        let response: Vec<OkxServerTime> = self
+            .public_get("/api/v5/public/time", None)
+            .await?;
+
+        let data = response.first().ok_or_else(|| CcxtError::BadResponse {
+            message: "Empty time response".into(),
+        })?;
+
+        data.ts.parse::<i64>().map_err(|_| CcxtError::BadResponse {
+            message: "Invalid timestamp format".into(),
+        })
+    }
+
+    /// Fetch exchange status
+    async fn fetch_status(&self) -> CcxtResult<crate::types::ExchangeStatus> {
+        let response: Vec<OkxSystemStatus> = self
+            .public_get("/api/v5/system/status", None)
+            .await
+            .unwrap_or_default();
+
+        // If no status data, assume everything is ok
+        if response.is_empty() {
+            return Ok(crate::types::ExchangeStatus::ok());
+        }
+
+        // Check for any ongoing maintenance
+        for status in &response {
+            if status.state == "ongoing" {
+                return Ok(crate::types::ExchangeStatus::maintenance(
+                    status.end.as_deref(),
+                ));
+            }
+        }
+
+        Ok(crate::types::ExchangeStatus::ok())
+    }
+
+    /// Fetch trading fee for a symbol
+    async fn fetch_trading_fee(&self, symbol: &str) -> CcxtResult<crate::types::TradingFee> {
+        let market_id = self.to_market_id(symbol);
+        let inst_type = if symbol.contains(":") { "SWAP" } else { "SPOT" };
+
+        let path = format!(
+            "/api/v5/account/trade-fee?instType={}&instId={}",
+            inst_type, market_id
+        );
+
+        let response: Vec<OkxTradeFee> = self.private_request("GET", &path, None).await?;
+
+        let data = response.first().ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.into(),
+        })?;
+
+        let maker: Decimal = data.maker.parse::<Decimal>().unwrap_or_default().abs();
+        let taker: Decimal = data.taker.parse::<Decimal>().unwrap_or_default().abs();
+
+        Ok(crate::types::TradingFee::new(symbol, maker, taker))
+    }
+
+    /// Fetch trading fees for all symbols
+    async fn fetch_trading_fees(&self) -> CcxtResult<HashMap<String, crate::types::TradingFee>> {
+        // OKX returns fee rates by category, not by symbol
+        // We need to fetch SPOT fees first
+        let path = "/api/v5/account/trade-fee?instType=SPOT";
+        let response: Vec<OkxTradeFee> = self
+            .private_request("GET", path, None)
+            .await
+            .unwrap_or_default();
+
+        let mut fees = HashMap::new();
+
+        // Get cached markets for symbol lookup
+        let markets = self.markets.read().unwrap();
+
+        if let Some(data) = response.first() {
+            let maker: Decimal = data.maker.parse::<Decimal>().unwrap_or_default().abs();
+            let taker: Decimal = data.taker.parse::<Decimal>().unwrap_or_default().abs();
+
+            // Apply these fees to all spot markets
+            for (symbol, _market) in markets.iter() {
+                if !symbol.contains(":") {
+                    // Only spot symbols
+                    fees.insert(
+                        symbol.clone(),
+                        crate::types::TradingFee::new(symbol, maker, taker),
+                    );
+                }
+            }
+        }
+
+        Ok(fees)
+    }
+
+    /// Fetch long/short ratio for a futures symbol
+    async fn fetch_long_short_ratio(
+        &self,
+        symbol: &str,
+        timeframe: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<crate::types::LongShortRatio>> {
+        let market_id = self.to_market_id(symbol);
+        let period = match timeframe.unwrap_or("5m") {
+            "5m" => "5m",
+            "1h" => "1H",
+            "1d" | "1D" => "1D",
+            other => other,
+        };
+
+        let mut params: HashMap<String, String> = HashMap::new();
+        params.insert("instId".into(), market_id);
+        params.insert("period".into(), period.to_string());
+
+        if let Some(s) = since {
+            params.insert("begin".into(), s.to_string());
+        }
+        if let Some(l) = limit {
+            params.insert("limit".into(), l.min(100).to_string());
+        }
+
+        let query = params
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("&");
+
+        let path = format!("/api/v5/rubik/stat/contracts/long-short-account-ratio?{}", query);
+
+        let response: Vec<OkxLongShortRatio> = self
+            .public_get(&path, None)
+            .await
+            .unwrap_or_default();
+
+        let ratios: Vec<crate::types::LongShortRatio> = response
+            .iter()
+            .filter_map(|r| {
+                let ratio: Decimal = r.ratio.parse().ok()?;
+                let timestamp: i64 = r.ts.parse().ok()?;
+                Some(crate::types::LongShortRatio::new(symbol, ratio)
+                    .with_timestamp(timestamp)
+                    .with_timeframe(period))
+            })
+            .collect();
+
+        Ok(ratios)
     }
 }
 
@@ -2960,6 +3143,65 @@ struct OkxConvertHistory {
     state: Option<String>,
     #[serde(default)]
     ts: Option<String>,
+}
+
+/// Server time from /api/v5/public/time
+#[derive(Debug, Deserialize)]
+struct OkxServerTime {
+    ts: String,
+}
+
+/// System status from /api/v5/system/status
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OkxSystemStatus {
+    #[serde(default)]
+    state: String,
+    #[serde(default)]
+    begin: Option<String>,
+    #[serde(default)]
+    end: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+}
+
+/// Trading fee from /api/v5/account/trade-fee
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OkxTradeFee {
+    #[serde(default)]
+    maker: String,
+    #[serde(default)]
+    taker: String,
+    #[serde(default)]
+    inst_id: Option<String>,
+}
+
+/// Ledger entry from /api/v5/account/bills
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct OkxLedgerEntry {
+    #[serde(default)]
+    bill_id: String,
+    #[serde(default)]
+    ccy: String,
+    #[serde(default, rename = "type")]
+    bill_type: String,
+    #[serde(default)]
+    bal_chg: String,
+    #[serde(default)]
+    bal: String,
+    #[serde(default)]
+    ts: String,
+}
+
+/// Long/short ratio from /api/v5/rubik/stat/contracts/long-short-account-ratio
+#[derive(Debug, Deserialize, Default)]
+struct OkxLongShortRatio {
+    #[serde(default)]
+    ratio: String,
+    #[serde(default)]
+    ts: String,
 }
 
 #[cfg(test)]

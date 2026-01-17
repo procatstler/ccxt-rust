@@ -631,6 +631,8 @@ impl Exchange for CryptoCom {
                     .and_then(|s| s.parse::<f64>().ok())
                     .map(|s| Decimal::from_f64_retain(s).unwrap_or_default()),
                 option_type: inst.put_call.clone(),
+                underlying: None,
+                underlying_id: None,
                 taker: Some(Decimal::from_f64_retain(0.004).unwrap_or_default()),
                 maker: Some(Decimal::from_f64_retain(0.004).unwrap_or_default()),
                 percentage: true,

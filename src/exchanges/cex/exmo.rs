@@ -498,6 +498,8 @@ impl Exchange for Exmo {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(8),
                     price: settings.price_precision,

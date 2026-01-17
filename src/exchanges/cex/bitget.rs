@@ -850,6 +850,8 @@ impl Exchange for Bitget {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: symbol_data.quantity_precision,
                     price: symbol_data.price_precision,

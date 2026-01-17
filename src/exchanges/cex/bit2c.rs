@@ -22,6 +22,7 @@ use crate::types::{
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
     OrderStatus, OrderType, SignedRequest, TakerOrMaker, Ticker, Timeframe, Trade, OHLCV,
 };
+use crate::{exchange_urls, feature_flags};
 
 const BASE_URL: &str = "https://bit2c.co.il";
 const RATE_LIMIT_MS: u64 = 3000;
@@ -133,54 +134,38 @@ impl Bit2c {
         let client = HttpClient::new(BASE_URL, &config)?;
         let rate_limiter = RateLimiter::new(RATE_LIMIT_MS);
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("rest".into(), BASE_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some(
-                "https://github.com/user-attachments/assets/db0bce50-6842-4c09-a1d5-0c87d22118aa"
-                    .into(),
-            ),
-            api: api_urls,
-            www: Some("https://www.bit2c.co.il".into()),
-            doc: vec![
-                "https://www.bit2c.co.il/home/api".into(),
-                "https://github.com/OferE/bit2c".into(),
+        let urls = exchange_urls! {
+            logo: "https://github.com/user-attachments/assets/db0bce50-6842-4c09-a1d5-0c87d22118aa",
+            www: "https://www.bit2c.co.il",
+            api: {
+                "rest" => BASE_URL,
+            },
+            doc: [
+                "https://www.bit2c.co.il/home/api",
+                "https://github.com/OferE/bit2c",
             ],
-            fees: None,
         };
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: false,
-            swap: false,
-            future: false,
-            option: false,
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: false,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: false,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: false,
-            fetch_order: true,
-            fetch_orders: false,
-            fetch_open_orders: true,
-            fetch_closed_orders: false,
-            fetch_my_trades: true,
-            fetch_deposits: false,
-            fetch_withdrawals: false,
-            withdraw: false,
-            fetch_deposit_address: true,
-            ws: false,
-            ..Default::default()
+        let features = feature_flags! {
+            spot,
+            fetch_markets,
+            fetch_currencies,
+            fetch_ticker,
+            fetch_order_book,
+            fetch_trades,
+            fetch_balance,
+            create_order,
+            create_limit_order,
+            create_market_order,
+            cancel_order,
+            fetch_order,
+            fetch_open_orders,
+            fetch_my_trades,
+            fetch_deposit_address,
+            ws,
+            watch_ticker,
+            watch_order_book,
+            watch_trades,
         };
 
         // No OHLCV support
@@ -238,6 +223,8 @@ impl Bit2c {
                     expiry_datetime: None,
                     strike: None,
                     option_type: None,
+            underlying: None,
+            underlying_id: None,
                     precision: MarketPrecision {
                         amount: Some(8),
                         price: Some(2),

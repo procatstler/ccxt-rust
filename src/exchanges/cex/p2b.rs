@@ -248,6 +248,8 @@ impl P2b {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             precision: MarketPrecision {
                 amount: limits.step_size.parse().ok(),
                 price: limits.tick_size.parse().ok(),

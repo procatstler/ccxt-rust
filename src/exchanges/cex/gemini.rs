@@ -508,6 +508,8 @@ impl Exchange for Gemini {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 taker: Some(Decimal::from_f64_retain(0.004).unwrap_or_default()),
                 maker: Some(Decimal::from_f64_retain(0.002).unwrap_or_default()),
                 percentage: true,

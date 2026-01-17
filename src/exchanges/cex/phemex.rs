@@ -267,6 +267,8 @@ impl Phemex {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             settle: data.settle_currency.clone(),
             settle_id: data.settle_currency.clone(),
             precision: MarketPrecision {

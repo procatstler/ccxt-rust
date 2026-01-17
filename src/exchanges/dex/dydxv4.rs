@@ -115,12 +115,154 @@ pub struct DydxV4 {
 }
 
 impl DydxV4 {
+    // ============================================================================
+    // URL Constants
+    // ============================================================================
+
     /// Mainnet Indexer API base URL
     const MAINNET_INDEXER_URL: &'static str = "https://indexer.dydx.trade/v4";
     /// Testnet Indexer API base URL
     const TESTNET_INDEXER_URL: &'static str = "https://indexer.v4testnet.dydx.exchange/v4";
+    /// Logo URL
+    const LOGO_URL: &'static str = "https://dydx.exchange/favicon.ico";
+    /// Website URL
+    const WWW_URL: &'static str = "https://dydx.exchange";
+    /// Documentation URL
+    const DOC_URL: &'static str = "https://docs.dydx.xyz/";
+    /// Fees URL
+    const FEES_URL: &'static str = "https://dydx.exchange/trading-rewards";
+
+    // ============================================================================
+    // API Endpoint Constants
+    // ============================================================================
+
+    /// Perpetual markets endpoint
+    const ENDPOINT_PERPETUAL_MARKETS: &'static str = "/perpetualMarkets";
+    /// Orderbook endpoint prefix
+    const ENDPOINT_ORDERBOOK: &'static str = "/orderbooks/perpetualMarket";
+    /// Trades endpoint prefix
+    const ENDPOINT_TRADES: &'static str = "/trades/perpetualMarket";
+    /// Candles endpoint prefix
+    const ENDPOINT_CANDLES: &'static str = "/candles/perpetualMarkets";
+    /// Addresses endpoint prefix
+    const ENDPOINT_ADDRESSES: &'static str = "/addresses";
+    /// Orders endpoint
+    const ENDPOINT_ORDERS: &'static str = "/orders";
+    /// Perpetual positions endpoint
+    const ENDPOINT_POSITIONS: &'static str = "/perpetualPositions";
+    /// Fills endpoint
+    const ENDPOINT_FILLS: &'static str = "/fills";
+    /// Historical PnL endpoint
+    const ENDPOINT_HISTORICAL_PNL: &'static str = "/historical-pnl";
+    /// Funding payments endpoint
+    const ENDPOINT_FUNDING_PAYMENTS: &'static str = "/fundingPayments";
+    /// Historical funding endpoint
+    const ENDPOINT_HISTORICAL_FUNDING: &'static str = "/historicalFunding";
+
+    // ============================================================================
+    // Market & Symbol Constants
+    // ============================================================================
+
+    /// Perpetual market suffix
+    const PERP_SUFFIX: &'static str = "-PERP";
+    /// Default quote currency
+    const DEFAULT_QUOTE: &'static str = "USD";
+    /// Settlement currency
+    const SETTLEMENT_CURRENCY: &'static str = "USDC";
+    /// API key for indexer URL map
+    const API_KEY_INDEXER: &'static str = "indexer";
+    /// Linear subtype
+    const SUBTYPE_LINEAR: &'static str = "linear";
+
+    // ============================================================================
+    // Status Constants
+    // ============================================================================
+
+    /// Active market status
+    const STATUS_ACTIVE: &'static str = "ACTIVE";
+    /// Open order status
+    const STATUS_OPEN: &'static str = "OPEN";
+    /// Filled order status
+    const STATUS_FILLED: &'static str = "FILLED";
+    /// Canceled order status
+    const STATUS_CANCELED: &'static str = "CANCELED";
+    /// Cancelled order status (alternative spelling)
+    const STATUS_CANCELLED: &'static str = "CANCELLED";
+    /// Best effort canceled status
+    const STATUS_BEST_EFFORT_CANCELED: &'static str = "BEST_EFFORT_CANCELED";
+    /// Untriggered order status
+    const STATUS_UNTRIGGERED: &'static str = "UNTRIGGERED";
+
+    // ============================================================================
+    // Order Type Constants
+    // ============================================================================
+
+    /// Limit order type
+    const ORDER_TYPE_LIMIT: &'static str = "LIMIT";
+    /// Market order type
+    const ORDER_TYPE_MARKET: &'static str = "MARKET";
+    /// Stop limit order type
+    const ORDER_TYPE_STOP_LIMIT: &'static str = "STOP_LIMIT";
+    /// Stop market order type
+    const ORDER_TYPE_STOP_MARKET: &'static str = "STOP_MARKET";
+    /// Take profit limit order type
+    const ORDER_TYPE_TAKE_PROFIT_LIMIT: &'static str = "TAKE_PROFIT_LIMIT";
+    /// Take profit market order type
+    const ORDER_TYPE_TAKE_PROFIT_MARKET: &'static str = "TAKE_PROFIT_MARKET";
+
+    // ============================================================================
+    // Time In Force Constants
+    // ============================================================================
+
+    /// Good til cancelled
+    const TIF_GTC: &'static str = "GTC";
+    /// Good til time (alias for GTC)
+    const TIF_GTT: &'static str = "GTT";
+    /// Immediate or cancel
+    const TIF_IOC: &'static str = "IOC";
+    /// Fill or kill
+    const TIF_FOK: &'static str = "FOK";
+
+    // ============================================================================
+    // Side Constants
+    // ============================================================================
+
+    /// Buy side
+    const SIDE_BUY: &'static str = "BUY";
+    /// Sell side
+    const SIDE_SELL: &'static str = "SELL";
+
+    // ============================================================================
+    // Timeframe Resolution Constants
+    // ============================================================================
+
+    /// 1 minute resolution
+    const RESOLUTION_1MIN: &'static str = "1MIN";
+    /// 5 minutes resolution
+    const RESOLUTION_5MINS: &'static str = "5MINS";
+    /// 15 minutes resolution
+    const RESOLUTION_15MINS: &'static str = "15MINS";
+    /// 30 minutes resolution
+    const RESOLUTION_30MINS: &'static str = "30MINS";
+    /// 1 hour resolution
+    const RESOLUTION_1HOUR: &'static str = "1HOUR";
+    /// 4 hours resolution
+    const RESOLUTION_4HOURS: &'static str = "4HOURS";
+    /// 1 day resolution
+    const RESOLUTION_1DAY: &'static str = "1DAY";
+
+    // ============================================================================
+    // Configuration Constants
+    // ============================================================================
+
     /// Rate limit (10 requests per second)
     const RATE_LIMIT_MS: u64 = 100;
+    /// Default GTC order expiration (90 days in seconds)
+    const DEFAULT_GTC_EXPIRATION_SECS: u32 = 90 * 24 * 60 * 60;
+    /// Market order buy price (high)
+    const MARKET_ORDER_BUY_PRICE: u64 = 1_000_000_000;
+    /// Market order sell price (low)
+    const MARKET_ORDER_SELL_PRICE: u64 = 1;
 
     /// 새 dYdX v4 인스턴스 생성 (Mainnet)
     pub fn new(config: ExchangeConfig) -> CcxtResult<Self> {
@@ -228,25 +370,25 @@ impl DydxV4 {
         };
 
         let mut api_urls = HashMap::new();
-        api_urls.insert("indexer".into(), base_url.into());
+        api_urls.insert(Self::API_KEY_INDEXER.into(), base_url.into());
 
         let urls = ExchangeUrls {
-            logo: Some("https://dydx.exchange/favicon.ico".into()),
+            logo: Some(Self::LOGO_URL.into()),
             api: api_urls,
-            www: Some("https://dydx.exchange".into()),
-            doc: vec!["https://docs.dydx.xyz/".into()],
-            fees: Some("https://dydx.exchange/trading-rewards".into()),
+            www: Some(Self::WWW_URL.into()),
+            doc: vec![Self::DOC_URL.into()],
+            fees: Some(Self::FEES_URL.into()),
         };
 
         // dYdX v4 Candle resolutions
         let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "1MIN".into());
-        timeframes.insert(Timeframe::Minute5, "5MINS".into());
-        timeframes.insert(Timeframe::Minute15, "15MINS".into());
-        timeframes.insert(Timeframe::Minute30, "30MINS".into());
-        timeframes.insert(Timeframe::Hour1, "1HOUR".into());
-        timeframes.insert(Timeframe::Hour4, "4HOURS".into());
-        timeframes.insert(Timeframe::Day1, "1DAY".into());
+        timeframes.insert(Timeframe::Minute1, Self::RESOLUTION_1MIN.into());
+        timeframes.insert(Timeframe::Minute5, Self::RESOLUTION_5MINS.into());
+        timeframes.insert(Timeframe::Minute15, Self::RESOLUTION_15MINS.into());
+        timeframes.insert(Timeframe::Minute30, Self::RESOLUTION_30MINS.into());
+        timeframes.insert(Timeframe::Hour1, Self::RESOLUTION_1HOUR.into());
+        timeframes.insert(Timeframe::Hour4, Self::RESOLUTION_4HOURS.into());
+        timeframes.insert(Timeframe::Day1, Self::RESOLUTION_1DAY.into());
 
         // Node API 클라이언트 및 트랜잭션 빌더 생성 (지갑이 있는 경우)
         let (node_client, tx_builder) = if wallet.is_some() {
@@ -318,17 +460,17 @@ impl DydxV4 {
     fn symbol_to_market_id(&self, symbol: &str) -> String {
         // BTC/USD → BTC-USD-PERP
         let base = symbol.replace("/", "-");
-        if base.ends_with("-PERP") {
+        if base.ends_with(Self::PERP_SUFFIX) {
             base
         } else {
-            format!("{base}-PERP")
+            format!("{base}{}", Self::PERP_SUFFIX)
         }
     }
 
     /// 마켓 ID를 심볼로 변환 (BTC-USD-PERP → BTC/USD)
     fn market_id_to_symbol(&self, market_id: &str) -> String {
         // BTC-USD-PERP → BTC/USD
-        let stripped = market_id.strip_suffix("-PERP").unwrap_or(market_id);
+        let stripped = market_id.strip_suffix(Self::PERP_SUFFIX).unwrap_or(market_id);
         stripped.replacen("-", "/", 1)
     }
 
@@ -417,7 +559,7 @@ impl Exchange for DydxV4 {
 
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>> {
         let response: DydxV4PerpetualMarketsResponse =
-            self.indexer_get("/perpetualMarkets").await?;
+            self.indexer_get(Self::ENDPOINT_PERPETUAL_MARKETS).await?;
 
         let mut markets = Vec::new();
 
@@ -425,7 +567,7 @@ impl Exchange for DydxV4 {
             // BTC-USD-PERP → BTC, USD
             let parts: Vec<&str> = market_id.split('-').collect();
             let base = parts.first().unwrap_or(&"").to_string();
-            let quote = parts.get(1).unwrap_or(&"USD").to_string();
+            let quote = parts.get(1).unwrap_or(&Self::DEFAULT_QUOTE).to_string();
             let symbol = format!("{base}/{quote}");
 
             let tick_size: Option<Decimal> = info.tick_size.as_ref().and_then(|s| s.parse().ok());
@@ -465,11 +607,11 @@ impl Exchange for DydxV4 {
                 future: false,
                 option: false,
                 index: false,
-                active: matches!(info.status.as_deref(), Some("ACTIVE")),
+                active: matches!(info.status.as_deref(), Some(Self::STATUS_ACTIVE)),
                 contract: true,
                 linear: Some(true),
                 inverse: Some(false),
-                sub_type: Some("linear".to_string()),
+                sub_type: Some(Self::SUBTYPE_LINEAR.to_string()),
                 taker: None, // dYdX v4 uses dynamic fees
                 maker: None,
                 contract_size: Some(Decimal::ONE),
@@ -477,6 +619,8 @@ impl Exchange for DydxV4 {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 settle: Some(quote.clone()),
                 settle_id: Some(quote.clone()),
                 precision: MarketPrecision {
@@ -509,7 +653,7 @@ impl Exchange for DydxV4 {
 
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
         let market_id = self.symbol_to_market_id(symbol);
-        let path = format!("/perpetualMarkets?ticker={market_id}");
+        let path = format!("{}?ticker={market_id}", Self::ENDPOINT_PERPETUAL_MARKETS);
         let response: DydxV4PerpetualMarketsResponse = self.indexer_get(&path).await?;
 
         let info = response
@@ -553,7 +697,7 @@ impl Exchange for DydxV4 {
 
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook> {
         let market_id = self.symbol_to_market_id(symbol);
-        let path = format!("/orderbooks/perpetualMarket/{market_id}");
+        let path = format!("{}/{market_id}", Self::ENDPOINT_ORDERBOOK);
         let response: DydxV4OrderBookResponse = self.indexer_get(&path).await?;
 
         let timestamp = Utc::now().timestamp_millis();
@@ -589,7 +733,7 @@ impl Exchange for DydxV4 {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<Trade>> {
         let market_id = self.symbol_to_market_id(symbol);
-        let mut path = format!("/trades/perpetualMarket/{market_id}");
+        let mut path = format!("{}/{market_id}", Self::ENDPOINT_TRADES);
 
         if let Some(l) = limit {
             path.push_str(&format!("?limit={l}"));
@@ -652,7 +796,7 @@ impl Exchange for DydxV4 {
                     feature: format!("Timeframe {timeframe:?}"),
                 })?;
 
-        let mut path = format!("/candles/perpetualMarkets/{market_id}?resolution={resolution}");
+        let mut path = format!("{}/{market_id}?resolution={resolution}", Self::ENDPOINT_CANDLES);
 
         if let Some(l) = limit {
             path.push_str(&format!("&limit={l}"));
@@ -697,8 +841,10 @@ impl Exchange for DydxV4 {
     async fn fetch_balance(&self) -> CcxtResult<Balances> {
         let address = self.require_address()?;
         let path = format!(
-            "/addresses/{}/subaccountNumber/{}",
-            address, self.subaccount_number
+            "{}/{}/subaccountNumber/{}",
+            Self::ENDPOINT_ADDRESSES,
+            address,
+            self.subaccount_number
         );
         let response: DydxV4SubaccountResponse = self.indexer_get(&path).await?;
 
@@ -722,7 +868,7 @@ impl Exchange for DydxV4 {
                 .unwrap_or(Decimal::ZERO);
 
             balances.currencies.insert(
-                "USDC".to_string(),
+                Self::SETTLEMENT_CURRENCY.to_string(),
                 Balance {
                     free: Some(free_collateral),
                     used: Some(equity - free_collateral),
@@ -765,8 +911,11 @@ impl Exchange for DydxV4 {
     ) -> CcxtResult<Vec<Order>> {
         let address = self.require_address()?;
         let mut path = format!(
-            "/orders?address={}&subaccountNumber={}&status=OPEN",
-            address, self.subaccount_number
+            "{}?address={}&subaccountNumber={}&status={}",
+            Self::ENDPOINT_ORDERS,
+            address,
+            self.subaccount_number,
+            Self::STATUS_OPEN
         );
 
         if let Some(s) = symbol {
@@ -783,7 +932,7 @@ impl Exchange for DydxV4 {
     }
 
     async fn fetch_order(&self, id: &str, _symbol: &str) -> CcxtResult<Order> {
-        let path = format!("/orders/{id}");
+        let path = format!("{}/{id}", Self::ENDPOINT_ORDERS);
         let response: DydxV4Order = self.indexer_get(&path).await?;
 
         let orders = self.parse_orders(&[response])?;
@@ -860,8 +1009,8 @@ impl Exchange for DydxV4 {
                 // 마켓 주문은 슬리피지를 포함한 최악의 가격 사용
                 // 매수: 매우 높은 가격, 매도: 매우 낮은 가격
                 match side {
-                    OrderSide::Buy => Decimal::from(1_000_000_000u64), // 높은 가격
-                    OrderSide::Sell => Decimal::from(1u64),            // 낮은 가격
+                    OrderSide::Buy => Decimal::from(Self::MARKET_ORDER_BUY_PRICE),
+                    OrderSide::Sell => Decimal::from(Self::MARKET_ORDER_SELL_PRICE),
                 }
             },
             _ => price.ok_or_else(|| CcxtError::BadRequest {
@@ -1036,7 +1185,7 @@ impl DydxV4 {
         }
 
         // API에서 마켓 정보 조회
-        let path = format!("/perpetualMarkets?ticker={market_id}");
+        let path = format!("{}?ticker={market_id}", Self::ENDPOINT_PERPETUAL_MARKETS);
         let response: DydxV4PerpetualMarketsResponse = self.indexer_get(&path).await?;
 
         let market_info = response
@@ -1096,21 +1245,21 @@ impl DydxV4 {
             let remaining = amount - filled;
 
             let status = match o.status.as_str() {
-                "OPEN" => OrderStatus::Open,
-                "FILLED" => OrderStatus::Closed,
-                "CANCELED" | "CANCELLED" => OrderStatus::Canceled,
-                "BEST_EFFORT_CANCELED" => OrderStatus::Canceled,
-                "UNTRIGGERED" => OrderStatus::Open,
+                Self::STATUS_OPEN => OrderStatus::Open,
+                Self::STATUS_FILLED => OrderStatus::Closed,
+                Self::STATUS_CANCELED | Self::STATUS_CANCELLED => OrderStatus::Canceled,
+                Self::STATUS_BEST_EFFORT_CANCELED => OrderStatus::Canceled,
+                Self::STATUS_UNTRIGGERED => OrderStatus::Open,
                 _ => OrderStatus::Open,
             };
 
             let order_type = match o.order_type.as_str() {
-                "LIMIT" => OrderType::Limit,
-                "MARKET" => OrderType::Market,
-                "STOP_LIMIT" => OrderType::StopLimit,
-                "STOP_MARKET" => OrderType::StopMarket,
-                "TAKE_PROFIT_LIMIT" => OrderType::TakeProfitLimit,
-                "TAKE_PROFIT_MARKET" => OrderType::TakeProfitMarket,
+                Self::ORDER_TYPE_LIMIT => OrderType::Limit,
+                Self::ORDER_TYPE_MARKET => OrderType::Market,
+                Self::ORDER_TYPE_STOP_LIMIT => OrderType::StopLimit,
+                Self::ORDER_TYPE_STOP_MARKET => OrderType::StopMarket,
+                Self::ORDER_TYPE_TAKE_PROFIT_LIMIT => OrderType::TakeProfitLimit,
+                Self::ORDER_TYPE_TAKE_PROFIT_MARKET => OrderType::TakeProfitMarket,
                 _ => OrderType::Limit,
             };
 
@@ -1118,14 +1267,14 @@ impl DydxV4 {
                 o.time_in_force
                     .as_ref()
                     .and_then(|tif| match tif.to_uppercase().as_str() {
-                        "GTC" | "GTT" => Some(TimeInForce::GTC),
-                        "IOC" => Some(TimeInForce::IOC),
-                        "FOK" => Some(TimeInForce::FOK),
+                        Self::TIF_GTC | Self::TIF_GTT => Some(TimeInForce::GTC),
+                        Self::TIF_IOC => Some(TimeInForce::IOC),
+                        Self::TIF_FOK => Some(TimeInForce::FOK),
                         _ => None,
                     });
 
             let side = match o.side.to_uppercase().as_str() {
-                "BUY" => OrderSide::Buy,
+                Self::SIDE_BUY => OrderSide::Buy,
                 _ => OrderSide::Sell,
             };
 
@@ -1176,8 +1325,11 @@ impl DydxV4 {
     pub async fn fetch_positions(&self, symbol: Option<&str>) -> CcxtResult<Vec<DydxV4Position>> {
         let address = self.require_address()?;
         let mut path = format!(
-            "/perpetualPositions?address={}&subaccountNumber={}&status=OPEN",
-            address, self.subaccount_number
+            "{}?address={}&subaccountNumber={}&status={}",
+            Self::ENDPOINT_POSITIONS,
+            address,
+            self.subaccount_number,
+            Self::STATUS_OPEN
         );
 
         if let Some(s) = symbol {
@@ -1197,8 +1349,10 @@ impl DydxV4 {
     ) -> CcxtResult<Vec<DydxV4Fill>> {
         let address = self.require_address()?;
         let mut path = format!(
-            "/fills?address={}&subaccountNumber={}",
-            address, self.subaccount_number
+            "{}?address={}&subaccountNumber={}",
+            Self::ENDPOINT_FILLS,
+            address,
+            self.subaccount_number
         );
 
         if let Some(s) = symbol {
@@ -1218,8 +1372,10 @@ impl DydxV4 {
     pub async fn fetch_historical_pnl(&self) -> CcxtResult<Vec<DydxV4PnlTick>> {
         let address = self.require_address()?;
         let path = format!(
-            "/historical-pnl?address={}&subaccountNumber={}",
-            address, self.subaccount_number
+            "{}?address={}&subaccountNumber={}",
+            Self::ENDPOINT_HISTORICAL_PNL,
+            address,
+            self.subaccount_number
         );
 
         let response: DydxV4HistoricalPnlResponse = self.indexer_get(&path).await?;
@@ -1234,8 +1390,10 @@ impl DydxV4 {
     ) -> CcxtResult<Vec<DydxV4FundingPayment>> {
         let address = self.require_address()?;
         let mut path = format!(
-            "/fundingPayments?address={}&subaccountNumber={}",
-            address, self.subaccount_number
+            "{}?address={}&subaccountNumber={}",
+            Self::ENDPOINT_FUNDING_PAYMENTS,
+            address,
+            self.subaccount_number
         );
 
         if let Some(s) = symbol {
@@ -1258,7 +1416,7 @@ impl DydxV4 {
         limit: Option<u32>,
     ) -> CcxtResult<Vec<DydxV4HistoricalFunding>> {
         let market_id = self.symbol_to_market_id(symbol);
-        let mut path = format!("/historicalFunding/{market_id}");
+        let mut path = format!("{}/{market_id}", Self::ENDPOINT_HISTORICAL_FUNDING);
 
         if let Some(l) = limit {
             path.push_str(&format!("?limit={l}"));
@@ -1347,8 +1505,8 @@ impl DydxV4 {
         // 가격 처리
         let order_price = match params.order_type {
             OrderType::Market => match params.side {
-                OrderSide::Buy => Decimal::from(1_000_000_000u64),
-                OrderSide::Sell => Decimal::from(1u64),
+                OrderSide::Buy => Decimal::from(Self::MARKET_ORDER_BUY_PRICE),
+                OrderSide::Sell => Decimal::from(Self::MARKET_ORDER_SELL_PRICE),
             },
             _ => params.price.ok_or_else(|| CcxtError::BadRequest {
                 message: "Price is required for limit orders".into(),
@@ -1558,7 +1716,7 @@ impl DydxV4 {
     ) -> CcxtResult<Order> {
         // 90일 후 만료 (기본값)
         let now = Utc::now().timestamp() as u32;
-        let good_til_time = now + (90 * 24 * 60 * 60); // 90 days
+        let good_til_time = now + Self::DEFAULT_GTC_EXPIRATION_SECS;
 
         let time_in_force = if post_only {
             Some(TimeInForce::PO)
@@ -1717,8 +1875,8 @@ impl DydxV4 {
 
         // 가격 처리 (limit_price가 없으면 시장가 스타일)
         let order_price = params.limit_price.unwrap_or_else(|| match params.side {
-            OrderSide::Buy => Decimal::from(1_000_000_000u64),
-            OrderSide::Sell => Decimal::from(1u64),
+            OrderSide::Buy => Decimal::from(Self::MARKET_ORDER_BUY_PRICE),
+            OrderSide::Sell => Decimal::from(Self::MARKET_ORDER_SELL_PRICE),
         });
 
         // TimeInForce
@@ -2213,13 +2371,16 @@ mod tests {
         let exchange = DydxV4::new(config).unwrap();
 
         // Symbol to market ID
-        assert_eq!(exchange.symbol_to_market_id("BTC/USD"), "BTC-USD-PERP");
-        assert_eq!(exchange.symbol_to_market_id("ETH/USD"), "ETH-USD-PERP");
-        assert_eq!(exchange.symbol_to_market_id("BTC-USD-PERP"), "BTC-USD-PERP");
+        let btc_perp = format!("BTC-USD{}", DydxV4::PERP_SUFFIX);
+        let eth_perp = format!("ETH-USD{}", DydxV4::PERP_SUFFIX);
+
+        assert_eq!(exchange.symbol_to_market_id("BTC/USD"), btc_perp);
+        assert_eq!(exchange.symbol_to_market_id("ETH/USD"), eth_perp);
+        assert_eq!(exchange.symbol_to_market_id(&btc_perp), btc_perp);
 
         // Market ID to symbol
-        assert_eq!(exchange.market_id_to_symbol("BTC-USD-PERP"), "BTC/USD");
-        assert_eq!(exchange.market_id_to_symbol("ETH-USD-PERP"), "ETH/USD");
+        assert_eq!(exchange.market_id_to_symbol(&btc_perp), "BTC/USD");
+        assert_eq!(exchange.market_id_to_symbol(&eth_perp), "ETH/USD");
     }
 
     #[test]
@@ -2228,15 +2389,15 @@ mod tests {
         let exchange = DydxV4::new(config).unwrap();
         assert_eq!(
             exchange.timeframes().get(&Timeframe::Minute1),
-            Some(&"1MIN".to_string())
+            Some(&DydxV4::RESOLUTION_1MIN.to_string())
         );
         assert_eq!(
             exchange.timeframes().get(&Timeframe::Hour1),
-            Some(&"1HOUR".to_string())
+            Some(&DydxV4::RESOLUTION_1HOUR.to_string())
         );
         assert_eq!(
             exchange.timeframes().get(&Timeframe::Day1),
-            Some(&"1DAY".to_string())
+            Some(&DydxV4::RESOLUTION_1DAY.to_string())
         );
     }
 

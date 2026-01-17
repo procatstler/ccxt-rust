@@ -64,6 +64,16 @@ pub struct WsMyTradeEvent {
     pub trades: Vec<Trade>,
 }
 
+/// WebSocket 청산 이벤트
+#[derive(Debug, Clone)]
+pub struct WsLiquidationEvent {
+    pub symbol: String,
+    pub side: String,
+    pub price: rust_decimal::Decimal,
+    pub quantity: rust_decimal::Decimal,
+    pub timestamp: Option<i64>,
+}
+
 /// WebSocket 스트림 메시지 타입
 #[derive(Debug, Clone)]
 pub enum WsMessage {
@@ -83,6 +93,8 @@ pub enum WsMessage {
     Position(WsPositionEvent),
     /// 내 체결 업데이트 (비공개)
     MyTrade(WsMyTradeEvent),
+    /// 청산 이벤트
+    Liquidation(WsLiquidationEvent),
     /// 연결됨
     Connected,
     /// 연결 해제됨
@@ -195,6 +207,28 @@ pub trait WsExchange: Send + Sync {
         let _ = symbols;
         Err(crate::errors::CcxtError::NotSupported {
             feature: "watchMarkPrices".into(),
+        })
+    }
+
+    /// 청산 이벤트 구독 (선물/무기한)
+    async fn watch_liquidations(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let _ = symbol;
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: "watchLiquidations".into(),
+        })
+    }
+
+    /// 복수 청산 이벤트 구독
+    async fn watch_liquidations_for_symbols(
+        &self,
+        symbols: Option<&[&str]>,
+    ) -> CcxtResult<mpsc::UnboundedReceiver<WsMessage>> {
+        let _ = symbols;
+        Err(crate::errors::CcxtError::NotSupported {
+            feature: "watchLiquidationsForSymbols".into(),
         })
     }
 

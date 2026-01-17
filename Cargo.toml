@@ -40,8 +40,15 @@ dex = [
     "dep:ripemd",
     "dep:prost",
 ]
+# Advanced cryptography - ECDSA (secp256k1) and Ed25519 signatures
+advanced-crypto = [
+    "dep:k256",
+    "dep:elliptic-curve",
+    "dep:ed25519-dalek",
+    "dep:signature",
+]
 # All features enabled
-full = ["cex", "dex"]
+full = ["cex", "dex", "advanced-crypto"]
 
 [dependencies]
 # 비동기 런타임
@@ -74,12 +81,14 @@ anyhow = "1.0"
 # 암호화 (API 서명)
 hmac = "0.12"
 sha2 = "0.10"
+sha1 = "0.10"  # SHA1 for TOTP
 md5 = "0.7"
 hex = "0.4"
 crc32fast = "1.4"  # CRC32 checksum for orderbook validation
 base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
 jsonwebtoken = "9.0"
+rsa = { version = "0.9", features = ["sha2"] }  # RSA signing
 
 # DEX 암호화 (EVM/StarkNet/Cosmos) - optional, enabled by "dex" feature
 sha3 = { version = "0.10", optional = true }                                    # Keccak256
@@ -95,8 +104,15 @@ bech32 = { version = "0.11", optional = true }                                 #
 ripemd = { version = "0.1", optional = true }                                  # RIPEMD-160 (Cosmos address)
 prost = { version = "0.13", optional = true }                                  # Protobuf encoding (Cosmos SDK messages)
 
+# ECDSA/Ed25519 서명 - CEX 인증용
+ed25519-dalek = { version = "2.1", features = ["rand_core"], optional = true }  # Ed25519 signatures
+signature = { version = "2.2", optional = true }                               # Signature traits
+
 # 비동기 trait
 async-trait = "0.1"
+
+# Enum derive macros
+strum = { version = "0.26", features = ["derive"] }
 
 # 로깅
 tracing = "0.1"

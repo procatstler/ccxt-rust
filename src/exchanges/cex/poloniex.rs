@@ -45,70 +45,48 @@ impl Poloniex {
         let client = HttpClient::new(BASE_URL, &config)?;
         let rate_limiter = RateLimiter::new(RATE_LIMIT_MS);
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("spot".into(), BASE_URL.into());
-        api_urls.insert("swap".into(), BASE_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some("https://user-images.githubusercontent.com/1294454/27766817-e9456312-5ee6-11e7-9b3c-b628ca5626a5.jpg".into()),
-            api: api_urls,
-            www: Some("https://www.poloniex.com".into()),
-            doc: vec!["https://api-docs.poloniex.com/spot/".into()],
-            fees: Some("https://poloniex.com/fees".into()),
+        // API URLs - using macro for concise declaration
+        let urls = exchange_urls! {
+            logo: "https://user-images.githubusercontent.com/1294454/27766817-e9456312-5ee6-11e7-9b3c-b628ca5626a5.jpg",
+            www: "https://www.poloniex.com",
+            api: {
+                "spot" => BASE_URL,
+                "swap" => BASE_URL,
+            },
+            doc: [
+                "https://api-docs.poloniex.com/spot/",
+            ],
+            fees: "https://poloniex.com/fees",
         };
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: false,
-            swap: true,
-            future: true,
-            option: false,
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            fetch_order: true,
-            fetch_orders: false,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: false,
-            fetch_withdrawals: false,
-            withdraw: false,
-            fetch_deposit_address: false,
-            ws: false,
-            watch_ticker: false,
-            watch_tickers: false,
-            watch_order_book: false,
-            watch_trades: false,
-            watch_ohlcv: false,
-            watch_balance: false,
-            watch_orders: false,
-            watch_my_trades: false,
-            ..Default::default()
+        // Exchange features - using macro for concise declaration
+        let features = feature_flags! {
+            spot, swap, future,
+            fetch_markets, fetch_currencies,
+            fetch_ticker, fetch_tickers,
+            fetch_order_book, fetch_trades, fetch_ohlcv,
+            fetch_balance,
+            create_order, create_limit_order, create_market_order,
+            cancel_order, cancel_all_orders,
+            fetch_order, fetch_open_orders, fetch_closed_orders,
+            fetch_my_trades,
+            ws, watch_ticker, watch_order_book, watch_trades, watch_ohlcv,
+            watch_balance, watch_orders, watch_my_trades,
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "MINUTE_1".to_string());
-        timeframes.insert(Timeframe::Minute5, "MINUTE_5".to_string());
-        timeframes.insert(Timeframe::Minute15, "MINUTE_15".to_string());
-        timeframes.insert(Timeframe::Minute30, "MINUTE_30".to_string());
-        timeframes.insert(Timeframe::Hour1, "HOUR_1".to_string());
-        timeframes.insert(Timeframe::Hour2, "HOUR_2".to_string());
-        timeframes.insert(Timeframe::Hour4, "HOUR_4".to_string());
-        timeframes.insert(Timeframe::Hour12, "HOUR_12".to_string());
-        timeframes.insert(Timeframe::Day1, "DAY_1".to_string());
-        timeframes.insert(Timeframe::Week1, "WEEK_1".to_string());
+        // Timeframes - using macro for concise declaration
+        let timeframes = timeframe_map! {
+            Minute1 => "MINUTE_1",
+            Minute5 => "MINUTE_5",
+            Minute15 => "MINUTE_15",
+            Minute30 => "MINUTE_30",
+            Hour1 => "HOUR_1",
+            Hour2 => "HOUR_2",
+            Hour4 => "HOUR_4",
+            Hour12 => "HOUR_12",
+            Day1 => "DAY_1",
+            Week1 => "WEEK_1",
+        };
 
         Ok(Self {
             config,
@@ -169,6 +147,8 @@ impl Poloniex {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             taker: None,
             maker: None,
             precision: MarketPrecision {

@@ -60,58 +60,35 @@ impl Hitbtc {
             fees: Some("https://hitbtc.com/fees-and-limits".into()),
         };
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: true,
-            swap: true,
-            future: false,
-            option: false,
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            fetch_order: true,
-            fetch_orders: false,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: true,
-            fetch_deposit_address: true,
-            ws: false,
-            watch_ticker: false,
-            watch_tickers: false,
-            watch_order_book: false,
-            watch_trades: false,
-            watch_ohlcv: false,
-            watch_balance: false,
-            watch_orders: false,
-            watch_my_trades: false,
-            ..Default::default()
+        // Exchange features - using macro for concise declaration
+        let features = feature_flags! {
+            spot, margin, swap,
+            fetch_markets, fetch_currencies,
+            fetch_ticker, fetch_tickers,
+            fetch_order_book, fetch_trades, fetch_ohlcv,
+            fetch_balance,
+            create_order, create_limit_order, create_market_order,
+            cancel_order, cancel_all_orders,
+            fetch_order, fetch_open_orders, fetch_closed_orders,
+            fetch_my_trades,
+            fetch_deposits, fetch_withdrawals, withdraw, fetch_deposit_address,
+            ws, watch_ticker, watch_tickers, watch_order_book,
+            watch_trades, watch_ohlcv, watch_balance, watch_orders, watch_my_trades,
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "M1".to_string());
-        timeframes.insert(Timeframe::Minute3, "M3".to_string());
-        timeframes.insert(Timeframe::Minute5, "M5".to_string());
-        timeframes.insert(Timeframe::Minute15, "M15".to_string());
-        timeframes.insert(Timeframe::Minute30, "M30".to_string());
-        timeframes.insert(Timeframe::Hour1, "H1".to_string());
-        timeframes.insert(Timeframe::Hour4, "H4".to_string());
-        timeframes.insert(Timeframe::Day1, "D1".to_string());
-        timeframes.insert(Timeframe::Week1, "D7".to_string());
-        timeframes.insert(Timeframe::Month1, "1M".to_string());
+        // Timeframes - using macro for concise declaration
+        let timeframes = timeframe_map! {
+            Minute1 => "M1",
+            Minute3 => "M3",
+            Minute5 => "M5",
+            Minute15 => "M15",
+            Minute30 => "M30",
+            Hour1 => "H1",
+            Hour4 => "H4",
+            Day1 => "D1",
+            Week1 => "D7",
+            Month1 => "1M",
+        };
 
         Ok(Self {
             config,
@@ -211,6 +188,8 @@ impl Hitbtc {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             taker: data
                 .take_rate
                 .and_then(|s| Decimal::from_str(&s.to_string()).ok()),

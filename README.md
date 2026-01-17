@@ -290,8 +290,6 @@ cargo test --features full live_dex -- --ignored --test-threads=1
 | DEX WebSocket | 8/8 (100%) |
 | **Total Tests** | **1,747+** |
 
-See [PORTING_STATUS.md](docs/PORTING_STATUS.md) for detailed exchange support.
-
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

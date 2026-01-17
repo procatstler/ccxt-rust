@@ -1,5 +1,6 @@
 //! Market type - 거래소 마켓 정보
 
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -91,6 +92,12 @@ pub struct Market {
     /// 옵션 타입 (call/put)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub option_type: Option<String>,
+    /// 기초자산 심볼 (옵션, 예: "BTC")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underlying: Option<String>,
+    /// 기초자산 거래소 ID (옵션)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underlying_id: Option<String>,
     /// 정밀도
     pub precision: MarketPrecision,
     /// 거래 제한
@@ -199,6 +206,120 @@ impl Market {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
+            precision: MarketPrecision::default(),
+            limits: MarketLimits::default(),
+            margin_modes: None,
+            created: None,
+            info: serde_json::Value::Null,
+            tier_based: false,
+            percentage: true,
+        }
+    }
+
+    /// 옵션 마켓 생성
+    pub fn option_market(
+        id: String,
+        symbol: String,
+        base: String,
+        quote: String,
+        underlying: String,
+        strike: Decimal,
+        option_type: &str,
+        expiry: Option<i64>,
+    ) -> Self {
+        Self {
+            id: id.clone(),
+            lowercase_id: Some(id.to_lowercase()),
+            symbol,
+            base: base.clone(),
+            quote: quote.clone(),
+            settle: Some(quote.clone()),
+            base_id: base,
+            quote_id: quote.clone(),
+            settle_id: Some(quote),
+            market_type: MarketType::Option,
+            spot: false,
+            margin: false,
+            swap: false,
+            future: false,
+            option: true,
+            index: false,
+            active: true,
+            contract: true,
+            linear: Some(true),
+            inverse: Some(false),
+            sub_type: None,
+            taker: None,
+            maker: None,
+            contract_size: Some(Decimal::ONE),
+            expiry,
+            expiry_datetime: expiry.map(|ts| {
+                DateTime::<Utc>::from_timestamp_millis(ts)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            }),
+            strike: Some(strike),
+            option_type: Some(option_type.to_string()),
+            underlying: Some(underlying.clone()),
+            underlying_id: Some(underlying),
+            precision: MarketPrecision::default(),
+            limits: MarketLimits::default(),
+            margin_modes: None,
+            created: None,
+            info: serde_json::Value::Null,
+            tier_based: false,
+            percentage: true,
+        }
+    }
+
+    /// 선물/스왑 마켓 생성
+    pub fn futures(
+        id: String,
+        symbol: String,
+        base: String,
+        quote: String,
+        settle: String,
+        is_linear: bool,
+        expiry: Option<i64>,
+    ) -> Self {
+        let is_perpetual = expiry.is_none();
+        Self {
+            id: id.clone(),
+            lowercase_id: Some(id.to_lowercase()),
+            symbol,
+            base: base.clone(),
+            quote: quote.clone(),
+            settle: Some(settle.clone()),
+            base_id: base,
+            quote_id: quote,
+            settle_id: Some(settle),
+            market_type: if is_perpetual { MarketType::Swap } else { MarketType::Future },
+            spot: false,
+            margin: false,
+            swap: is_perpetual,
+            future: !is_perpetual,
+            option: false,
+            index: false,
+            active: true,
+            contract: true,
+            linear: Some(is_linear),
+            inverse: Some(!is_linear),
+            sub_type: Some(if is_linear { "linear".to_string() } else { "inverse".to_string() }),
+            taker: None,
+            maker: None,
+            contract_size: Some(Decimal::ONE),
+            expiry,
+            expiry_datetime: expiry.map(|ts| {
+                DateTime::<Utc>::from_timestamp_millis(ts)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            }),
+            strike: None,
+            option_type: None,
+            underlying: None,
+            underlying_id: None,
             precision: MarketPrecision::default(),
             limits: MarketLimits::default(),
             margin_modes: None,
@@ -213,6 +334,7 @@ impl Market {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_spot_market() {
@@ -225,5 +347,83 @@ mod tests {
         assert!(market.spot);
         assert!(!market.margin);
         assert_eq!(market.market_type, MarketType::Spot);
+    }
+
+    #[test]
+    fn test_option_market() {
+        let market = Market::option_market(
+            "BTC-241227-100000-C".into(),
+            "BTC/USDT:USDT-241227-100000-C".into(),
+            "BTC".into(),
+            "USDT".into(),
+            "BTC".into(),
+            dec!(100000),
+            "call",
+            Some(1735257600000), // 2024-12-27
+        );
+        assert!(market.option);
+        assert!(!market.spot);
+        assert!(market.contract);
+        assert_eq!(market.market_type, MarketType::Option);
+        assert_eq!(market.strike, Some(dec!(100000)));
+        assert_eq!(market.option_type, Some("call".to_string()));
+        assert_eq!(market.underlying, Some("BTC".to_string()));
+        assert!(market.expiry_datetime.is_some());
+    }
+
+    #[test]
+    fn test_futures_perpetual() {
+        let market = Market::futures(
+            "BTCUSDT".into(),
+            "BTC/USDT:USDT".into(),
+            "BTC".into(),
+            "USDT".into(),
+            "USDT".into(),
+            true, // linear
+            None, // perpetual
+        );
+        assert!(market.swap);
+        assert!(!market.future);
+        assert!(market.contract);
+        assert_eq!(market.market_type, MarketType::Swap);
+        assert_eq!(market.linear, Some(true));
+        assert_eq!(market.inverse, Some(false));
+        assert_eq!(market.sub_type, Some("linear".to_string()));
+    }
+
+    #[test]
+    fn test_futures_dated() {
+        let market = Market::futures(
+            "BTC-241227".into(),
+            "BTC/USDT:USDT-241227".into(),
+            "BTC".into(),
+            "USDT".into(),
+            "USDT".into(),
+            true,
+            Some(1735257600000), // 2024-12-27
+        );
+        assert!(!market.swap);
+        assert!(market.future);
+        assert!(market.contract);
+        assert_eq!(market.market_type, MarketType::Future);
+        assert!(market.expiry.is_some());
+        assert!(market.expiry_datetime.is_some());
+    }
+
+    #[test]
+    fn test_inverse_futures() {
+        let market = Market::futures(
+            "BTCUSD".into(),
+            "BTC/USD:BTC".into(),
+            "BTC".into(),
+            "USD".into(),
+            "BTC".into(),
+            false, // inverse
+            None,  // perpetual
+        );
+        assert!(market.swap);
+        assert_eq!(market.linear, Some(false));
+        assert_eq!(market.inverse, Some(true));
+        assert_eq!(market.sub_type, Some("inverse".to_string()));
     }
 }

@@ -676,6 +676,8 @@ impl Exchange for BinanceFutures {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: symbol_info.quantity_precision,
                     price: symbol_info.price_precision,

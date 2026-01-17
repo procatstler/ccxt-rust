@@ -16,12 +16,13 @@ use tokio::sync::RwLock as TokioRwLock;
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
-    Balance, Balances, DepositAddress, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls,
-    FundingRate, FundingRateHistory, Leverage, Liquidation, MarginMode, MarginModeInfo,
-    MarginModification, MarginModificationType, Market, MarketLimits, MarketPrecision, MarketType,
-    OpenInterest, Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position,
-    PositionMode, PositionModeInfo, PositionSide, SignedRequest, Ticker, Timeframe, Trade,
-    Transaction, TransactionStatus, TransactionType, TransferEntry, WsExchange, WsMessage, OHLCV,
+    Balance, Balances, ConvertCurrencyPair, ConvertQuote, ConvertTrade, DepositAddress, Exchange, ExchangeFeatures,
+    ExchangeId, ExchangeUrls, FundingRate, FundingRateHistory, LedgerEntry, Leverage, Liquidation,
+    MarginMode, MarginModeInfo, MarginModification, MarginModificationType, Market, MarketLimits,
+    MarketPrecision, MarketType, OpenInterest, Order, OrderBook, OrderBookEntry, OrderSide,
+    OrderStatus, OrderType, Position, PositionMode, PositionModeInfo, PositionSide, SignedRequest,
+    Ticker, Timeframe, Trade, Transaction, TransactionStatus, TransactionType, TransferEntry,
+    WsExchange, WsMessage, OHLCV,
 };
 
 use super::kucoin_ws::KucoinWs;
@@ -842,6 +843,8 @@ impl Exchange for Kucoin {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: symbol_data
                         .base_increment
@@ -2111,6 +2114,369 @@ impl Exchange for Kucoin {
             ..Default::default()
         })
     }
+
+    /// Fetch server time
+    async fn fetch_time(&self) -> CcxtResult<i64> {
+        let response: i64 = self.public_get("/api/v1/timestamp", None).await?;
+        Ok(response)
+    }
+
+    /// Fetch exchange status
+    async fn fetch_status(&self) -> CcxtResult<crate::types::ExchangeStatus> {
+        let response: KucoinServiceStatus = self
+            .public_get("/api/v1/status", None)
+            .await
+            .unwrap_or_else(|_| KucoinServiceStatus {
+                status: "open".into(),
+                msg: None,
+            });
+
+        if response.status == "open" {
+            Ok(crate::types::ExchangeStatus::ok())
+        } else {
+            Ok(crate::types::ExchangeStatus::maintenance(
+                response.msg.as_deref(),
+            ))
+        }
+    }
+
+    /// Fetch trading fee for a symbol
+    async fn fetch_trading_fee(&self, symbol: &str) -> CcxtResult<crate::types::TradingFee> {
+        let market_id = self.to_market_id(symbol);
+
+        let mut params = HashMap::new();
+        params.insert("symbols".into(), market_id.clone());
+
+        let response: KucoinTradeFee = self
+            .private_request("GET", "/api/v1/trade-fees", params)
+            .await?;
+
+        let fee_data = response
+            .iter()
+            .find(|f| f.symbol == market_id)
+            .ok_or_else(|| CcxtError::BadSymbol {
+                symbol: symbol.into(),
+            })?;
+
+        let maker: Decimal = fee_data.maker_fee_rate.parse().unwrap_or_default();
+        let taker: Decimal = fee_data.taker_fee_rate.parse().unwrap_or_default();
+
+        Ok(crate::types::TradingFee::new(symbol, maker, taker))
+    }
+
+    /// Fetch trading fees for all symbols
+    async fn fetch_trading_fees(&self) -> CcxtResult<HashMap<String, crate::types::TradingFee>> {
+        // Kucoin requires symbols parameter, so we get all symbols from cached markets
+        let markets = self.markets.read().unwrap().clone();
+        let symbols: Vec<String> = markets
+            .keys()
+            .filter(|s| !s.contains(":"))
+            .take(100) // Kucoin has a limit on how many symbols
+            .map(|s| self.to_market_id(s))
+            .collect();
+
+        if symbols.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let symbols_str = symbols.join(",");
+        let mut params = HashMap::new();
+        params.insert("symbols".into(), symbols_str);
+
+        let response: Vec<KucoinFeeDetail> = self
+            .private_request("GET", "/api/v1/trade-fees", params)
+            .await
+            .unwrap_or_default();
+
+        let mut fees = HashMap::new();
+
+        for fee_data in response {
+            // Convert market ID to unified symbol
+            let unified_symbol = fee_data.symbol.replace("-", "/");
+            if markets.contains_key(&unified_symbol) {
+                let maker: Decimal = fee_data.maker_fee_rate.parse().unwrap_or_default();
+                let taker: Decimal = fee_data.taker_fee_rate.parse().unwrap_or_default();
+                fees.insert(
+                    unified_symbol.clone(),
+                    crate::types::TradingFee::new(&unified_symbol, maker, taker),
+                );
+            }
+        }
+
+        Ok(fees)
+    }
+
+    /// Fetch account ledger (account history)
+    async fn fetch_ledger(
+        &self,
+        code: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<LedgerEntry>> {
+        let mut params: HashMap<String, String> = HashMap::new();
+
+        if let Some(c) = code {
+            params.insert("currency".into(), c.to_uppercase());
+        }
+        if let Some(s) = since {
+            params.insert("startAt".into(), (s / 1000).to_string()); // Kucoin uses seconds
+        }
+        if let Some(l) = limit {
+            params.insert("pageSize".into(), l.min(500).to_string());
+        }
+
+        let query = params
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("&");
+
+        let path = if query.is_empty() {
+            "/api/v1/accounts/ledgers".to_string()
+        } else {
+            format!("/api/v1/accounts/ledgers?{}", query)
+        };
+
+        let response: KucoinLedgerResult = self
+            .private_request("GET", &path, HashMap::new())
+            .await
+            .unwrap_or_default();
+
+        let ledger: Vec<LedgerEntry> = response
+            .items
+            .iter()
+            .map(|item| {
+                let amount: Decimal = item.amount.parse().unwrap_or_default();
+                let direction = &item.direction;
+                let timestamp: i64 = item.created_at.unwrap_or(0);
+
+                let mut entry = LedgerEntry::new()
+                    .with_id(item.id.clone())
+                    .with_type(item.biz_type.clone())
+                    .with_currency(item.currency.clone())
+                    .with_amount(amount.abs());
+
+                entry.direction = Some(direction.clone());
+                entry.timestamp = Some(timestamp);
+
+                if let Some(balance) = &item.balance {
+                    entry.after = balance.parse().ok();
+                }
+
+                entry
+            })
+            .collect();
+
+        Ok(ledger)
+    }
+
+    /// Fetch cross margin borrow rate for a currency
+    async fn fetch_cross_borrow_rate(
+        &self,
+        code: &str,
+    ) -> CcxtResult<crate::types::CrossBorrowRate> {
+        let currency = code.to_uppercase();
+        let path = format!("/api/v1/margin/market?currency={}", currency);
+
+        let response: Vec<KucoinBorrowRate> = self
+            .public_get(&path, None)
+            .await
+            .unwrap_or_default();
+
+        let rate_data = response.first().ok_or_else(|| CcxtError::ExchangeError {
+            message: format!("No borrow rate data for {code}"),
+        })?;
+
+        let rate: Decimal = rate_data.daily_int_rate.parse().unwrap_or_default();
+
+        Ok(crate::types::CrossBorrowRate::new(rate)
+            .with_currency(code)
+            .with_period(86400000)) // daily
+    }
+
+    /// Fetch isolated margin borrow rate for a symbol
+    async fn fetch_isolated_borrow_rate(
+        &self,
+        symbol: &str,
+    ) -> CcxtResult<crate::types::IsolatedBorrowRate> {
+        let market_id = self.to_market_id(symbol);
+        let path = format!("/api/v1/isolated/symbols/{}", market_id);
+
+        let response: KucoinIsolatedSymbol = self
+            .public_get(&path, None)
+            .await?;
+
+        let base_rate: Decimal = response.base_borrow_rate.parse().unwrap_or_default();
+        let quote_rate: Decimal = response.quote_borrow_rate.parse().unwrap_or_default();
+
+        let parts: Vec<&str> = symbol.split('/').collect();
+        let (base, quote) = if parts.len() == 2 {
+            (parts[0].to_string(), parts[1].to_string())
+        } else {
+            (symbol.to_string(), "USDT".to_string())
+        };
+
+        Ok(crate::types::IsolatedBorrowRate::new(
+            symbol, base, base_rate, quote, quote_rate,
+        ))
+    }
+
+    // === Convert 기능 ===
+
+    async fn fetch_convert_currencies(&self) -> CcxtResult<Vec<ConvertCurrencyPair>> {
+        let currencies_path = "/api/v1/convert/currencies";
+        let params: HashMap<String, String> = HashMap::new();
+
+        let response: KucoinConvertCurrencies = self
+            .private_request("GET", currencies_path, params)
+            .await?;
+
+        let mut pairs = Vec::new();
+        for currency in &response.currencies {
+            // Kucoin returns individual currencies, we need to create pairs
+            // For now, create pairs with common quote currencies
+            for quote in ["USDT", "BTC", "ETH"] {
+                if currency.currency != quote {
+                    let mut pair = ConvertCurrencyPair::new(&currency.currency, quote);
+                    pair.min_amount = currency.min_amount.parse().ok();
+                    pair.max_amount = currency.max_amount.parse().ok();
+                    pair.info = serde_json::json!({
+                        "currency": &currency.currency,
+                        "minAmount": &currency.min_amount,
+                        "maxAmount": &currency.max_amount,
+                        "precision": currency.precision,
+                    });
+                    pairs.push(pair);
+                }
+            }
+        }
+
+        Ok(pairs)
+    }
+
+    async fn fetch_convert_quote(
+        &self,
+        from_code: &str,
+        to_code: &str,
+        amount: Decimal,
+    ) -> CcxtResult<ConvertQuote> {
+        // Request quote
+        let quote_path = "/api/v1/convert/quote";
+        let mut params: HashMap<String, String> = HashMap::new();
+        params.insert("baseCurrency".into(), from_code.to_uppercase());
+        params.insert("quoteCurrency".into(), to_code.to_uppercase());
+        params.insert("baseAmount".into(), amount.to_string());
+        params.insert("side".into(), "sell".into());
+
+        let response: KucoinConvertQuote = self
+            .private_request("POST", quote_path, params)
+            .await?;
+
+        let price: Decimal = response.price.parse().unwrap_or_default();
+
+        let mut quote = ConvertQuote::new(
+            &response.quote_id,
+            from_code,
+            to_code,
+            amount,
+            price,
+        );
+        let to_amount: Decimal = response.quote_amount.parse().unwrap_or_default();
+        quote.to_amount = Some(to_amount);
+        quote.expire_timestamp = response.expire_time;
+
+        Ok(quote)
+    }
+
+    async fn create_convert_trade(&self, quote_id: &str) -> CcxtResult<ConvertTrade> {
+        // Execute the order using the quote_id
+        let order_path = "/api/v1/convert/order";
+        let mut params: HashMap<String, String> = HashMap::new();
+        params.insert("quoteId".into(), quote_id.to_string());
+
+        let response: KucoinConvertOrder = self
+            .private_request("POST", order_path, params)
+            .await?;
+
+        let from_amount: Decimal = response.base_amount.parse().unwrap_or_default();
+        let to_amount: Decimal = response.quote_amount.parse().unwrap_or_default();
+        let price: Decimal = response.price.parse().unwrap_or_default();
+
+        let mut trade = ConvertTrade::new(
+            &response.order_id,
+            &response.base_currency,
+            &response.quote_currency,
+            from_amount,
+            to_amount,
+            price,
+        );
+        trade.timestamp = response.created_at;
+        trade.status = Some(response.status);
+
+        Ok(trade)
+    }
+
+    async fn fetch_convert_trade(&self, id: &str) -> CcxtResult<ConvertTrade> {
+        // Kucoin doesn't have a direct endpoint for single trade lookup
+        // Use history and filter by ID
+        let history = self.fetch_convert_trade_history(None, Some(100)).await?;
+
+        history
+            .into_iter()
+            .find(|t| t.id == id)
+            .ok_or_else(|| CcxtError::OrderNotFound { order_id: id.to_string() })
+    }
+
+    async fn fetch_convert_trade_history(
+        &self,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<ConvertTrade>> {
+        let history_path = "/api/v1/convert/orders";
+        let mut params: HashMap<String, String> = HashMap::new();
+
+        if let Some(start_time) = since {
+            params.insert("startAt".into(), start_time.to_string());
+        }
+        if let Some(page_size) = limit {
+            params.insert("pageSize".into(), page_size.to_string());
+        }
+
+        let response: KucoinConvertOrderHistory = self
+            .private_request("GET", history_path, params)
+            .await?;
+
+        let trades = response
+            .items
+            .into_iter()
+            .map(|order| {
+                let from_amount: Decimal = order.base_amount.parse().unwrap_or_default();
+                let to_amount: Decimal = order.quote_amount.parse().unwrap_or_default();
+                let price: Decimal = order.price.parse().unwrap_or_default();
+
+                let mut trade = ConvertTrade::new(
+                    &order.order_id,
+                    &order.base_currency,
+                    &order.quote_currency,
+                    from_amount,
+                    to_amount,
+                    price,
+                );
+                trade.timestamp = order.created_at;
+                trade.datetime = order.created_at.map(|t| {
+                    chrono::DateTime::from_timestamp_millis(t)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                });
+                trade.info = serde_json::to_value(&order).unwrap_or_default();
+                trade.status = Some(order.status);
+
+                trade
+            })
+            .collect();
+
+        Ok(trades)
+    }
 }
 
 // Helper function to count decimal places
@@ -2528,6 +2894,147 @@ struct KucoinContractData {
     mark_price: Option<f64>,
     #[serde(default)]
     index_price: Option<f64>,
+}
+
+/// Service status response
+#[derive(Debug, Deserialize)]
+struct KucoinServiceStatus {
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    msg: Option<String>,
+}
+
+/// Trade fee response (list of fee details)
+type KucoinTradeFee = Vec<KucoinFeeDetail>;
+
+/// Individual fee detail
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KucoinFeeDetail {
+    #[serde(default)]
+    symbol: String,
+    #[serde(default)]
+    maker_fee_rate: String,
+    #[serde(default)]
+    taker_fee_rate: String,
+}
+
+/// Ledger result from /api/v1/accounts/ledgers
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct KucoinLedgerResult {
+    #[serde(default)]
+    items: Vec<KucoinLedgerEntry>,
+}
+
+/// Individual ledger entry
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KucoinLedgerEntry {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    currency: String,
+    #[serde(default, rename = "bizType")]
+    biz_type: String,
+    #[serde(default)]
+    direction: String,
+    #[serde(default)]
+    amount: String,
+    #[serde(default)]
+    balance: Option<String>,
+    #[serde(default)]
+    created_at: Option<i64>,
+}
+
+/// Borrow rate from /api/v1/margin/market
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct KucoinBorrowRate {
+    #[serde(default)]
+    daily_int_rate: String,
+}
+
+/// Isolated symbol from /api/v1/isolated/symbols/{symbol}
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct KucoinIsolatedSymbol {
+    #[serde(default)]
+    base_borrow_rate: String,
+    #[serde(default)]
+    quote_borrow_rate: String,
+}
+
+/// Convert currencies response
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct KucoinConvertCurrencies {
+    #[serde(default)]
+    currencies: Vec<KucoinConvertCurrency>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct KucoinConvertCurrency {
+    #[serde(default)]
+    currency: String,
+    #[serde(default)]
+    min_amount: String,
+    #[serde(default)]
+    max_amount: String,
+    #[serde(default)]
+    precision: i32,
+}
+
+/// Convert quote response
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct KucoinConvertQuote {
+    #[serde(default)]
+    quote_id: String,
+    #[serde(default)]
+    base_currency: String,
+    #[serde(default)]
+    quote_currency: String,
+    #[serde(default)]
+    base_amount: String,
+    #[serde(default)]
+    quote_amount: String,
+    #[serde(default)]
+    price: String,
+    #[serde(default)]
+    expire_time: Option<i64>,
+}
+
+/// Convert order response
+#[derive(Debug, Deserialize, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct KucoinConvertOrder {
+    #[serde(default)]
+    order_id: String,
+    #[serde(default)]
+    base_currency: String,
+    #[serde(default)]
+    quote_currency: String,
+    #[serde(default)]
+    base_amount: String,
+    #[serde(default)]
+    quote_amount: String,
+    #[serde(default)]
+    price: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    created_at: Option<i64>,
+}
+
+/// Convert order history response
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct KucoinConvertOrderHistory {
+    #[serde(default)]
+    items: Vec<KucoinConvertOrder>,
 }
 
 #[cfg(test)]

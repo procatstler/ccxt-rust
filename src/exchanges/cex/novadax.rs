@@ -169,68 +169,51 @@ impl Novadax {
         let http_client = HttpClient::new(API_URL, &config)?;
         let rate_limiter = RateLimiter::new(RATE_LIMIT_MS);
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: false,
-            swap: false,
-            future: false,
-            option: false,
-            fetch_markets: true,
-            fetch_currencies: false,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: false,
-            fetch_order: true,
-            fetch_orders: true,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: false,
-            fetch_withdrawals: false,
-            withdraw: false,
-            fetch_deposit_address: false,
-            ws: false,
-            watch_ticker: false,
-            watch_tickers: false,
-            watch_order_book: false,
-            watch_trades: false,
-            watch_ohlcv: false,
-            watch_balance: false,
-            watch_orders: false,
-            watch_my_trades: false,
-            ..Default::default()
+        let features = crate::feature_flags! {
+            spot,
+            fetch_markets,
+            fetch_ticker,
+            fetch_tickers,
+            fetch_order_book,
+            fetch_trades,
+            fetch_ohlcv,
+            fetch_balance,
+            create_order,
+            create_limit_order,
+            create_market_order,
+            cancel_order,
+            fetch_order,
+            fetch_orders,
+            fetch_open_orders,
+            fetch_closed_orders,
+            fetch_my_trades,
+            ws,
+            watch_ticker,
+            watch_order_book,
+            watch_trades,
         };
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("public".into(), API_URL.into());
-        api_urls.insert("private".into(), API_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some("https://user-images.githubusercontent.com/1294454/92337550-2b085500-f0b3-11ea-98e7-5794fb07dd3b.jpg".into()),
-            api: api_urls,
-            www: Some("https://www.novadax.com.br".into()),
-            doc: vec!["https://doc.novadax.com/pt-BR/".into()],
-            fees: Some("https://www.novadax.com.br/fees-and-limits".into()),
+        let urls = crate::exchange_urls! {
+            logo: "https://user-images.githubusercontent.com/1294454/92337550-2b085500-f0b3-11ea-98e7-5794fb07dd3b.jpg",
+            www: "https://www.novadax.com.br",
+            api: {
+                "public" => API_URL,
+                "private" => API_URL,
+            },
+            doc: ["https://doc.novadax.com/pt-BR/"],
+            fees: "https://www.novadax.com.br/fees-and-limits",
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "ONE_MIN".into());
-        timeframes.insert(Timeframe::Minute5, "FIVE_MIN".into());
-        timeframes.insert(Timeframe::Minute15, "FIFTEEN_MIN".into());
-        timeframes.insert(Timeframe::Minute30, "HALF_HOU".into());
-        timeframes.insert(Timeframe::Hour1, "ONE_HOU".into());
-        timeframes.insert(Timeframe::Day1, "ONE_DAY".into());
-        timeframes.insert(Timeframe::Week1, "ONE_WEE".into());
-        timeframes.insert(Timeframe::Month1, "ONE_MON".into());
+        let timeframes = crate::timeframe_map! {
+            Minute1 => "ONE_MIN",
+            Minute5 => "FIVE_MIN",
+            Minute15 => "FIFTEEN_MIN",
+            Minute30 => "HALF_HOU",
+            Hour1 => "ONE_HOU",
+            Day1 => "ONE_DAY",
+            Week1 => "ONE_WEE",
+            Month1 => "ONE_MON",
+        };
 
         Ok(Self {
             config,
@@ -709,6 +692,8 @@ impl Exchange for Novadax {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 margin_modes: None,
                 precision: MarketPrecision {
                     amount: Some(amount_precision),

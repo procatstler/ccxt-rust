@@ -51,83 +51,60 @@ impl Binance {
         let private_client = HttpClient::new(Self::BASE_URL, &config)?;
         let rate_limiter = RateLimiter::new(Self::RATE_LIMIT_MS);
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: true,
-            swap: true,
-            future: true,
-            option: true,
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            fetch_order: true,
-            fetch_orders: true,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: true,
-            fetch_deposit_address: true,
-            ws: true,
-            watch_ticker: true,
-            watch_tickers: true,
-            watch_order_book: true,
-            watch_trades: true,
-            watch_ohlcv: true,
-            watch_balance: true,
-            watch_orders: true,
-            watch_my_trades: true,
-            ..Default::default()
+        // Exchange features - using macro for concise declaration
+        let features = feature_flags! {
+            spot, margin, swap, future, option,
+            fetch_markets, fetch_currencies,
+            fetch_ticker, fetch_tickers,
+            fetch_order_book, fetch_trades, fetch_ohlcv,
+            fetch_balance,
+            create_order, create_limit_order, create_market_order,
+            cancel_order, cancel_all_orders,
+            fetch_order, fetch_orders, fetch_open_orders, fetch_closed_orders,
+            fetch_my_trades,
+            fetch_deposits, fetch_withdrawals, withdraw, fetch_deposit_address,
+            ws, watch_ticker, watch_tickers, watch_order_book,
+            watch_trades, watch_ohlcv, watch_balance, watch_orders, watch_my_trades,
         };
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("public".into(), Self::BASE_URL.into());
-        api_urls.insert("private".into(), Self::BASE_URL.into());
-        api_urls.insert("spot".into(), "https://api.binance.com".into());
-        api_urls.insert("futures".into(), "https://fapi.binance.com".into());
-        api_urls.insert("delivery".into(), "https://dapi.binance.com".into());
-
-        let urls = ExchangeUrls {
-            logo: Some("https://user-images.githubusercontent.com/1294454/29604020-d5483cdc-87ee-11e7-94c7-d1a8d9169293.jpg".into()),
-            api: api_urls,
-            www: Some("https://www.binance.com".into()),
-            doc: vec![
-                "https://binance-docs.github.io/apidocs/spot/en".into(),
-                "https://binance-docs.github.io/apidocs/futures/en/".into(),
-                "https://binance-docs.github.io/apidocs/delivery/en/".into(),
+        // API URLs - using macro for concise declaration
+        let urls = exchange_urls! {
+            logo: "https://user-images.githubusercontent.com/1294454/29604020-d5483cdc-87ee-11e7-94c7-d1a8d9169293.jpg",
+            www: "https://www.binance.com",
+            api: {
+                "public" => Self::BASE_URL,
+                "private" => Self::BASE_URL,
+                "spot" => "https://api.binance.com",
+                "futures" => "https://fapi.binance.com",
+                "delivery" => "https://dapi.binance.com",
+            },
+            doc: [
+                "https://binance-docs.github.io/apidocs/spot/en",
+                "https://binance-docs.github.io/apidocs/futures/en/",
+                "https://binance-docs.github.io/apidocs/delivery/en/",
             ],
-            fees: Some("https://www.binance.com/en/fee/schedule".into()),
+            fees: "https://www.binance.com/en/fee/schedule",
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Second1, "1s".into());
-        timeframes.insert(Timeframe::Minute1, "1m".into());
-        timeframes.insert(Timeframe::Minute3, "3m".into());
-        timeframes.insert(Timeframe::Minute5, "5m".into());
-        timeframes.insert(Timeframe::Minute15, "15m".into());
-        timeframes.insert(Timeframe::Minute30, "30m".into());
-        timeframes.insert(Timeframe::Hour1, "1h".into());
-        timeframes.insert(Timeframe::Hour2, "2h".into());
-        timeframes.insert(Timeframe::Hour4, "4h".into());
-        timeframes.insert(Timeframe::Hour6, "6h".into());
-        timeframes.insert(Timeframe::Hour8, "8h".into());
-        timeframes.insert(Timeframe::Hour12, "12h".into());
-        timeframes.insert(Timeframe::Day1, "1d".into());
-        timeframes.insert(Timeframe::Day3, "3d".into());
-        timeframes.insert(Timeframe::Week1, "1w".into());
-        timeframes.insert(Timeframe::Month1, "1M".into());
+        // Timeframes - using macro for concise declaration
+        let timeframes = timeframe_map! {
+            Second1 => "1s",
+            Minute1 => "1m",
+            Minute3 => "3m",
+            Minute5 => "5m",
+            Minute15 => "15m",
+            Minute30 => "30m",
+            Hour1 => "1h",
+            Hour2 => "2h",
+            Hour4 => "4h",
+            Hour6 => "6h",
+            Hour8 => "8h",
+            Hour12 => "12h",
+            Day1 => "1d",
+            Day3 => "3d",
+            Week1 => "1w",
+            Month1 => "1M",
+        };
 
         Ok(Self {
             config,
@@ -571,6 +548,8 @@ impl Exchange for Binance {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(symbol_info.base_asset_precision),
                     price: Some(symbol_info.quote_precision),

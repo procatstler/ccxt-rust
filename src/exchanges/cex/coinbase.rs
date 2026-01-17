@@ -265,6 +265,8 @@ impl Coinbase {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             percentage: true,
             tier_based: true,
             precision: MarketPrecision {

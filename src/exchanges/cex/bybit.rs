@@ -18,11 +18,11 @@ use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
 use crate::types::{
     Balance, Balances, ConvertCurrencyPair, ConvertQuote, ConvertTrade, Exchange, ExchangeFeatures,
-    ExchangeId, ExchangeUrls, FundingRate, FundingRateHistory, Leverage, Liquidation, MarginMode,
-    MarginModeInfo, Market, MarketLimits, MarketPrecision, MarketType, OpenInterest, Order,
-    OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide,
+    ExchangeId, ExchangeUrls, FundingRate, FundingRateHistory, LedgerEntry, Leverage, Liquidation,
+    MarginMode, MarginModeInfo, Market, MarketLimits, MarketPrecision, MarketType, OpenInterest,
+    Order, OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Position, PositionSide,
     SignedRequest, Ticker, TimeInForce, Timeframe, Trade, Transaction, TransactionStatus,
-    TransactionType, WsExchange, WsMessage, OHLCV,
+    TransactionType, TransferEntry, WsExchange, WsMessage, OHLCV,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock as TokioRwLock;
@@ -52,84 +52,56 @@ impl Bybit {
         let client = HttpClient::new(Self::BASE_URL, &config)?;
         let rate_limiter = RateLimiter::new(Self::RATE_LIMIT_MS);
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: true,
-            swap: true,
-            future: true,
-            option: true,
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            fetch_order: true,
-            fetch_orders: true,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: true,
-            fetch_deposit_address: true,
-            fetch_positions: true,
-            set_leverage: true,
-            fetch_leverage: true,
-            fetch_funding_rate: true,
-            fetch_funding_rates: true,
-            fetch_open_interest: true,
-            fetch_liquidations: true,
-            fetch_index_price: true,
-            ws: true,
-            watch_ticker: true,
-            watch_tickers: true,
-            watch_order_book: true,
-            watch_trades: true,
-            watch_ohlcv: true,
-            watch_balance: true,
-            watch_orders: true,
-            watch_my_trades: true,
-            watch_positions: true,
-            ..Default::default()
+        // Exchange features - using macro for concise declaration
+        let features = feature_flags! {
+            spot, margin, swap, future, option,
+            fetch_markets, fetch_currencies,
+            fetch_ticker, fetch_tickers,
+            fetch_order_book, fetch_trades, fetch_ohlcv,
+            fetch_balance,
+            create_order, create_limit_order, create_market_order,
+            cancel_order, cancel_all_orders,
+            fetch_order, fetch_orders, fetch_open_orders, fetch_closed_orders,
+            fetch_my_trades,
+            fetch_deposits, fetch_withdrawals, withdraw, fetch_deposit_address,
+            fetch_positions, set_leverage, fetch_leverage,
+            fetch_funding_rate, fetch_funding_rates,
+            fetch_open_interest, fetch_liquidations, fetch_index_price,
+            ws, watch_ticker, watch_tickers, watch_order_book,
+            watch_trades, watch_ohlcv, watch_balance, watch_orders, watch_my_trades,
+            watch_positions,
         };
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("public".into(), Self::BASE_URL.into());
-        api_urls.insert("private".into(), Self::BASE_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some("https://user-images.githubusercontent.com/51840849/76547799-daff5b80-649e-11ea-87fb-3be9bac08954.png".into()),
-            api: api_urls,
-            www: Some("https://www.bybit.com".into()),
-            doc: vec![
-                "https://bybit-exchange.github.io/docs/v5/intro".into(),
+        // API URLs - using macro for concise declaration
+        let urls = exchange_urls! {
+            logo: "https://user-images.githubusercontent.com/51840849/76547799-daff5b80-649e-11ea-87fb-3be9bac08954.png",
+            www: "https://www.bybit.com",
+            api: {
+                "public" => Self::BASE_URL,
+                "private" => Self::BASE_URL,
+            },
+            doc: [
+                "https://bybit-exchange.github.io/docs/v5/intro",
             ],
-            fees: Some("https://www.bybit.com/en-US/help-center/bybitHC_Article?id=000001634".into()),
+            fees: "https://www.bybit.com/en-US/help-center/bybitHC_Article?id=000001634",
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "1".into());
-        timeframes.insert(Timeframe::Minute3, "3".into());
-        timeframes.insert(Timeframe::Minute5, "5".into());
-        timeframes.insert(Timeframe::Minute15, "15".into());
-        timeframes.insert(Timeframe::Minute30, "30".into());
-        timeframes.insert(Timeframe::Hour1, "60".into());
-        timeframes.insert(Timeframe::Hour2, "120".into());
-        timeframes.insert(Timeframe::Hour4, "240".into());
-        timeframes.insert(Timeframe::Hour6, "360".into());
-        timeframes.insert(Timeframe::Hour12, "720".into());
-        timeframes.insert(Timeframe::Day1, "D".into());
-        timeframes.insert(Timeframe::Week1, "W".into());
-        timeframes.insert(Timeframe::Month1, "M".into());
+        // Timeframes - using macro for concise declaration
+        let timeframes = timeframe_map! {
+            Minute1 => "1",
+            Minute3 => "3",
+            Minute5 => "5",
+            Minute15 => "15",
+            Minute30 => "30",
+            Hour1 => "60",
+            Hour2 => "120",
+            Hour4 => "240",
+            Hour6 => "360",
+            Hour12 => "720",
+            Day1 => "D",
+            Week1 => "W",
+            Month1 => "M",
+        };
 
         Ok(Self {
             config,
@@ -823,6 +795,8 @@ impl Exchange for Bybit {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: lot_sz.map(Self::count_decimals),
                     price: tick_sz.map(Self::count_decimals),
@@ -2367,6 +2341,256 @@ impl Exchange for Bybit {
 
         Ok(trades)
     }
+
+    /// Fetch server time
+    async fn fetch_time(&self) -> CcxtResult<i64> {
+        let response: BybitTimeResult = self
+            .public_get("/v5/market/time", None)
+            .await?;
+
+        response
+            .time_second
+            .parse::<i64>()
+            .map(|s| s * 1000) // Convert to milliseconds
+            .or_else(|_| {
+                response
+                    .time_nano
+                    .parse::<i64>()
+                    .map(|n| n / 1_000_000) // Convert nano to milliseconds
+            })
+            .map_err(|_| CcxtError::BadResponse {
+                message: "Invalid timestamp format".into(),
+            })
+    }
+
+    /// Fetch exchange status
+    async fn fetch_status(&self) -> CcxtResult<crate::types::ExchangeStatus> {
+        // Bybit doesn't have a dedicated status endpoint
+        // We check by trying to get server time
+        match self.fetch_time().await {
+            Ok(_) => Ok(crate::types::ExchangeStatus::ok()),
+            Err(_) => Ok(crate::types::ExchangeStatus::maintenance(None)),
+        }
+    }
+
+    /// Fetch trading fee for a symbol
+    async fn fetch_trading_fee(&self, symbol: &str) -> CcxtResult<crate::types::TradingFee> {
+        let market_id = self.to_market_id(symbol);
+        let category = if symbol.contains(":") { "linear" } else { "spot" };
+
+        let mut params = HashMap::new();
+        params.insert("category".into(), category.into());
+        params.insert("symbol".into(), market_id);
+
+        let response: BybitFeeRateResult = self
+            .private_request("GET", "/v5/account/fee-rate", params)
+            .await?;
+
+        let data = response.list.first().ok_or_else(|| CcxtError::BadSymbol {
+            symbol: symbol.into(),
+        })?;
+
+        let maker: Decimal = data.maker_fee_rate.parse::<Decimal>().unwrap_or_default().abs();
+        let taker: Decimal = data.taker_fee_rate.parse::<Decimal>().unwrap_or_default().abs();
+
+        Ok(crate::types::TradingFee::new(symbol, maker, taker))
+    }
+
+    /// Fetch trading fees for all symbols
+    async fn fetch_trading_fees(&self) -> CcxtResult<HashMap<String, crate::types::TradingFee>> {
+        // Bybit requires symbol parameter, so we iterate through cached markets
+        let markets = self.markets.read().unwrap().clone();
+        let mut fees = HashMap::new();
+
+        // Get spot fees
+        let mut params = HashMap::new();
+        params.insert("category".into(), "spot".into());
+
+        if let Ok(response) = self
+            .private_request::<BybitFeeRateResult>("GET", "/v5/account/fee-rate", params)
+            .await
+        {
+            for data in response.list {
+                if let Some(symbol) = data.symbol.as_ref() {
+                    // Convert market ID to unified symbol
+                    let unified_symbol = symbol.replace("USDT", "/USDT");
+                    if markets.contains_key(&unified_symbol) {
+                        let maker: Decimal = data.maker_fee_rate.parse::<Decimal>().unwrap_or_default().abs();
+                        let taker: Decimal = data.taker_fee_rate.parse::<Decimal>().unwrap_or_default().abs();
+                        fees.insert(
+                            unified_symbol.clone(),
+                            crate::types::TradingFee::new(&unified_symbol, maker, taker),
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(fees)
+    }
+
+    /// Fetch transfer history
+    async fn fetch_transfers(
+        &self,
+        code: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<TransferEntry>> {
+        let mut params: HashMap<String, String> = HashMap::new();
+
+        if let Some(c) = code {
+            params.insert("coin".into(), c.to_uppercase());
+        }
+        if let Some(l) = limit {
+            params.insert("limit".into(), l.min(50).to_string());
+        }
+
+        let query = params
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("&");
+
+        let path = if query.is_empty() {
+            "/v5/asset/transfer/query-inter-transfer-list".to_string()
+        } else {
+            format!("/v5/asset/transfer/query-inter-transfer-list?{}", query)
+        };
+
+        let response: BybitTransferResult = self.private_request("GET", &path, params).await?;
+
+        let transfers: Vec<TransferEntry> = response
+            .list
+            .iter()
+            .map(|item| {
+                TransferEntry::new()
+                    .with_id(item.transfer_id.clone())
+                    .with_currency(item.coin.clone())
+                    .with_amount(item.amount.parse().unwrap_or_default())
+                    .with_from_account(item.from_account_type.clone())
+                    .with_to_account(item.to_account_type.clone())
+                    .with_timestamp(item.timestamp.parse().unwrap_or_default())
+                    .with_status(item.status.clone())
+            })
+            .collect();
+
+        Ok(transfers)
+    }
+
+    /// Fetch account ledger (transaction log)
+    async fn fetch_ledger(
+        &self,
+        code: Option<&str>,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<LedgerEntry>> {
+        let mut params: HashMap<String, String> = HashMap::new();
+
+        // Default to UNIFIED account type
+        params.insert("accountType".into(), "UNIFIED".into());
+
+        if let Some(c) = code {
+            params.insert("coin".into(), c.to_uppercase());
+        }
+        if let Some(s) = since {
+            params.insert("startTime".into(), s.to_string());
+        }
+        if let Some(l) = limit {
+            params.insert("limit".into(), l.min(50).to_string());
+        }
+
+        let query = params
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("&");
+
+        let path = format!("/v5/account/transaction-log?{}", query);
+
+        let response: BybitLedgerResult = self.private_request("GET", &path, params).await?;
+
+        let ledger: Vec<LedgerEntry> = response
+            .list
+            .iter()
+            .map(|item| {
+                let amount: Decimal = item.change.parse().unwrap_or_default();
+                let direction = if amount >= Decimal::ZERO { "in" } else { "out" };
+
+                let mut entry = LedgerEntry::new()
+                    .with_id(item.id.clone())
+                    .with_type(item.transaction_type.clone())
+                    .with_currency(item.currency.clone())
+                    .with_amount(amount.abs());
+
+                entry.direction = Some(direction.to_string());
+                entry
+            })
+            .collect();
+
+        Ok(ledger)
+    }
+
+    /// Fetch long/short ratio for a futures symbol
+    async fn fetch_long_short_ratio(
+        &self,
+        symbol: &str,
+        timeframe: Option<&str>,
+        _since: Option<i64>,
+        limit: Option<u32>,
+    ) -> CcxtResult<Vec<crate::types::LongShortRatio>> {
+        let market_id = symbol.replace("/", "").replace(":", "");
+        let period = match timeframe.unwrap_or("5min") {
+            "5m" | "5min" => "5min",
+            "15m" | "15min" => "15min",
+            "30m" | "30min" => "30min",
+            "1h" => "1h",
+            "4h" => "4h",
+            "1d" | "1D" => "1d",
+            other => other,
+        };
+
+        let mut params: HashMap<String, String> = HashMap::new();
+        params.insert("symbol".into(), market_id);
+        params.insert("period".into(), period.to_string());
+        params.insert("category".into(), "linear".to_string());
+
+        if let Some(l) = limit {
+            params.insert("limit".into(), l.min(500).to_string());
+        }
+
+        let query = params
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("&");
+
+        let path = format!("/v5/market/account-ratio?{}", query);
+
+        let response: BybitLongShortResult = self
+            .public_get(&path, None)
+            .await
+            .unwrap_or_default();
+
+        let ratios: Vec<crate::types::LongShortRatio> = response
+            .list
+            .iter()
+            .filter_map(|r| {
+                let buy_ratio: Decimal = r.buy_ratio.parse().ok()?;
+                let sell_ratio: Decimal = r.sell_ratio.parse().ok()?;
+                let ratio = if !sell_ratio.is_zero() {
+                    buy_ratio / sell_ratio
+                } else {
+                    Decimal::ZERO
+                };
+                let timestamp: i64 = r.timestamp.parse().ok()?;
+                Some(crate::types::LongShortRatio::new(symbol, ratio)
+                    .with_timestamp(timestamp)
+                    .with_timeframe(period))
+            })
+            .collect();
+
+        Ok(ratios)
+    }
 }
 
 impl Bybit {
@@ -2909,6 +3133,107 @@ struct BybitConvertOrder {
     created_time: Option<String>,
     #[serde(default)]
     status: Option<String>,
+}
+
+/// Server time from /v5/market/time
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitTimeResult {
+    #[serde(default)]
+    time_second: String,
+    #[serde(default)]
+    time_nano: String,
+}
+
+/// Fee rate result from /v5/account/fee-rate
+#[derive(Debug, Deserialize)]
+struct BybitFeeRateResult {
+    #[serde(default)]
+    list: Vec<BybitFeeRate>,
+}
+
+/// Individual fee rate
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitFeeRate {
+    #[serde(default)]
+    symbol: Option<String>,
+    #[serde(default)]
+    maker_fee_rate: String,
+    #[serde(default)]
+    taker_fee_rate: String,
+}
+
+/// Transfer history result from /v5/asset/transfer/query-inter-transfer-list
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct BybitTransferResult {
+    #[serde(default)]
+    list: Vec<BybitTransferEntry>,
+}
+
+/// Individual transfer entry
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitTransferEntry {
+    #[serde(default)]
+    transfer_id: String,
+    #[serde(default)]
+    coin: String,
+    #[serde(default)]
+    amount: String,
+    #[serde(default)]
+    from_account_type: String,
+    #[serde(default)]
+    to_account_type: String,
+    #[serde(default)]
+    timestamp: String,
+    #[serde(default)]
+    status: String,
+}
+
+/// Ledger result from /v5/account/transaction-log
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct BybitLedgerResult {
+    #[serde(default)]
+    list: Vec<BybitLedgerEntry>,
+}
+
+/// Individual ledger entry
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitLedgerEntry {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    currency: String,
+    #[serde(default, rename = "type")]
+    transaction_type: String,
+    #[serde(default)]
+    change: String,
+    #[serde(default)]
+    cash_balance: String,
+}
+
+/// Long/short ratio result from /v5/market/account-ratio
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct BybitLongShortResult {
+    #[serde(default)]
+    list: Vec<BybitLongShortEntry>,
+}
+
+/// Individual long/short ratio entry
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BybitLongShortEntry {
+    #[serde(default)]
+    buy_ratio: String,
+    #[serde(default)]
+    sell_ratio: String,
+    #[serde(default)]
+    timestamp: String,
 }
 
 #[cfg(test)]

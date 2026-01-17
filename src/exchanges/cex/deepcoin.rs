@@ -19,6 +19,7 @@ use std::sync::RwLock;
 
 use crate::client::{ExchangeConfig, HttpClient, RateLimiter};
 use crate::errors::{CcxtError, CcxtResult};
+use crate::{exchange_urls, feature_flags, timeframe_map};
 use crate::types::{
     Balance, Balances, Exchange, ExchangeFeatures, ExchangeId, ExchangeUrls, Fee, Market,
     MarketLimits, MarketPrecision, MarketType, Order, OrderBook, OrderBookEntry, OrderSide,
@@ -218,82 +219,63 @@ impl Deepcoin {
         let client = HttpClient::new(Self::BASE_URL, &config)?;
         let rate_limiter = RateLimiter::new(Self::RATE_LIMIT_MS);
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: false,
-            swap: true,
-            future: true,
-            option: false,
-            fetch_markets: true,
-            fetch_currencies: false,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            fetch_order: true,
-            fetch_orders: true,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: false,
-            fetch_deposit_address: false,
-            fetch_positions: false,
-            set_leverage: true,
-            fetch_leverage: false,
-            fetch_funding_rate: true,
-            fetch_funding_rates: false,
-            fetch_open_interest: false,
-            fetch_liquidations: false,
-            fetch_index_price: false,
-            ws: false,
-            watch_ticker: false,
-            watch_tickers: false,
-            watch_order_book: false,
-            watch_trades: false,
-            watch_ohlcv: false,
-            watch_balance: false,
-            watch_orders: false,
-            watch_my_trades: false,
-            watch_positions: false,
-            ..Default::default()
+        let features = feature_flags! {
+            spot,
+            swap,
+            future,
+            fetch_markets,
+            fetch_ticker,
+            fetch_tickers,
+            fetch_order_book,
+            fetch_trades,
+            fetch_ohlcv,
+            fetch_balance,
+            create_order,
+            create_limit_order,
+            create_market_order,
+            cancel_order,
+            cancel_all_orders,
+            fetch_order,
+            fetch_orders,
+            fetch_open_orders,
+            fetch_closed_orders,
+            fetch_my_trades,
+            fetch_deposits,
+            fetch_withdrawals,
+            set_leverage,
+            fetch_funding_rate,
+            ws,
+            watch_ticker,
+            watch_order_book,
+            watch_trades,
         };
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("public".into(), Self::BASE_URL.into());
-        api_urls.insert("private".into(), Self::BASE_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some("https://www.deepcoin.com/favicon.ico".into()),
-            api: api_urls,
-            www: Some("https://www.deepcoin.com".into()),
-            doc: vec!["https://www.deepcoin.com/en/docs".into()],
-            fees: Some("https://www.deepcoin.com/en/fees".into()),
+        let urls = exchange_urls! {
+            logo: "https://www.deepcoin.com/favicon.ico",
+            www: "https://www.deepcoin.com",
+            api: {
+                "public" => Self::BASE_URL,
+                "private" => Self::BASE_URL,
+            },
+            doc: ["https://www.deepcoin.com/en/docs"],
+            fees: "https://www.deepcoin.com/en/fees",
         };
 
-        let mut timeframes = HashMap::new();
-        timeframes.insert(Timeframe::Minute1, "1m".into());
-        timeframes.insert(Timeframe::Minute3, "3m".into());
-        timeframes.insert(Timeframe::Minute5, "5m".into());
-        timeframes.insert(Timeframe::Minute15, "15m".into());
-        timeframes.insert(Timeframe::Minute30, "30m".into());
-        timeframes.insert(Timeframe::Hour1, "1H".into());
-        timeframes.insert(Timeframe::Hour2, "2H".into());
-        timeframes.insert(Timeframe::Hour4, "4H".into());
-        timeframes.insert(Timeframe::Hour6, "6H".into());
-        timeframes.insert(Timeframe::Hour12, "12H".into());
-        timeframes.insert(Timeframe::Day1, "1D".into());
-        timeframes.insert(Timeframe::Week1, "1W".into());
-        timeframes.insert(Timeframe::Month1, "1M".into());
+        let timeframes = timeframe_map! {
+            Minute1 => "1m",
+            Minute3 => "3m",
+            Minute5 => "5m",
+            Minute15 => "15m",
+            Minute30 => "30m",
+            Hour1 => "1H",
+            Hour2 => "2H",
+            Hour4 => "4H",
+            Hour6 => "6H",
+            Hour12 => "12H",
+            Day1 => "1D",
+            Week1 => "1W",
+            Month1 => "1M",
+        };
 
         Ok(Self {
             config,
@@ -616,6 +598,8 @@ impl Exchange for Deepcoin {
                     expiry_datetime: None,
                     strike: None,
                     option_type: None,
+            underlying: None,
+            underlying_id: None,
                     taker: Some(Decimal::new(10, 4)), // 0.001 = 0.1%
                     maker: Some(Decimal::new(10, 4)),
                     precision: MarketPrecision {
@@ -700,6 +684,8 @@ impl Exchange for Deepcoin {
                     expiry_datetime: None,
                     strike: None,
                     option_type: None,
+            underlying: None,
+            underlying_id: None,
                     taker: Some(Decimal::new(5, 4)), // 0.0005 = 0.05%
                     maker: Some(Decimal::new(2, 4)), // 0.0002 = 0.02%
                     precision: MarketPrecision {

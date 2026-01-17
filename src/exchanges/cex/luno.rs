@@ -561,6 +561,8 @@ impl Exchange for Luno {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: Some(market_info.volume_scale),
                     price: Some(market_info.price_scale),

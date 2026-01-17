@@ -22,6 +22,7 @@ use crate::types::{
     MarketLimits, MarketPrecision, MarketType, MinMax, Order, OrderBook, OrderBookEntry, OrderSide,
     OrderStatus, OrderType, SignedRequest, Ticker, Timeframe, Trade, OHLCV,
 };
+use crate::{exchange_urls, feature_flags};
 
 const WWW_URL: &str = "https://bitbns.com";
 const V1_URL: &str = "https://api.bitbns.com/api/trade/v1";
@@ -141,53 +142,45 @@ impl Bitbns {
         let v2_client = HttpClient::new(V2_URL, &config)?;
         let rate_limiter = RateLimiter::new(RATE_LIMIT_MS);
 
-        let mut api_urls = HashMap::new();
-        api_urls.insert("www".into(), WWW_URL.into());
-        api_urls.insert("v1".into(), V1_URL.into());
-        api_urls.insert("v2".into(), V2_URL.into());
-
-        let urls = ExchangeUrls {
-            logo: Some(
-                "https://github.com/user-attachments/assets/a5b9a562-cdd8-4bea-9fa7-fd24c1dad3d9"
-                    .into(),
-            ),
-            api: api_urls,
-            www: Some("https://bitbns.com".into()),
-            doc: vec!["https://bitbns.com/trade/#/api-trading/".into()],
-            fees: Some("https://bitbns.com/fees".into()),
+        let urls = exchange_urls! {
+            logo: "https://github.com/user-attachments/assets/a5b9a562-cdd8-4bea-9fa7-fd24c1dad3d9",
+            www: "https://bitbns.com",
+            api: {
+                "www" => WWW_URL,
+                "v1" => V1_URL,
+                "v2" => V2_URL,
+            },
+            doc: [
+                "https://bitbns.com/trade/#/api-trading/",
+            ],
+            fees: "https://bitbns.com/fees",
         };
 
-        let features = ExchangeFeatures {
-            cors: false,
-            spot: true,
-            margin: false,
-            swap: false,
-            future: false,
-            option: false,
-            fetch_markets: true,
-            fetch_currencies: false,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: false,
-            fetch_balance: true,
-            create_order: true,
-            create_limit_order: true,
-            create_market_order: true,
-            cancel_order: true,
-            cancel_all_orders: false,
-            fetch_order: true,
-            fetch_orders: false,
-            fetch_open_orders: true,
-            fetch_closed_orders: false,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            withdraw: false,
-            fetch_deposit_address: true,
-            ws: false,
-            ..Default::default()
+        let features = feature_flags! {
+            // Market types
+            spot,
+            // REST API features
+            fetch_markets,
+            fetch_ticker,
+            fetch_tickers,
+            fetch_order_book,
+            fetch_trades,
+            fetch_balance,
+            create_order,
+            create_limit_order,
+            create_market_order,
+            cancel_order,
+            fetch_order,
+            fetch_open_orders,
+            fetch_my_trades,
+            fetch_deposits,
+            fetch_withdrawals,
+            fetch_deposit_address,
+            // WebSocket features
+            ws,
+            watch_ticker,
+            watch_order_book,
+            watch_trades,
         };
 
         let timeframes = HashMap::new();
@@ -689,6 +682,8 @@ impl Exchange for Bitbns {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 precision: MarketPrecision {
                     amount: precision.and_then(|p| p.amount),
                     price: precision.and_then(|p| p.price),

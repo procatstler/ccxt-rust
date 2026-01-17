@@ -12,6 +12,7 @@
 6. [HTTP 클라이언트](#6-http-클라이언트)
 7. [인증 체계](#7-인증-체계)
 8. [WebSocket 아키텍처](#8-websocket-아키텍처)
+9. [암호화 모듈](#9-암호화-모듈)
 
 ---
 
@@ -21,17 +22,52 @@
 ccxt-rust/
 ├── src/
 │   ├── lib.rs              # 라이브러리 진입점 및 re-exports
-│   ├── exchange.rs         # Exchange trait 정의
-│   ├── ws_exchange.rs      # WsExchange trait 정의
 │   ├── errors.rs           # CcxtError 타입 정의
+│   ├── macros.rs           # 공통 매크로 정의
 │   │
 │   ├── client/             # HTTP/WS 클라이언트
 │   │   ├── mod.rs
 │   │   ├── http.rs         # HTTP 클라이언트
-│   │   └── websocket.rs    # WebSocket 클라이언트
+│   │   ├── websocket.rs    # WebSocket 클라이언트
+│   │   ├── config.rs       # 거래소 설정
+│   │   ├── cache.rs        # 마켓 캐시
+│   │   └── rate_limiter.rs # Rate limiting
+│   │
+│   ├── crypto/             # 암호화 모듈
+│   │   ├── mod.rs
+│   │   ├── common/         # 공통 암호화 유틸리티
+│   │   │   ├── mod.rs
+│   │   │   ├── traits.rs   # 서명 트레이트
+│   │   │   ├── jwt.rs      # JWT 생성
+│   │   │   ├── rsa.rs      # RSA 서명
+│   │   │   └── totp.rs     # TOTP 생성
+│   │   ├── evm/            # EVM 체인 지원
+│   │   │   ├── mod.rs
+│   │   │   ├── wallet.rs   # EVM 지갑
+│   │   │   ├── keccak.rs   # Keccak 해시
+│   │   │   ├── secp256k1.rs
+│   │   │   └── eip712.rs   # EIP-712 서명
+│   │   ├── cosmos/         # Cosmos SDK 지원
+│   │   │   ├── mod.rs
+│   │   │   ├── wallet.rs
+│   │   │   ├── keys.rs
+│   │   │   ├── address.rs
+│   │   │   ├── signer.rs
+│   │   │   ├── transaction.rs
+│   │   │   └── protobuf.rs
+│   │   └── starknet/       # Starknet 지원
+│   │       ├── mod.rs
+│   │       ├── wallet.rs
+│   │       ├── account.rs
+│   │       ├── curve.rs
+│   │       ├── poseidon.rs
+│   │       ├── typed_data.rs
+│   │       └── paradex.rs
 │   │
 │   ├── types/              # 공통 타입 정의
 │   │   ├── mod.rs
+│   │   ├── exchange.rs     # Exchange trait 및 ExchangeId
+│   │   ├── ws_exchange.rs  # WsExchange trait
 │   │   ├── market.rs       # Market, Currency
 │   │   ├── ticker.rs       # Ticker
 │   │   ├── order.rs        # Order, OrderType, OrderSide
@@ -44,43 +80,58 @@ ccxt-rust/
 │   │   ├── funding.rs      # FundingRate, FundingRateHistory
 │   │   ├── leverage.rs     # Leverage, LeverageTier
 │   │   ├── margin.rs       # MarginMode, BorrowInterest
-│   │   ├── liquidation.rs  # Liquidation, OpenInterest
-│   │   └── deposit.rs      # DepositAddress, Ledger
+│   │   ├── liquidation.rs  # Liquidation
+│   │   ├── open_interest.rs # OpenInterest
+│   │   ├── account.rs      # DepositAddress, Ledger
+│   │   ├── convert.rs      # ConvertQuote, ConvertTrade
+│   │   ├── fee.rs          # TradingFee, DepositWithdrawFee
+│   │   ├── derivatives.rs  # Greeks, OptionChain
+│   │   ├── currency.rs     # Currency
+│   │   │
+│   │   └── traits/         # Sub-traits (8개)
+│   │       ├── mod.rs
+│   │       ├── base.rs           # ExchangeBase
+│   │       ├── public_market.rs  # PublicMarketApi
+│   │       ├── spot_trading.rs   # SpotTradingApi
+│   │       ├── account.rs        # AccountApi
+│   │       ├── derivatives.rs    # DerivativesApi
+│   │       ├── margin.rs         # MarginApi
+│   │       ├── options.rs        # OptionsApi
+│   │       └── convert.rs        # ConvertApi
 │   │
 │   ├── exchanges/          # 거래소 구현체
 │   │   ├── mod.rs
-│   │   ├── foreign/        # 해외 거래소
+│   │   ├── cex/            # 중앙화 거래소 (109개)
 │   │   │   ├── mod.rs
 │   │   │   ├── binance.rs
 │   │   │   ├── binance_ws.rs
 │   │   │   ├── okx.rs
 │   │   │   ├── bybit.rs
-│   │   │   ├── gate.rs
-│   │   │   ├── kucoin.rs
-│   │   │   └── bitget.rs
+│   │   │   ├── upbit.rs
+│   │   │   ├── bithumb.rs
+│   │   │   └── ...
 │   │   │
-│   │   └── korean/         # 국내 거래소
+│   │   └── dex/            # 탈중앙화 거래소 (8개)
 │   │       ├── mod.rs
-│   │       ├── upbit.rs
-│   │       ├── bithumb.rs
-│   │       └── coinone.rs
+│   │       ├── hyperliquid.rs
+│   │       ├── dydx.rs
+│   │       ├── dydxv4.rs
+│   │       ├── apex.rs
+│   │       ├── paradex.rs
+│   │       └── ...
 │   │
 │   └── utils/              # 유틸리티
 │       ├── mod.rs
-│       └── precise.rs      # 정밀 연산
+│       ├── safe.rs         # safe_* 헬퍼 함수 (30+)
+│       ├── parse.rs        # parse_* 헬퍼 함수 (20+)
+│       ├── precise.rs      # 정밀 연산
+│       ├── precision.rs    # 정밀도 계산
+│       ├── crypto.rs       # 암호화 유틸리티
+│       └── time.rs         # 시간 유틸리티
 │
 ├── tests/                  # 테스트
-│   ├── unit/               # 단위 테스트
-│   └── integration/        # 통합 테스트
-│
 ├── examples/               # 예제 코드
-│   ├── basic_usage.rs
-│   └── websocket.rs
-│
 └── docs/                   # 문서
-    ├── COMPARISON_ANALYSIS.md
-    ├── IMPROVEMENT_ROADMAP.md
-    └── ARCHITECTURE.md     # (이 문서)
 ```
 
 ---
@@ -98,7 +149,7 @@ ccxt-rust/
           ┌───────────────────┼───────────────────┐
           ▼                   ▼                   ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│   exchange.rs   │  │ ws_exchange.rs  │  │    errors.rs    │
+│ types/exchange  │  │types/ws_exchange│  │    errors.rs    │
 │ (Exchange trait)│  │(WsExchange trait)│  │  (CcxtError)   │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
           │                   │                   ▲
@@ -107,18 +158,18 @@ ccxt-rust/
 ┌─────────────────────────────────────────────────┴───────────┐
 │                     exchanges/                               │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │ Binance  │  │   OKX    │  │  Upbit   │  │   ...    │    │
+│  │   CEX    │  │   DEX    │  │          │  │          │    │
+│  │ Binance  │  │Hyperliquid│ │  Upbit   │  │   ...    │    │
+│  │ OKX, ... │  │ dYdX,... │  │          │  │          │    │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
 └─────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     client/                                  │
-│  ┌──────────────────┐      ┌──────────────────┐            │
-│  │   HttpClient     │      │  WebSocketClient │            │
-│  │  (reqwest 기반)   │      │ (tungstenite 기반) │            │
-│  └──────────────────┘      └──────────────────┘            │
-└─────────────────────────────────────────────────────────────┘
+          │                              │
+          ▼                              ▼
+┌─────────────────────────┐    ┌─────────────────────────────┐
+│       client/           │    │          crypto/            │
+│  HttpClient, WebSocket  │    │  EVM, Cosmos, Starknet     │
+│  RateLimiter, Cache     │    │  JWT, RSA, TOTP            │
+└─────────────────────────┘    └─────────────────────────────┘
           │
           ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -140,10 +191,12 @@ Exchange Trait 메서드 호출
     │
     ├─► 요청 생성 (params, headers, body)
     │
-    ├─► 인증 서명 (HMAC-SHA256/512, JWT, ...)
+    ├─► 인증 서명 (HMAC-SHA256/512, JWT, EIP-712, ...)
     │
     ▼
 HttpClient
+    │
+    ├─► Rate Limiter 체크
     │
     ├─► HTTP 요청 전송
     │
@@ -162,89 +215,129 @@ HttpClient
 
 ## 3. Trait 설계
 
-### 3.1 Exchange Trait
+### 3.1 Sub-traits 아키텍처
+
+Exchange 기능을 8개의 논리적 sub-traits로 분리하여 관리성과 유지보수성을 향상:
+
+```rust
+// types/traits/mod.rs
+pub trait ExchangeBase: Send + Sync { ... }     // 메타데이터, 마켓 로딩
+pub trait PublicMarketApi: Send + Sync { ... }  // 공개 시장 데이터
+pub trait SpotTradingApi: Send + Sync { ... }   // 현물 거래
+pub trait AccountApi: Send + Sync { ... }       // 계정/지갑 관리
+pub trait DerivativesApi: Send + Sync { ... }   // 선물/무기한
+pub trait MarginApi: Send + Sync { ... }        // 마진 거래
+pub trait OptionsApi: Send + Sync { ... }       // 옵션 거래
+pub trait ConvertApi: Send + Sync { ... }       // 통화 변환
+```
+
+### 3.2 ExchangeBase Trait
 
 ```rust
 #[async_trait]
-pub trait Exchange: Send + Sync {
-    // === 기본 정보 ===
+pub trait ExchangeBase: Send + Sync {
     fn id(&self) -> ExchangeId;
-    fn name(&self) -> &'static str;
-    fn has(&self) -> ExchangeCapabilities;
+    fn name(&self) -> &str;
+    fn has(&self) -> ExchangeFeatures;
 
-    // === Public API ===
     async fn load_markets(&self, reload: bool) -> CcxtResult<HashMap<String, Market>>;
     async fn fetch_markets(&self) -> CcxtResult<Vec<Market>>;
     async fn fetch_currencies(&self) -> CcxtResult<HashMap<String, Currency>>;
+}
+```
+
+### 3.3 PublicMarketApi Trait
+
+```rust
+#[async_trait]
+pub trait PublicMarketApi: Send + Sync {
     async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker>;
     async fn fetch_tickers(&self, symbols: Option<&[&str]>) -> CcxtResult<HashMap<String, Ticker>>;
     async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<OrderBook>;
     async fn fetch_trades(&self, symbol: &str, ...) -> CcxtResult<Vec<Trade>>;
     async fn fetch_ohlcv(&self, symbol: &str, ...) -> CcxtResult<Vec<OHLCV>>;
+    async fn fetch_time(&self) -> CcxtResult<i64>;
+    async fn fetch_status(&self) -> CcxtResult<ExchangeStatus>;
+}
+```
 
-    // === Private Trading API ===
+### 3.4 SpotTradingApi Trait
+
+```rust
+#[async_trait]
+pub trait SpotTradingApi: Send + Sync {
     async fn fetch_balance(&self) -> CcxtResult<Balances>;
     async fn create_order(&self, ...) -> CcxtResult<Order>;
     async fn cancel_order(&self, id: &str, symbol: &str) -> CcxtResult<Order>;
+    async fn cancel_all_orders(&self, symbol: Option<&str>) -> CcxtResult<Vec<Order>>;
+    async fn edit_order(&self, ...) -> CcxtResult<Order>;
     async fn fetch_order(&self, id: &str, symbol: &str) -> CcxtResult<Order>;
     async fn fetch_open_orders(&self, ...) -> CcxtResult<Vec<Order>>;
     async fn fetch_closed_orders(&self, ...) -> CcxtResult<Vec<Order>>;
     async fn fetch_my_trades(&self, ...) -> CcxtResult<Vec<Trade>>;
+    async fn fetch_trading_fees(&self) -> CcxtResult<HashMap<String, TradingFee>>;
 
-    // === Derivatives API ===
+    // 고급 주문 타입
+    async fn create_stop_order(&self, ...) -> CcxtResult<Order>;
+    async fn create_stop_limit_order(&self, ...) -> CcxtResult<Order>;
+    async fn create_take_profit_order(&self, ...) -> CcxtResult<Order>;
+    async fn create_stop_loss_order(&self, ...) -> CcxtResult<Order>;
+}
+```
+
+### 3.5 DerivativesApi Trait
+
+```rust
+#[async_trait]
+pub trait DerivativesApi: Send + Sync {
     async fn fetch_position(&self, symbol: &str) -> CcxtResult<Position>;
     async fn fetch_positions(&self, ...) -> CcxtResult<Vec<Position>>;
     async fn set_leverage(&self, leverage: Decimal, symbol: &str) -> CcxtResult<Leverage>;
     async fn set_margin_mode(&self, ...) -> CcxtResult<MarginModeInfo>;
+    async fn set_position_mode(&self, ...) -> CcxtResult<PositionModeInfo>;
     async fn fetch_funding_rate(&self, symbol: &str) -> CcxtResult<FundingRate>;
-    // ... 더 많은 메서드
+    async fn fetch_funding_rate_history(&self, ...) -> CcxtResult<Vec<FundingRateHistory>>;
+    async fn fetch_leverage_tiers(&self, ...) -> CcxtResult<HashMap<String, Vec<LeverageTier>>>;
+    async fn fetch_open_interest(&self, symbol: &str) -> CcxtResult<OpenInterest>;
+    async fn fetch_liquidations(&self, ...) -> CcxtResult<Vec<Liquidation>>;
 }
 ```
 
-### 3.2 기본 구현 패턴
+### 3.6 ConvertApi Trait
 
 ```rust
-// 대부분의 메서드는 기본 구현 제공
-async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
-    Err(CcxtError::NotSupported {
-        message: "fetch_ticker not supported".into(),
-    })
-}
-
-// 거래소별로 오버라이드
-impl Exchange for Binance {
-    async fn fetch_ticker(&self, symbol: &str) -> CcxtResult<Ticker> {
-        let market_symbol = self.convert_symbol(symbol)?;
-        let response: BinanceTicker = self.http
-            .get("/api/v3/ticker/24hr", Some(&[("symbol", &market_symbol)]), None)
-            .await?;
-        self.parse_ticker(response, symbol)
-    }
+#[async_trait]
+pub trait ConvertApi: Send + Sync {
+    async fn fetch_convert_currencies(&self) -> CcxtResult<Vec<ConvertCurrencyPair>>;
+    async fn fetch_convert_quote(&self, from: &str, to: &str, amount: Decimal) -> CcxtResult<ConvertQuote>;
+    async fn create_convert_trade(&self, quote_id: &str) -> CcxtResult<ConvertTrade>;
+    async fn fetch_convert_trade(&self, id: &str) -> CcxtResult<ConvertTrade>;
+    async fn fetch_convert_trade_history(&self, ...) -> CcxtResult<Vec<ConvertTrade>>;
 }
 ```
 
-### 3.3 WsExchange Trait
+### 3.7 WsExchange Trait
 
 ```rust
 #[async_trait]
 pub trait WsExchange: Exchange {
     // === Public Streams ===
-    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<UnboundedReceiver<WsMessage>>;
-    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<UnboundedReceiver<WsMessage>>;
-    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<UnboundedReceiver<WsMessage>>;
-    async fn watch_trades(&self, symbol: &str) -> CcxtResult<UnboundedReceiver<WsMessage>>;
-    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<UnboundedReceiver<WsMessage>>;
+    async fn watch_ticker(&self, symbol: &str) -> CcxtResult<Receiver<WsMessage>>;
+    async fn watch_tickers(&self, symbols: &[&str]) -> CcxtResult<Receiver<WsMessage>>;
+    async fn watch_order_book(&self, symbol: &str, limit: Option<u32>) -> CcxtResult<Receiver<WsMessage>>;
+    async fn watch_trades(&self, symbol: &str) -> CcxtResult<Receiver<WsMessage>>;
+    async fn watch_ohlcv(&self, symbol: &str, timeframe: Timeframe) -> CcxtResult<Receiver<WsMessage>>;
 
     // === Private Streams ===
-    async fn watch_balance(&self) -> CcxtResult<UnboundedReceiver<WsMessage>>;
-    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<UnboundedReceiver<WsMessage>>;
-    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<UnboundedReceiver<WsMessage>>;
+    async fn watch_balance(&self) -> CcxtResult<Receiver<WsMessage>>;
+    async fn watch_orders(&self, symbol: Option<&str>) -> CcxtResult<Receiver<WsMessage>>;
+    async fn watch_my_trades(&self, symbol: Option<&str>) -> CcxtResult<Receiver<WsMessage>>;
+    async fn watch_positions(&self, symbols: Option<&[&str]>) -> CcxtResult<Receiver<WsMessage>>;
 
     // === Connection Management ===
     async fn ws_connect(&mut self) -> CcxtResult<()>;
     async fn ws_close(&mut self) -> CcxtResult<()>;
-    async fn ws_is_connected(&self) -> bool;
-    async fn ws_authenticate(&mut self) -> CcxtResult<()>;
+    fn ws_is_connected(&self) -> bool;
 }
 ```
 
@@ -265,9 +358,9 @@ pub struct Market {
     pub quote_id: String,     // 거래소 견적 통화 ID
     pub active: bool,         // 거래 가능 여부
     pub market_type: MarketType, // spot, future, swap, option
-    pub precision: Precision, // 가격/수량 정밀도
-    pub limits: Limits,       // 최소/최대 한도
-    // ... 더 많은 필드
+    pub precision: MarketPrecision,
+    pub limits: MarketLimits,
+    // ...
 }
 
 // Order - 주문 정보
@@ -286,43 +379,47 @@ pub struct Order {
     pub average: Option<Decimal>,
     pub fee: Option<Fee>,
     pub timestamp: Option<i64>,
-    // ... 더 많은 필드
+    // ...
 }
 
 // Position - 포지션 정보 (선물/마진)
 pub struct Position {
     pub symbol: String,
-    pub side: PositionSide,    // long, short
-    pub contracts: Decimal,    // 계약 수량
-    pub entry_price: Decimal,  // 진입가
+    pub side: PositionSide,
+    pub contracts: Decimal,
+    pub entry_price: Decimal,
     pub mark_price: Option<Decimal>,
     pub liquidation_price: Option<Decimal>,
     pub unrealized_pnl: Option<Decimal>,
     pub leverage: Option<Decimal>,
-    pub margin_mode: MarginMode, // cross, isolated
-    // ... 더 많은 필드
+    pub margin_mode: MarginMode,
+    // ...
 }
 ```
 
 ### 4.2 Enum 설계
 
 ```rust
-// 주문 타입 - 확장 가능한 설계
+// 주문 타입
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderType {
     Market,
     Limit,
     StopMarket,
     StopLimit,
-    TakeProfitMarket,
+    StopLoss,
+    StopLossLimit,
+    TakeProfit,
     TakeProfitLimit,
-    TrailingStop,
-    PostOnly,
+    TakeProfitMarket,
+    TrailingStopMarket,
+    LimitMaker,
 }
 
-// 타임프레임 - 문자열 변환 지원
+// 타임프레임
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Timeframe {
+    Second1,
     Minute1,
     Minute3,
     Minute5,
@@ -330,6 +427,7 @@ pub enum Timeframe {
     Minute30,
     Hour1,
     Hour2,
+    Hour3,
     Hour4,
     Hour6,
     Hour8,
@@ -338,63 +436,6 @@ pub enum Timeframe {
     Day3,
     Week1,
     Month1,
-}
-
-impl Timeframe {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Minute1 => "1m",
-            Self::Hour1 => "1h",
-            Self::Day1 => "1d",
-            // ...
-        }
-    }
-
-    pub fn to_milliseconds(&self) -> i64 {
-        match self {
-            Self::Minute1 => 60_000,
-            Self::Hour1 => 3_600_000,
-            Self::Day1 => 86_400_000,
-            // ...
-        }
-    }
-}
-```
-
-### 4.3 Builder 패턴
-
-```rust
-// Balances - Builder 패턴
-pub struct Balances {
-    balances: HashMap<String, Balance>,
-    info: Value,
-}
-
-impl Balances {
-    pub fn new() -> Self {
-        Self {
-            balances: HashMap::new(),
-            info: Value::Null,
-        }
-    }
-
-    pub fn add(mut self, currency: &str, balance: Balance) -> Self {
-        self.balances.insert(currency.to_string(), balance);
-        self
-    }
-
-    pub fn with_info(mut self, info: Value) -> Self {
-        self.info = info;
-        self
-    }
-
-    pub fn get(&self, currency: &str) -> Option<&Balance> {
-        self.balances.get(currency)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Balance)> {
-        self.balances.iter()
-    }
 }
 ```
 
@@ -414,11 +455,8 @@ pub enum CcxtError {
     #[error("Authentication error: {message}")]
     AuthenticationError { message: String },
 
-    #[error("Permission denied: {message}")]
-    PermissionDenied { message: String },
-
-    #[error("Not supported: {message}")]
-    NotSupported { message: String },
+    #[error("Not supported: {feature}")]
+    NotSupported { feature: String },
 
     // === Order 에러 ===
     #[error("Invalid order: {message}")]
@@ -437,10 +475,7 @@ pub enum CcxtError {
     #[error("Rate limit exceeded: {message}")]
     RateLimitExceeded { message: String },
 
-    #[error("Request timeout: {message}")]
-    RequestTimeout { message: String },
-
-    // ... 더 많은 에러 타입
+    // ...
 }
 ```
 
@@ -448,55 +483,9 @@ pub enum CcxtError {
 
 ```rust
 impl CcxtError {
-    /// 에러 코드 반환
-    pub fn code(&self) -> &'static str {
-        match self {
-            Self::ExchangeError { .. } => "EXCHANGE_ERROR",
-            Self::AuthenticationError { .. } => "AUTH_ERROR",
-            Self::RateLimitExceeded { .. } => "RATE_LIMIT",
-            // ...
-        }
-    }
-
-    /// 재시도 가능 여부
-    pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            Self::NetworkError { .. }
-                | Self::RateLimitExceeded { .. }
-                | Self::RequestTimeout { .. }
-                | Self::ExchangeNotAvailable { .. }
-        )
-    }
-
-    /// 인증 에러 여부
-    pub fn is_auth_error(&self) -> bool {
-        matches!(
-            self,
-            Self::AuthenticationError { .. }
-                | Self::PermissionDenied { .. }
-                | Self::InvalidNonce { .. }
-        )
-    }
-}
-```
-
-### 5.3 거래소별 에러 매핑
-
-```rust
-// 거래소별 에러 코드 → CcxtError 변환
-impl Binance {
-    fn map_error(&self, code: i64, message: &str) -> CcxtError {
-        match code {
-            -1000 => CcxtError::ExchangeError { message: message.into() },
-            -1002 => CcxtError::AuthenticationError { message: message.into() },
-            -1015 => CcxtError::RateLimitExceeded { message: message.into() },
-            -2010 => CcxtError::InsufficientFunds { message: message.into() },
-            -2011 => CcxtError::OrderNotFound { order_id: "unknown".into() },
-            -2013 => CcxtError::OrderNotFound { order_id: message.into() },
-            _ => CcxtError::ExchangeError { message: format!("[{}] {}", code, message) },
-        }
-    }
+    pub fn code(&self) -> &'static str { ... }
+    pub fn is_retryable(&self) -> bool { ... }
+    pub fn is_auth_error(&self) -> bool { ... }
 }
 ```
 
@@ -513,70 +502,27 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
-    pub fn new(base_url: &str, timeout_ms: Option<u64>) -> Self {
-        let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000));
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .build()
-            .expect("Failed to create HTTP client");
+    pub fn new(base_url: &str, timeout_ms: Option<u64>) -> Self;
 
-        Self {
-            client,
-            base_url: base_url.to_string(),
-        }
-    }
-
-    /// GET 요청
-    pub async fn get<T: DeserializeOwned>(
-        &self,
-        path: &str,
-        params: Option<&[(&str, &str)]>,
-        headers: Option<HeaderMap>,
-    ) -> CcxtResult<T> {
-        // ...
-    }
-
-    /// POST 요청
-    pub async fn post<T: DeserializeOwned>(
-        &self,
-        path: &str,
-        body: Option<&str>,
-        headers: Option<HeaderMap>,
-    ) -> CcxtResult<T> {
-        // ...
-    }
-
-    /// DELETE 요청
-    pub async fn delete<T: DeserializeOwned>(
-        &self,
-        path: &str,
-        params: Option<&[(&str, &str)]>,
-        headers: Option<HeaderMap>,
-    ) -> CcxtResult<T> {
-        // ...
-    }
+    pub async fn get<T: DeserializeOwned>(&self, path: &str, ...) -> CcxtResult<T>;
+    pub async fn post<T: DeserializeOwned>(&self, path: &str, ...) -> CcxtResult<T>;
+    pub async fn delete<T: DeserializeOwned>(&self, path: &str, ...) -> CcxtResult<T>;
+    pub async fn put<T: DeserializeOwned>(&self, path: &str, ...) -> CcxtResult<T>;
 }
 ```
 
-### 6.2 요청 흐름
+### 6.2 Rate Limiter
 
-```
-1. 파라미터 직렬화
-   ├─ Query string 생성 (GET, DELETE)
-   └─ Body 생성 (POST)
+```rust
+pub struct RateLimiter {
+    requests_per_second: f64,
+    last_request: Instant,
+}
 
-2. 헤더 설정
-   ├─ Content-Type: application/json
-   ├─ 인증 헤더 (API Key, Signature, ...)
-   └─ 커스텀 헤더
-
-3. 요청 전송
-   └─ reqwest::Client::send()
-
-4. 응답 처리
-   ├─ Status code 확인
-   ├─ 에러 응답 파싱
-   └─ 정상 응답 역직렬화
+impl RateLimiter {
+    pub fn new(requests_per_second: f64) -> Self;
+    pub async fn wait(&mut self);
+}
 ```
 
 ---
@@ -590,65 +536,21 @@ impl HttpClient {
 | HMAC-SHA256 | Binance, OKX, Gate.io | 표준 서명 |
 | HMAC-SHA256 + Passphrase | Kucoin, Bitget | 추가 암호 |
 | HMAC-SHA512 | Bithumb, Coinone | SHA512 해시 |
-| JWT | Upbit | JSON Web Token |
-| Ed25519 | 일부 거래소 | EdDSA 서명 |
+| JWT | Upbit, Coinbase | JSON Web Token |
+| Ed25519 | Coinbase International | EdDSA 서명 |
+| RSA | 일부 거래소 | RSA 서명 |
+| EIP-712 | Hyperliquid, Paradex | Ethereum 서명 |
+| Cosmos SDK | dYdX v4 | Cosmos 트랜잭션 |
 
 ### 7.2 HMAC-SHA256 구현 예시 (Binance)
 
 ```rust
 impl Binance {
     fn sign(&self, params: &str) -> CcxtResult<String> {
-        let api_secret = self.config.api_secret.as_ref()
-            .ok_or(CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?;
-
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .map_err(|_| CcxtError::AuthenticationError {
-                message: "Invalid API secret".into(),
-            })?;
-
+        let api_secret = self.config.api_secret.as_ref()?;
+        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())?;
         mac.update(params.as_bytes());
         Ok(hex::encode(mac.finalize().into_bytes()))
-    }
-}
-```
-
-### 7.3 JWT 구현 예시 (Upbit)
-
-```rust
-impl Upbit {
-    fn create_jwt(&self, params: Option<&HashMap<String, String>>) -> CcxtResult<String> {
-        let access_key = self.config.api_key.as_ref()
-            .ok_or(CcxtError::AuthenticationError {
-                message: "API key required".into(),
-            })?;
-        let secret_key = self.config.api_secret.as_ref()
-            .ok_or(CcxtError::AuthenticationError {
-                message: "API secret required".into(),
-            })?;
-
-        let mut claims = json!({
-            "access_key": access_key,
-            "nonce": uuid::Uuid::new_v4().to_string(),
-        });
-
-        // 쿼리 해시 추가 (파라미터 있는 경우)
-        if let Some(p) = params {
-            let query_string = self.build_query_string(p);
-            let query_hash = sha512_hash(&query_string);
-            claims["query_hash"] = json!(query_hash);
-            claims["query_hash_alg"] = json!("SHA512");
-        }
-
-        let header = jsonwebtoken::Header::new(Algorithm::HS256);
-        let token = jsonwebtoken::encode(
-            &header,
-            &claims,
-            &EncodingKey::from_secret(secret_key.as_bytes()),
-        )?;
-
-        Ok(format!("Bearer {}", token))
     }
 }
 ```
@@ -657,80 +559,28 @@ impl Upbit {
 
 ## 8. WebSocket 아키텍처
 
-### 8.1 연결 관리
-
-```rust
-pub struct WsConnection {
-    stream: WebSocketStream<TcpStream>,
-    subscriptions: HashSet<String>,
-    ping_interval: Duration,
-    last_pong: Instant,
-}
-
-impl WsConnection {
-    /// 연결 유지 (ping/pong)
-    pub async fn keepalive(&mut self) -> CcxtResult<()> {
-        if self.last_pong.elapsed() > self.ping_interval * 2 {
-            return Err(CcxtError::NetworkError {
-                message: "WebSocket connection timeout".into(),
-            });
-        }
-
-        self.stream.send(Message::Ping(vec![])).await?;
-        Ok(())
-    }
-
-    /// 구독 관리
-    pub async fn subscribe(&mut self, channel: &str) -> CcxtResult<()> {
-        if self.subscriptions.contains(channel) {
-            return Ok(());
-        }
-
-        // 구독 메시지 전송
-        let msg = self.build_subscribe_message(channel);
-        self.stream.send(Message::Text(msg)).await?;
-        self.subscriptions.insert(channel.to_string());
-
-        Ok(())
-    }
-}
-```
-
-### 8.2 메시지 처리
+### 8.1 WsMessage 타입
 
 ```rust
 pub enum WsMessage {
-    Ticker(Ticker),
-    OrderBook(OrderBook),
-    Trade(Trade),
-    OHLCV(OHLCV),
-    Balance(Balances),
-    Order(Order),
-    Position(Position),
+    Ticker(WsTickerEvent),
+    OrderBook(WsOrderBookEvent),
+    Trade(WsTradeEvent),
+    Ohlcv(WsOhlcvEvent),
+    Order(WsOrderEvent),
+    Balance(WsBalanceEvent),
+    Position(WsPositionEvent),
+    MyTrade(WsMyTradeEvent),
+    Liquidation(WsLiquidationEvent),
+    Connected,
+    Disconnected,
     Error(String),
-}
-
-impl BinanceWs {
-    fn parse_message(&self, text: &str) -> CcxtResult<WsMessage> {
-        let data: Value = serde_json::from_str(text)?;
-
-        // 이벤트 타입에 따라 파싱
-        match data.get("e").and_then(|v| v.as_str()) {
-            Some("24hrTicker") => self.parse_ticker_message(&data),
-            Some("depthUpdate") => self.parse_orderbook_message(&data),
-            Some("trade") => self.parse_trade_message(&data),
-            Some("kline") => self.parse_ohlcv_message(&data),
-            Some("outboundAccountPosition") => self.parse_balance_message(&data),
-            Some("executionReport") => self.parse_order_message(&data),
-            _ => Err(CcxtError::BadResponse {
-                message: "Unknown message type".into(),
-            }),
-        }
-    }
+    Ping,
+    Pong,
 }
 ```
 
-### 8.3 재연결 전략
+### 8.2 재연결 전략
 
 ```rust
 pub struct ReconnectConfig {
@@ -750,39 +600,67 @@ impl Default for ReconnectConfig {
         }
     }
 }
+```
 
-impl WsConnection {
-    async fn reconnect_with_backoff(&mut self, config: &ReconnectConfig) -> CcxtResult<()> {
-        let mut delay = config.initial_delay;
-        let mut retries = 0;
+---
 
-        while retries < config.max_retries {
-            match self.connect().await {
-                Ok(_) => {
-                    // 기존 구독 복원
-                    for channel in self.subscriptions.clone() {
-                        self.subscribe(&channel).await?;
-                    }
-                    return Ok(());
-                }
-                Err(_) => {
-                    tokio::time::sleep(delay).await;
-                    delay = (delay.mul_f64(config.backoff_factor)).min(config.max_delay);
-                    retries += 1;
-                }
-            }
-        }
+## 9. 암호화 모듈
 
-        Err(CcxtError::NetworkError {
-            message: "Max reconnection attempts exceeded".into(),
-        })
-    }
-}
+### 9.1 crypto/common - 공통 암호화
+
+```rust
+// JWT 생성 (Upbit, Coinbase)
+pub fn create_jwt(claims: &Value, secret: &str) -> CcxtResult<String>;
+
+// RSA 서명
+pub fn rsa_sign(message: &[u8], private_key: &str) -> CcxtResult<Vec<u8>>;
+
+// TOTP 생성 (2FA)
+pub fn generate_totp(secret: &str) -> CcxtResult<String>;
+```
+
+### 9.2 crypto/evm - EVM 체인 지원
+
+Hyperliquid, Paradex 등 EVM 기반 DEX 지원:
+
+```rust
+// EIP-712 서명
+pub fn sign_typed_data(typed_data: &TypedData, private_key: &str) -> CcxtResult<Signature>;
+
+// Keccak256 해시
+pub fn keccak256(data: &[u8]) -> [u8; 32];
+
+// secp256k1 서명
+pub fn sign_message(message: &[u8], private_key: &str) -> CcxtResult<Signature>;
+```
+
+### 9.3 crypto/cosmos - Cosmos SDK 지원
+
+dYdX v4 등 Cosmos 기반 DEX 지원:
+
+```rust
+// Cosmos 트랜잭션 서명
+pub fn sign_transaction(tx: &Transaction, wallet: &CosmosWallet) -> CcxtResult<SignedTx>;
+
+// 주소 생성
+pub fn derive_address(public_key: &PublicKey, prefix: &str) -> String;
+```
+
+### 9.4 crypto/starknet - Starknet 지원
+
+Paradex 등 Starknet 기반 DEX 지원:
+
+```rust
+// Starknet 서명
+pub fn sign_stark(message: &[u8], private_key: &StarkKey) -> CcxtResult<Signature>;
+
+// Poseidon 해시
+pub fn poseidon_hash(inputs: &[FieldElement]) -> FieldElement;
 ```
 
 ---
 
 ## 관련 문서
 
-- [COMPARISON_ANALYSIS.md](./COMPARISON_ANALYSIS.md) - CCXT Reference와의 비교 분석
-- [IMPROVEMENT_ROADMAP.md](./IMPROVEMENT_ROADMAP.md) - 개선 로드맵
+- [WEBSOCKET_GUIDE.md](./WEBSOCKET_GUIDE.md) - WebSocket 사용 가이드
+- [MIGRATION_FROM_CCXT_JS.md](./MIGRATION_FROM_CCXT_JS.md) - CCXT JS에서 마이그레이션 가이드

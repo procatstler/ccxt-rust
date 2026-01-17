@@ -220,6 +220,8 @@ impl Exchange for Dydx {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 settle: Some(quote.clone()),
                 settle_id: Some(quote.clone()),
                 precision: MarketPrecision {

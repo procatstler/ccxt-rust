@@ -141,12 +141,16 @@
 //! ccxt-rust = { version = "0.1", features = ["full"] }
 //! ```
 
+// Macros must be defined first so they are available to other modules
+#[macro_use]
+pub mod macros;
+
 pub mod client;
 #[cfg(feature = "dex")]
 pub mod crypto;
 pub mod errors;
-pub mod exchanges;
 pub mod types;
+pub mod exchanges;
 pub mod utils;
 
 // Re-exports for convenience

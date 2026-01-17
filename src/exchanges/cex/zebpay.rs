@@ -597,6 +597,8 @@ impl Exchange for Zebpay {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 maker: Some(Decimal::new(1, 3)), // 0.1%
                 taker: Some(Decimal::new(1, 3)), // 0.1%
                 sub_type: None,

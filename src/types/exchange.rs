@@ -58,8 +58,9 @@ use super::{
 use crate::errors::CcxtResult;
 
 /// Exchange ID - identifies the exchange
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, strum::IntoStaticStr, strum::Display)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum ExchangeId {
     // Korean exchanges
     Upbit,
@@ -68,20 +69,28 @@ pub enum ExchangeId {
     Korbit,
     // Major global exchanges
     Binance,
+    #[strum(serialize = "binancecoinm")]
     BinanceCoinM,
+    #[strum(serialize = "binanceusdm")]
     BinanceFutures,
+    #[strum(serialize = "binanceus")]
     BinanceUs,
     Coinbase,
+    #[strum(serialize = "coinbaseadvanced")]
     CoinbaseAdvanced,
+    #[strum(serialize = "coinbaseexchange")]
     CoinbaseExchange,
+    #[strum(serialize = "coinbaseinternational")]
     CoinbaseInternational,
     Kraken,
+    #[strum(serialize = "krakenfutures")]
     KrakenFutures,
     Okx,
     Bybit,
     Gate,
     Htx,
     Kucoin,
+    #[strum(serialize = "kucoinfutures")]
     KucoinFutures,
     Bitget,
     Mexc,
@@ -94,6 +103,7 @@ pub enum ExchangeId {
     Hyperliquid,
     Bitmex,
     Deribit,
+    #[strum(serialize = "cryptocom")]
     CryptoCom,
     Gemini,
     // Phase 17 additions - DEX and European
@@ -128,6 +138,7 @@ pub enum ExchangeId {
     Poloniex,
     Hitbtc,
     Ascendex,
+    #[strum(serialize = "blockchaincom")]
     BlockchainCom,
     Cex,
     Exmo,
@@ -166,11 +177,14 @@ pub enum ExchangeId {
     Btcturk,
     // Alias exchanges
     Bequant,     // Hitbtc alias
+    #[strum(serialize = "myokx")]
     MyOkx,       // OKX alias (EEA region)
+    #[strum(serialize = "okxus")]
     OkxUs,       // OKX alias (US region)
     Fmfwio,      // Hitbtc alias
     Gateio,      // Gate alias
     Huobi,       // HTX alias
+    #[strum(serialize = "binanceusdm")]
     BinanceUsdm, // Binance USDⓈ-M Futures alias
     // Additional exchanges
     Toobit,
@@ -202,194 +216,83 @@ pub enum ExchangeId {
     // DEX derivatives
     Derive,
     // Crypto derivatives exchange
+    #[strum(serialize = "coincatch")]
     CoinCatch,
 }
 
 impl ExchangeId {
+    /// Returns the exchange ID as a string slice.
+    ///
+    /// This is a convenience method that delegates to the strum-generated `Into<&'static str>`.
+    #[inline]
     pub fn as_str(&self) -> &'static str {
-        match self {
-            // Korean
-            ExchangeId::Upbit => "upbit",
-            ExchangeId::Bithumb => "bithumb",
-            ExchangeId::Coinone => "coinone",
-            ExchangeId::Korbit => "korbit",
-            // Global
-            ExchangeId::Binance => "binance",
-            ExchangeId::BinanceCoinM => "binancecoinm",
-            ExchangeId::BinanceFutures => "binanceusdm",
-            ExchangeId::BinanceUs => "binanceus",
-            ExchangeId::Coinbase => "coinbase",
-            ExchangeId::CoinbaseAdvanced => "coinbaseadvanced",
-            ExchangeId::CoinbaseExchange => "coinbaseexchange",
-            ExchangeId::CoinbaseInternational => "coinbaseinternational",
-            ExchangeId::Kraken => "kraken",
-            ExchangeId::KrakenFutures => "krakenfutures",
-            ExchangeId::Okx => "okx",
-            ExchangeId::Bybit => "bybit",
-            ExchangeId::Gate => "gate",
-            ExchangeId::Htx => "htx",
-            ExchangeId::Kucoin => "kucoin",
-            ExchangeId::KucoinFutures => "kucoinfutures",
-            ExchangeId::Bitget => "bitget",
-            ExchangeId::Mexc => "mexc",
-            ExchangeId::Bitmart => "bitmart",
-            ExchangeId::Phemex => "phemex",
-            ExchangeId::Bingx => "bingx",
-            ExchangeId::Coinex => "coinex",
-            ExchangeId::Timex => "timex",
-            // Phase 16 additions
-            ExchangeId::Hyperliquid => "hyperliquid",
-            ExchangeId::Bitmex => "bitmex",
-            ExchangeId::Deribit => "deribit",
-            ExchangeId::CryptoCom => "cryptocom",
-            ExchangeId::Gemini => "gemini",
-            // Phase 17 additions
-            ExchangeId::Dydx => "dydx",
-            ExchangeId::Bitstamp => "bitstamp",
-            ExchangeId::Bitfinex => "bitfinex",
-            ExchangeId::Whitebit => "whitebit",
-            ExchangeId::Lbank => "lbank",
-            ExchangeId::Probit => "probit",
-            ExchangeId::P2b => "p2b",
-            ExchangeId::Wavesexchange => "wavesexchange",
-            ExchangeId::Bitflyer => "bitflyer",
-            ExchangeId::Coincheck => "coincheck",
-            ExchangeId::Bitbank => "bitbank",
-            ExchangeId::Btcbox => "btcbox",
-            ExchangeId::Zaif => "zaif",
-            ExchangeId::Btcmarkets => "btcmarkets",
-            ExchangeId::Indodax => "indodax",
-            ExchangeId::Tokocrypto => "tokocrypto",
-            ExchangeId::Delta => "delta",
-            ExchangeId::Latoken => "latoken",
-            ExchangeId::Independentreserve => "independentreserve",
-            ExchangeId::Foxbit => "foxbit",
-            ExchangeId::Mercado => "mercado",
-            ExchangeId::Bitso => "bitso",
-            ExchangeId::Bitvavo => "bitvavo",
-            ExchangeId::Poloniex => "poloniex",
-            ExchangeId::Hitbtc => "hitbtc",
-            ExchangeId::Ascendex => "ascendex",
-            ExchangeId::BlockchainCom => "blockchaincom",
-            ExchangeId::Cex => "cex",
-            ExchangeId::Exmo => "exmo",
-            ExchangeId::Xt => "xt",
-            ExchangeId::Alpaca => "alpaca",
-            ExchangeId::Blofin => "blofin",
-            ExchangeId::Woo => "woo",
-            ExchangeId::Cryptomus => "cryptomus",
-            ExchangeId::Hashkey => "hashkey",
-            ExchangeId::Bitrue => "bitrue",
-            ExchangeId::Bigone => "bigone",
-            ExchangeId::Luno => "luno",
-            ExchangeId::Zonda => "zonda",
-            ExchangeId::Bullish => "bullish",
-            ExchangeId::Oceanex => "oceanex",
-            ExchangeId::Btcalpha => "btcalpha",
-            ExchangeId::Coinmate => "coinmate",
-            ExchangeId::Coinmetro => "coinmetro",
-            ExchangeId::Onetrading => "onetrading",
-            ExchangeId::Hollaex => "hollaex",
-            ExchangeId::Paradex => "paradex",
-            ExchangeId::Backpack => "backpack",
-            ExchangeId::Yobit => "yobit",
-            ExchangeId::Digifinex => "digifinex",
-            ExchangeId::Ndax => "ndax",
-            ExchangeId::Btcturk => "btcturk",
-            // Alias exchanges
-            ExchangeId::Bequant => "bequant",
-            ExchangeId::MyOkx => "myokx",
-            ExchangeId::OkxUs => "okxus",
-            ExchangeId::Fmfwio => "fmfwio",
-            ExchangeId::Gateio => "gateio",
-            ExchangeId::Huobi => "huobi",
-            ExchangeId::BinanceUsdm => "binanceusdm",
-            ExchangeId::Toobit => "toobit",
-            ExchangeId::Coinspot => "coinspot",
-            ExchangeId::Paymium => "paymium",
-            ExchangeId::Bit2c => "bit2c",
-            ExchangeId::Bitbns => "bitbns",
-            ExchangeId::Zebpay => "zebpay",
-            ExchangeId::Bitopro => "bitopro",
-            ExchangeId::Coinsph => "coinsph",
-            ExchangeId::Novadax => "novadax",
-            ExchangeId::Deepcoin => "deepcoin",
-            ExchangeId::Bittrade => "bittrade",
-            ExchangeId::Apex => "apex",
-            ExchangeId::Oxfun => "oxfun",
-            ExchangeId::Defx => "defx",
-            ExchangeId::Derive => "derive",
-            ExchangeId::CoinCatch => "coincatch",
-        }
-    }
-}
-
-impl std::fmt::Display for ExchangeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
+        (*self).into()
     }
 }
 
 /// 타임프레임
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, strum::IntoStaticStr, strum::Display)]
 pub enum Timeframe {
     #[serde(rename = "1s")]
+    #[strum(serialize = "1s")]
     Second1,
     #[serde(rename = "1m")]
+    #[strum(serialize = "1m")]
     Minute1,
     #[serde(rename = "3m")]
+    #[strum(serialize = "3m")]
     Minute3,
     #[serde(rename = "5m")]
+    #[strum(serialize = "5m")]
     Minute5,
     #[serde(rename = "15m")]
+    #[strum(serialize = "15m")]
     Minute15,
     #[serde(rename = "30m")]
+    #[strum(serialize = "30m")]
     Minute30,
     #[serde(rename = "1h")]
+    #[strum(serialize = "1h")]
     Hour1,
     #[serde(rename = "2h")]
+    #[strum(serialize = "2h")]
     Hour2,
     #[serde(rename = "3h")]
+    #[strum(serialize = "3h")]
     Hour3,
     #[serde(rename = "4h")]
+    #[strum(serialize = "4h")]
     Hour4,
     #[serde(rename = "6h")]
+    #[strum(serialize = "6h")]
     Hour6,
     #[serde(rename = "8h")]
+    #[strum(serialize = "8h")]
     Hour8,
     #[serde(rename = "12h")]
+    #[strum(serialize = "12h")]
     Hour12,
     #[serde(rename = "1d")]
+    #[strum(serialize = "1d")]
     Day1,
     #[serde(rename = "3d")]
+    #[strum(serialize = "3d")]
     Day3,
     #[serde(rename = "1w")]
+    #[strum(serialize = "1w")]
     Week1,
     #[serde(rename = "1M")]
+    #[strum(serialize = "1M")]
     Month1,
 }
 
 impl Timeframe {
+    /// Returns the timeframe as a string slice.
+    ///
+    /// This is a convenience method that delegates to the strum-generated `Into<&'static str>`.
+    #[inline]
     pub fn as_str(&self) -> &'static str {
-        match self {
-            Timeframe::Second1 => "1s",
-            Timeframe::Minute1 => "1m",
-            Timeframe::Minute3 => "3m",
-            Timeframe::Minute5 => "5m",
-            Timeframe::Minute15 => "15m",
-            Timeframe::Minute30 => "30m",
-            Timeframe::Hour1 => "1h",
-            Timeframe::Hour2 => "2h",
-            Timeframe::Hour3 => "3h",
-            Timeframe::Hour4 => "4h",
-            Timeframe::Hour6 => "6h",
-            Timeframe::Hour8 => "8h",
-            Timeframe::Hour12 => "12h",
-            Timeframe::Day1 => "1d",
-            Timeframe::Day3 => "3d",
-            Timeframe::Week1 => "1w",
-            Timeframe::Month1 => "1M",
-        }
+        (*self).into()
     }
 
     /// 밀리초 단위 기간

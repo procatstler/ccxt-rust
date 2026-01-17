@@ -236,6 +236,8 @@ impl Woo {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             taker: Some(Decimal::from_str("0.0005").unwrap_or_default()),
             maker: Some(Decimal::from_str("0.0002").unwrap_or_default()),
             precision: MarketPrecision {

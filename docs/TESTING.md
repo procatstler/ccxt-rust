@@ -4,7 +4,7 @@ This document describes the testing strategy and how to run various types of tes
 
 ## Test Categories
 
-### 1. Unit Tests (~1,700 tests)
+### 1. Unit Tests (~1,335 tests)
 
 Unit tests verify individual components without making external calls.
 
@@ -187,11 +187,13 @@ async fn test_live_api_call() {
 
 | Category | Count | Status |
 |----------|-------|--------|
-| Total Tests | 1,747+ | Passing |
-| Unit Tests | ~1,700 | Passing |
-| Integration Tests | ~47 | Passing |
+| Total Tests | ~1,461 | Passing |
+| Unit Tests | ~1,335 | Passing |
+| Integration Tests | ~126 | Passing |
 | Live API Tests | 28 | Ignored (manual) |
-| Doc Tests | 2 | Passing |
+| Doc Tests | 11 | Ignored |
+
+> **Last verified**: 2026년 1월
 
 ## Troubleshooting
 

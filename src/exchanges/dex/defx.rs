@@ -718,6 +718,8 @@ impl Exchange for Defx {
                 expiry_datetime: None,
                 strike: None,
                 option_type: None,
+            underlying: None,
+            underlying_id: None,
                 taker: Some(Decimal::new(5, 4)), // 0.05%
                 maker: Some(Decimal::new(2, 4)), // 0.02%
                 percentage: true,

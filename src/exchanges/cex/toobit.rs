@@ -280,6 +280,8 @@ impl Toobit {
             expiry_datetime: None,
             strike: None,
             option_type: None,
+            underlying: None,
+            underlying_id: None,
             precision: MarketPrecision {
                 amount: Some(amount_precision),
                 price: Some(price_precision),
