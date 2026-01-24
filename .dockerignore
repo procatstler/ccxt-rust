@@ -1,0 +1,37 @@
+# Build artifacts
+target/
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Development
+.serena/
+tests/
+
+# Configuration
+.editorconfig
+rustfmt.toml
+cliff.toml
+codecov.yml
+
+# Misc
+*.log
+.env
+.env.*

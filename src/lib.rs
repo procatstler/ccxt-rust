@@ -149,6 +149,8 @@ pub mod client;
 #[cfg(feature = "dex")]
 pub mod crypto;
 pub mod errors;
+#[cfg(feature = "grpc")]
+pub mod grpc;
 pub mod types;
 pub mod exchanges;
 pub mod utils;

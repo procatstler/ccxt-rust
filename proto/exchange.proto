@@ -1,0 +1,258 @@
+syntax = "proto3";
+
+package ccxt.exchange.v1;
+
+option go_package = "github.com/tracevault/tracevault-collector/proto/exchange;exchange";
+
+// =============================================================================
+// Exchange Service
+// =============================================================================
+
+service ExchangeService {
+  // Connection test - verifies API credentials are valid
+  rpc TestConnection(TestConnectionRequest) returns (TestConnectionResponse);
+
+  // Fetch account balances
+  rpc FetchBalance(FetchBalanceRequest) returns (FetchBalanceResponse);
+
+  // Fetch trade history (my trades/fills)
+  rpc FetchMyTrades(FetchMyTradesRequest) returns (FetchMyTradesResponse);
+
+  // Fetch deposit history
+  rpc FetchDeposits(FetchTransactionsRequest) returns (FetchTransactionsResponse);
+
+  // Fetch withdrawal history
+  rpc FetchWithdrawals(FetchTransactionsRequest) returns (FetchTransactionsResponse);
+
+  // Fetch deposit address for a currency
+  rpc FetchDepositAddress(FetchDepositAddressRequest) returns (FetchDepositAddressResponse);
+
+  // Get supported exchanges
+  rpc GetSupportedExchanges(GetSupportedExchangesRequest) returns (GetSupportedExchangesResponse);
+}
+
+// =============================================================================
+// Common Types
+// =============================================================================
+
+// Exchange type enumeration
+enum ExchangeType {
+  EXCHANGE_TYPE_UNSPECIFIED = 0;
+  EXCHANGE_TYPE_UPBIT = 1;
+  EXCHANGE_TYPE_BITHUMB = 2;
+  EXCHANGE_TYPE_BINANCE = 3;
+  EXCHANGE_TYPE_BINANCE_US = 4;
+  EXCHANGE_TYPE_COINBASE = 5;
+  EXCHANGE_TYPE_KRAKEN = 6;
+  EXCHANGE_TYPE_OKX = 7;
+  EXCHANGE_TYPE_BYBIT = 8;
+  EXCHANGE_TYPE_KUCOIN = 9;
+  EXCHANGE_TYPE_GATE = 10;
+  EXCHANGE_TYPE_BITGET = 11;
+  EXCHANGE_TYPE_MEXC = 12;
+  EXCHANGE_TYPE_HTX = 13;
+}
+
+// API credentials for exchange
+message Credentials {
+  ExchangeType exchange = 1;
+  string api_key = 2;
+  string api_secret = 3;
+  // Optional: some exchanges require passphrase (e.g., Coinbase, OKX)
+  optional string passphrase = 4;
+  // Optional: sandbox/testnet mode
+  bool sandbox = 5;
+}
+
+// Fee information
+message Fee {
+  string currency = 1;
+  string cost = 2;  // Decimal as string
+  optional string rate = 3;  // Decimal as string
+}
+
+// =============================================================================
+// Test Connection
+// =============================================================================
+
+message TestConnectionRequest {
+  Credentials credentials = 1;
+}
+
+message TestConnectionResponse {
+  bool success = 1;
+  optional string error_message = 2;
+  // Exchange server time (for clock sync verification)
+  optional int64 server_time = 3;
+}
+
+// =============================================================================
+// Balance
+// =============================================================================
+
+message FetchBalanceRequest {
+  Credentials credentials = 1;
+}
+
+message Balance {
+  string currency = 1;
+  string free = 2;      // Available balance (Decimal as string)
+  string used = 3;      // In-order balance (Decimal as string)
+  string total = 4;     // Total balance (Decimal as string)
+  optional string debt = 5;  // Margin debt (Decimal as string)
+}
+
+message FetchBalanceResponse {
+  repeated Balance balances = 1;
+  optional int64 timestamp = 2;
+  optional string error_message = 3;
+}
+
+// =============================================================================
+// Trades
+// =============================================================================
+
+message FetchMyTradesRequest {
+  Credentials credentials = 1;
+  // Optional: filter by symbol (e.g., "BTC/KRW")
+  optional string symbol = 2;
+  // Optional: fetch trades since timestamp (milliseconds)
+  optional int64 since = 3;
+  // Optional: limit number of trades
+  optional uint32 limit = 4;
+}
+
+// Trade side
+enum TradeSide {
+  TRADE_SIDE_UNSPECIFIED = 0;
+  TRADE_SIDE_BUY = 1;
+  TRADE_SIDE_SELL = 2;
+}
+
+// Taker or maker
+enum TakerOrMaker {
+  TAKER_OR_MAKER_UNSPECIFIED = 0;
+  TAKER_OR_MAKER_TAKER = 1;
+  TAKER_OR_MAKER_MAKER = 2;
+}
+
+message Trade {
+  string id = 1;
+  optional string order_id = 2;
+  string symbol = 3;
+  optional int64 timestamp = 4;
+  optional string datetime = 5;
+  TradeSide side = 6;
+  TakerOrMaker taker_or_maker = 7;
+  string price = 8;     // Decimal as string
+  string amount = 9;    // Decimal as string
+  string cost = 10;     // Decimal as string (price * amount)
+  optional Fee fee = 11;
+  repeated Fee fees = 12;
+  // Original exchange response as JSON
+  optional string raw_info = 13;
+}
+
+message FetchMyTradesResponse {
+  repeated Trade trades = 1;
+  optional string error_message = 2;
+}
+
+// =============================================================================
+// Transactions (Deposits/Withdrawals)
+// =============================================================================
+
+message FetchTransactionsRequest {
+  Credentials credentials = 1;
+  // Optional: filter by currency code (e.g., "BTC")
+  optional string currency = 2;
+  // Optional: fetch transactions since timestamp (milliseconds)
+  optional int64 since = 3;
+  // Optional: limit number of transactions
+  optional uint32 limit = 4;
+}
+
+// Transaction type
+enum TransactionType {
+  TRANSACTION_TYPE_UNSPECIFIED = 0;
+  TRANSACTION_TYPE_DEPOSIT = 1;
+  TRANSACTION_TYPE_WITHDRAWAL = 2;
+}
+
+// Transaction status
+enum TransactionStatus {
+  TRANSACTION_STATUS_UNSPECIFIED = 0;
+  TRANSACTION_STATUS_PENDING = 1;
+  TRANSACTION_STATUS_OK = 2;
+  TRANSACTION_STATUS_CANCELED = 3;
+  TRANSACTION_STATUS_FAILED = 4;
+}
+
+message Transaction {
+  string id = 1;
+  TransactionType tx_type = 2;
+  string currency = 3;
+  string amount = 4;    // Decimal as string
+  TransactionStatus status = 5;
+  optional int64 timestamp = 6;
+  optional string datetime = 7;
+  optional string network = 8;
+  optional string address = 9;
+  optional string tag = 10;  // memo, destination tag, etc.
+  optional string txid = 11; // blockchain transaction hash
+  optional Fee fee = 12;
+  optional bool internal = 13;  // internal transfer
+  optional uint32 confirmations = 14;
+  // Original exchange response as JSON
+  optional string raw_info = 15;
+}
+
+message FetchTransactionsResponse {
+  repeated Transaction transactions = 1;
+  optional string error_message = 2;
+}
+
+// =============================================================================
+// Deposit Address
+// =============================================================================
+
+message FetchDepositAddressRequest {
+  Credentials credentials = 1;
+  string currency = 2;
+  optional string network = 3;
+}
+
+message DepositAddress {
+  string currency = 1;
+  string address = 2;
+  optional string tag = 3;
+  optional string network = 4;
+  // Original exchange response as JSON
+  optional string raw_info = 5;
+}
+
+message FetchDepositAddressResponse {
+  optional DepositAddress deposit_address = 1;
+  optional string error_message = 2;
+}
+
+// =============================================================================
+// Supported Exchanges
+// =============================================================================
+
+message GetSupportedExchangesRequest {}
+
+message ExchangeInfo {
+  ExchangeType exchange_type = 1;
+  string name = 2;
+  repeated string countries = 3;
+  bool has_fetch_balance = 4;
+  bool has_fetch_my_trades = 5;
+  bool has_fetch_deposits = 6;
+  bool has_fetch_withdrawals = 7;
+  bool has_fetch_deposit_address = 8;
+}
+
+message GetSupportedExchangesResponse {
+  repeated ExchangeInfo exchanges = 1;
+}
