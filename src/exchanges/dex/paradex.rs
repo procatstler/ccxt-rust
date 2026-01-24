@@ -471,6 +471,8 @@ impl Paradex {
             expiry_datetime: None,
             strike: data.strike_price.as_ref().and_then(|s| s.parse().ok()),
             option_type: data.option_type.clone().map(|s| s.to_lowercase()),
+            underlying: if is_option { Some(base.clone()) } else { None },
+            underlying_id: if is_option { Some(data.base_currency.clone()) } else { None },
             precision: MarketPrecision {
                 amount: data.order_size_increment.parse().ok(),
                 price: data.price_tick_size.parse().ok(),
