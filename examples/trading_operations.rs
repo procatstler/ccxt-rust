@@ -11,7 +11,7 @@
 
 use ccxt_rust::client::ExchangeConfig;
 use ccxt_rust::exchanges::cex::Binance;
-use ccxt_rust::types::{Exchange, OrderSide, OrderType};
+use ccxt_rust::types::Exchange;
 use ccxt_rust::CcxtResult;
 use rust_decimal_macros::dec;
 use std::env;

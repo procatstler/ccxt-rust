@@ -2990,6 +2990,7 @@ struct KucoinConvertCurrency {
 /// Convert quote response
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct KucoinConvertQuote {
     #[serde(default)]
     quote_id: String,

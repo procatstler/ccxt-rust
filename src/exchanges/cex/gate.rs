@@ -2267,6 +2267,7 @@ struct GateLiquidation {
 
 /// Time response
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct GateTimeResponse {
     #[serde(default)]
     server_time: i64,
@@ -2348,6 +2349,7 @@ struct GateIsolatedBorrowRate {
 
 /// Convert currency pair from /api/v4/flash_swap/currency_pairs
 #[derive(Debug, Deserialize, Default)]
+#[allow(dead_code)]
 struct GateConvertPair {
     #[serde(default)]
     currency_pair: String,
@@ -2363,6 +2365,7 @@ struct GateConvertPair {
 
 /// Convert quote response from /api/v4/flash_swap/orders/preview
 #[derive(Debug, Deserialize, Default)]
+#[allow(dead_code)]
 struct GateConvertQuote {
     #[serde(default)]
     sell_currency: String,
@@ -2378,6 +2381,7 @@ struct GateConvertQuote {
 
 /// Convert order response from /api/v4/flash_swap/orders
 #[derive(Debug, Deserialize, Default)]
+#[allow(dead_code)]
 struct GateConvertOrder {
     #[serde(default)]
     id: i64,

@@ -1,6 +1,6 @@
 //! Time utilities
 
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Utc};
 
 /// 현재 UTC 타임스탬프 (밀리초)
 pub fn now_ms() -> i64 {
@@ -52,6 +52,7 @@ pub fn time_diff_ms(ts1: i64, ts2: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Datelike;
 
     #[test]
     fn test_now_ms() {
