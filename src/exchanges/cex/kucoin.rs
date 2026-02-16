@@ -2373,12 +2373,13 @@ impl Exchange for Kucoin {
             .await?;
 
         let price: Decimal = response.price.parse().unwrap_or_default();
+        let base_amount: Decimal = response.base_amount.parse().unwrap_or(amount);
 
         let mut quote = ConvertQuote::new(
             &response.quote_id,
-            from_code,
-            to_code,
-            amount,
+            &response.base_currency,
+            &response.quote_currency,
+            base_amount,
             price,
         );
         let to_amount: Decimal = response.quote_amount.parse().unwrap_or_default();

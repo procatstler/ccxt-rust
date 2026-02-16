@@ -1681,7 +1681,10 @@ impl Exchange for Gate {
         let response: GateSystemStatus = self
             .public_get("/api/v4/spot/time", None::<HashMap<String, String>>)
             .await
-            .map(|_: GateTimeResponse| GateSystemStatus { status: "ok".into() })
+            .map(|r: GateTimeResponse| {
+                tracing::debug!("Gate.io server_time: {}", r.server_time);
+                GateSystemStatus { status: "ok".into() }
+            })
             .unwrap_or_else(|_| GateSystemStatus { status: "maintenance".into() });
 
         if response.status == "ok" {
@@ -1912,9 +1915,32 @@ impl Exchange for Gate {
 
         let found_pair = pairs.iter().find(|p| p.currency_pair == pair_name || p.currency_pair == reverse_pair_name);
 
-        if found_pair.is_none() {
+        let pair = match found_pair {
+            Some(p) => p,
+            None => {
+                return Err(CcxtError::ExchangeError {
+                    message: format!("Convert pair not found: {} to {}", from_code, to_code),
+                });
+            }
+        };
+
+        // Validate amount against pair limits
+        let min_amount: Decimal = pair.min_amount.parse().unwrap_or_default();
+        let max_amount: Decimal = pair.max_amount.parse().unwrap_or_default();
+        if min_amount > Decimal::ZERO && amount < min_amount {
             return Err(CcxtError::ExchangeError {
-                message: format!("Convert pair not found: {} to {}", from_code, to_code),
+                message: format!(
+                    "Amount {} is below minimum {} for {}/{}",
+                    amount, min_amount, pair.sell_currency, pair.buy_currency
+                ),
+            });
+        }
+        if max_amount > Decimal::ZERO && amount > max_amount {
+            return Err(CcxtError::ExchangeError {
+                message: format!(
+                    "Amount {} exceeds maximum {} for {}/{}",
+                    amount, max_amount, pair.sell_currency, pair.buy_currency
+                ),
             });
         }
 
@@ -1930,16 +1956,23 @@ impl Exchange for Gate {
             .await?;
 
         let price: Decimal = response.price.parse().unwrap_or_default();
+        let sell_amount: Decimal = response.sell_amount.parse().unwrap_or(amount);
 
-        // Generate a quote ID based on timestamp and currencies
+        // Generate a quote ID based on timestamp and currencies from response
         let quote_id = format!(
             "{}_{}_{}",
             chrono::Utc::now().timestamp_millis(),
-            from_code.to_uppercase(),
-            to_code.to_uppercase()
+            response.sell_currency,
+            response.buy_currency
         );
 
-        let mut quote = ConvertQuote::new(&quote_id, from_code, to_code, amount, price);
+        let mut quote = ConvertQuote::new(
+            &quote_id,
+            &response.sell_currency,
+            &response.buy_currency,
+            sell_amount,
+            price,
+        );
         let to_amount: Decimal = response.buy_amount.parse().unwrap_or_default();
         quote.to_amount = Some(to_amount);
 
@@ -1981,8 +2014,8 @@ impl Exchange for Gate {
 
         let mut trade = ConvertTrade::new(
             &response.id.to_string(),
-            from_code,
-            to_code,
+            &response.sell_currency,
+            &response.buy_currency,
             from_amount,
             to_amount,
             price,
